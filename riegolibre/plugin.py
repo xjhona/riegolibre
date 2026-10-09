@@ -6,18 +6,22 @@ from qgis.PyQt.QtGui import QIcon
 from qgis.PyQt.QtWidgets import QAction
 
 MENU = "&RiegoLibre"
+CARPETA = os.path.dirname(__file__)
 
 
 class RiegoLibrePlugin:
     def __init__(self, iface):
         self.iface = iface
         self.acciones = []
-        self.dialogo_lateral = None
+        self.dialogos = {}
 
     def initGui(self):  # noqa: N802 (nombre exigido por QGIS)
-        icono = QIcon(os.path.join(os.path.dirname(__file__), "icon.svg"))
-        accion = QAction(icono, "Calculadora de lateral (goteo)…", self.iface.mainWindow())
-        accion.triggered.connect(self.abrir_calculadora_lateral)
+        self._agregar_accion("icon.svg", "Calculadora de lateral (goteo)…", "lateral")
+        self._agregar_accion("icon_subunidad.svg", "Subunidad de riego (goteo)…", "subunidad")
+
+    def _agregar_accion(self, icono, texto, dialogo):
+        accion = QAction(QIcon(os.path.join(CARPETA, icono)), texto, self.iface.mainWindow())
+        accion.triggered.connect(lambda: self.abrir(dialogo))
         self.iface.addPluginToMenu(MENU, accion)
         self.iface.addToolBarIcon(accion)
         self.acciones.append(accion)
@@ -27,15 +31,19 @@ class RiegoLibrePlugin:
             self.iface.removePluginMenu(MENU, accion)
             self.iface.removeToolBarIcon(accion)
         self.acciones = []
-        if self.dialogo_lateral is not None:
-            self.dialogo_lateral.close()
-            self.dialogo_lateral.deleteLater()
-            self.dialogo_lateral = None
+        for dialogo in self.dialogos.values():
+            dialogo.close()
+            dialogo.deleteLater()
+        self.dialogos = {}
 
-    def abrir_calculadora_lateral(self):
-        if self.dialogo_lateral is None:
-            from .gui.dialogo_lateral import DialogoLateral
-            self.dialogo_lateral = DialogoLateral(self.iface, self.iface.mainWindow())
-        self.dialogo_lateral.show()
-        self.dialogo_lateral.raise_()
-        self.dialogo_lateral.activateWindow()
+    def abrir(self, nombre):
+        dialogo = self.dialogos.get(nombre)
+        if dialogo is None:
+            if nombre == "lateral":
+                from .gui.dialogo_lateral import DialogoLateral as Clase
+            else:
+                from .gui.dialogo_subunidad import DialogoSubunidad as Clase
+            dialogo = self.dialogos[nombre] = Clase(self.iface, self.iface.mainWindow())
+        dialogo.show()
+        dialogo.raise_()
+        dialogo.activateWindow()

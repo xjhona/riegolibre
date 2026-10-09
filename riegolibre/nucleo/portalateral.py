@@ -1,13 +1,12 @@
-"""Cálculo de portalaterales (tubería terciaria) y de la subunidad de riego.
+"""Cálculo de portalaterales (tubería terciaria que alimenta a los laterales).
 
 Cada conexión del portalateral alimenta uno o dos laterales (por ejemplo, a cada
-lado). Para no recalcular cada lateral emisor por emisor dentro de la iteración
-del portalateral, primero se construye la curva caudal-presión de entrada de cada
-lateral distinto; con la solución final se calcula cada lateral en detalle.
+lado). Dentro de la iteración del portalateral cada lateral se representa con su
+curva presión-caudal (ver CurvaLateral); con la solución final, y si se pide el
+cálculo detallado, se calcula cada lateral emisor por emisor.
 """
 
-import math
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 from typing import List, Optional, Sequence, Tuple
 
 from .hidraulica import (LH_A_M3S, PresionInsuficiente, interpolar_perfil,
@@ -18,62 +17,64 @@ from .tuberias import Tuberia
 from .uniformidad import uniformidad_emision_keller, variacion_caudal
 
 
-class CurvaLateral:
-    """Relación caudal total - presión de entrada de un lateral (tabla interpolada)."""
-
-    def __init__(self, lateral, presion_final_max_m=120.0, puntos=80):
-        presiones_finales = [0.0] + [
-            0.05 * (presion_final_max_m / 0.05) ** (i / (puntos - 1)) for i in range(puntos)]
-        tabla = []
-        for h in presiones_finales:
-            r = lateral.simular_desde_final(h)
-            tabla.append((r.presion_entrada_m, r.caudal_total_lh))
-        tabla.sort()
-        self.tabla = []
-        for h, q in tabla:
-            if not self.tabla or (h > self.tabla[-1][0] and q >= self.tabla[-1][1]):
-                self.tabla.append((h, q))
-
-    def caudal(self, presion_entrada_m):
-        tabla = self.tabla
-        h0, q0 = tabla[0]
-        if presion_entrada_m <= h0:
-            if presion_entrada_m <= 0 or h0 <= 0:
-                return 0.0 if presion_entrada_m <= 0 else q0
-            return q0 * (presion_entrada_m / h0) ** 0.5
-        if presion_entrada_m >= tabla[-1][0]:
-            (h1, q1), (h2, q2) = tabla[-2], tabla[-1]
-            if q1 <= 0 or q2 <= q1:
-                return q2
-            exponente = math.log(q2 / q1) / math.log(h2 / h1)
-            return q2 * (presion_entrada_m / h2) ** exponente
-        return interpolar_perfil(tabla, presion_entrada_m)
-
-
 @dataclass
 class ConexionLateral:
     distancia_m: float  # desde la entrada del portalateral
     laterales: List[Lateral]
 
 
-@dataclass
-class ResultadoSubunidad:
-    distancias_m: List[float]
-    cotas_m: List[float]
-    presiones_m: List[float]  # en cada conexión del portalateral
-    caudales_lh: List[float]  # caudal entregado en cada conexión
-    presion_entrada_m: float
-    perdida_friccion_m: float
-    velocidad_entrada_ms: float
-    laterales: Optional[List[List[ResultadoLateral]]] = None  # detalle por conexión
+class EstadisticasEmisores:
+    """Indicadores comunes a portalaterales y subunidades.
+
+    Requiere las listas por conexión: caudales_lh, h_min_m, h_max_m, q_min_lh,
+    q_max_lh, fuera_de_rango; y los atributos numero_emisores, cv y laterales.
+    """
 
     @property
     def caudal_total_lh(self):
         return sum(self.caudales_lh)
 
+    @property
+    def caudal_medio_lh(self):
+        return self.caudal_total_lh / self.numero_emisores
+
+    @property
+    def caudal_min_lh(self):
+        return min(self.q_min_lh)
+
+    @property
+    def caudal_max_lh(self):
+        return max(self.q_max_lh)
+
+    @property
+    def presion_min_emisor_m(self):
+        return min(self.h_min_m)
+
+    @property
+    def presion_max_emisor_m(self):
+        return max(self.h_max_m)
+
+    @property
+    def variacion_caudal(self):
+        return variacion_caudal(self.caudal_max_lh, self.caudal_min_lh)
+
+    @property
+    def variacion_presion_m(self):
+        return self.presion_max_emisor_m - self.presion_min_emisor_m
+
+    @property
+    def uniformidad_emision(self):
+        return uniformidad_emision_keller(self.caudal_min_lh, self.caudal_medio_lh, self.cv)
+
+    @property
+    def hay_emisores_fuera_de_rango(self):
+        return any(self.fuera_de_rango)
+
+    # Solo con cálculo detallado (emisor por emisor):
+
     def _todos(self, atributo):
         if self.laterales is None:
-            raise ValueError("Calcule la subunidad con detallado=True para ver los emisores.")
+            raise ValueError("Calcule con detallado=True para ver cada emisor.")
         valores = []
         for conexion in self.laterales:
             for r in conexion:
@@ -89,27 +90,33 @@ class ResultadoSubunidad:
         return self._todos("presiones_m")
 
     @property
-    def variacion_caudal(self):
-        q = self.caudales_emisores_lh
-        return variacion_caudal(max(q), min(q))
-
-    @property
-    def variacion_presion_m(self):
-        h = self.presiones_emisores_m
-        return max(h) - min(h)
-
-    @property
     def emisores_fuera_de_rango(self):
+        if self.laterales is None:
+            raise ValueError("Calcule con detallado=True para contar los emisores fuera de rango.")
         return sum(r.emisores_fuera_de_rango for conexion in self.laterales for r in conexion)
 
-    @property
-    def uniformidad_emision(self):
-        q = self.caudales_emisores_lh
-        cv = max(r.cv_emisor for conexion in self.laterales for r in conexion)
-        return uniformidad_emision_keller(min(q), sum(q) / len(q), cv)
+    def cumple(self, variacion_caudal_max=0.10):
+        return (self.variacion_caudal <= variacion_caudal_max + 1e-9
+                and not self.hay_emisores_fuera_de_rango)
 
-    def cumple(self, variacion_caudal_max=0.20):
-        return self.variacion_caudal <= variacion_caudal_max + 1e-9 and self.emisores_fuera_de_rango == 0
+
+@dataclass
+class ResultadoPortalateral(EstadisticasEmisores):
+    distancias_m: List[float]
+    cotas_m: List[float]  # relativas a la entrada
+    presiones_m: List[float]  # en el portalateral, en cada conexión
+    caudales_lh: List[float]  # caudal entregado en cada conexión
+    h_min_m: List[float]  # presión mínima de emisor de los laterales de cada conexión
+    h_max_m: List[float]
+    q_min_lh: List[float]
+    q_max_lh: List[float]
+    fuera_de_rango: List[bool]
+    presion_entrada_m: float
+    perdida_friccion_m: float
+    velocidad_entrada_ms: float
+    numero_emisores: int
+    cv: float
+    laterales: Optional[List[List[ResultadoLateral]]] = None  # detalle por conexión
 
 
 @dataclass
@@ -120,7 +127,6 @@ class Portalateral:
     perfil: Optional[Sequence[Tuple[float, float]]] = None
     metodo: str = "darcy"
     longitud_equivalente_conexion_m: float = 0.0
-    _curvas: dict = field(default_factory=dict, init=False, repr=False, compare=False)
 
     def __post_init__(self):
         if not self.conexiones:
@@ -134,18 +140,17 @@ class Portalateral:
             return interpolar_perfil(self.perfil, distancia) - interpolar_perfil(self.perfil, 0.0)
         return self.pendiente * distancia
 
-    def _curva(self, lateral):
-        clave = id(lateral)
-        if clave not in self._curvas:
-            self._curvas[clave] = (lateral, CurvaLateral(lateral))
-        return self._curvas[clave][1]
+    @property
+    def longitud_m(self):
+        return self.conexiones[-1].distancia_m
 
-    def _caudal_conexion(self, conexion, presion):
-        return sum(self._curva(lat).caudal(presion) for lat in conexion.laterales)
+    @property
+    def laterales(self):
+        return [lat for c in self.conexiones for lat in c.laterales]
 
     @property
     def numero_emisores(self):
-        return sum(lat.numero_emisores for c in self.conexiones for lat in c.laterales)
+        return sum(lat.numero_emisores for lat in self.laterales)
 
     def simular_desde_final(self, presion_final_m, detallado=False):
         conexiones = self.conexiones
@@ -154,6 +159,9 @@ class Portalateral:
         z = [self.cota(d) for d in distancias]
         presiones = [0.0] * n
         caudales = [0.0] * n
+        h_min, h_max = [0.0] * n, [0.0] * n
+        q_min, q_max = [0.0] * n, [0.0] * n
+        fuera = [False] * n
         presiones[-1] = presion_final_m
         acumulado = 0.0
         perdida_total = 0.0
@@ -163,8 +171,20 @@ class Portalateral:
                 hf = self.tuberia.perdida(acumulado * LH_A_M3S, tramo, self.metodo)
                 perdida_total += hf
                 presiones[i] = presiones[i + 1] + hf + (z[i + 1] - z[i])
-            caudales[i] = self._caudal_conexion(conexiones[i], presiones[i])
-            acumulado += caudales[i]
+            caudal = 0.0
+            minimos, maximos = [], []
+            for lat in conexiones[i].laterales:
+                q, hmin, hmax = lat.curva().estado(presiones[i])
+                caudal += q
+                minimos.append((hmin, lat.emisor))
+                maximos.append((hmax, lat.emisor))
+            caudales[i] = caudal
+            h_min[i] = min(h for h, _ in minimos)
+            h_max[i] = max(h for h, _ in maximos)
+            q_min[i] = min(e.caudal(h) for h, e in minimos)
+            q_max[i] = max(e.caudal(h) for h, e in maximos)
+            fuera[i] = any(e.fuera_de_rango(h) for h, e in minimos + maximos)
+            acumulado += caudal
         hf = self.tuberia.perdida(acumulado * LH_A_M3S,
                                   distancias[0] + self.longitud_equivalente_conexion_m, self.metodo)
         perdida_total += hf
@@ -172,19 +192,32 @@ class Portalateral:
         detalle = None
         if detallado:
             detalle = []
-            for conexion, h in zip(conexiones, presiones):
-                detalle.append([lat.simular(h) for lat in conexion.laterales])
-            caudales = [sum(r.caudal_total_lh for r in fila) for fila in detalle]
+            for i, (conexion, h) in enumerate(zip(conexiones, presiones)):
+                fila = [lat.simular(h) for lat in conexion.laterales]
+                detalle.append(fila)
+                caudales[i] = sum(r.caudal_total_lh for r in fila)
+                h_min[i] = min(r.presion_min_m for r in fila)
+                h_max[i] = max(r.presion_max_m for r in fila)
+                q_min[i] = min(r.caudal_min_lh for r in fila)
+                q_max[i] = max(r.caudal_max_lh for r in fila)
+                fuera[i] = any(r.emisores_fuera_de_rango for r in fila)
             acumulado = sum(caudales)
 
-        return ResultadoSubunidad(
+        return ResultadoPortalateral(
             distancias_m=distancias,
             cotas_m=z,
             presiones_m=presiones,
             caudales_lh=caudales,
+            h_min_m=h_min,
+            h_max_m=h_max,
+            q_min_lh=q_min,
+            q_max_lh=q_max,
+            fuera_de_rango=fuera,
             presion_entrada_m=presiones[0] + hf + z[0],
             perdida_friccion_m=perdida_total,
             velocidad_entrada_ms=self.tuberia.velocidad(acumulado * LH_A_M3S),
+            numero_emisores=self.numero_emisores,
+            cv=max(lat.emisor.cv for lat in self.laterales),
             laterales=detalle,
         )
 
@@ -194,7 +227,7 @@ class Portalateral:
         return self.simular_desde_final(h_final, detallado=detallado)
 
     def simular(self, presion_entrada_m, detallado=True):
-        """Calcula la subunidad para una presión conocida en la entrada del portalateral."""
+        """Calcula el portalateral para una presión conocida en su entrada."""
         try:
             return self._resolver(lambda r: r.presion_entrada_m, presion_entrada_m, detallado)
         except PresionInsuficiente:
@@ -206,42 +239,50 @@ class Portalateral:
         """Presión en la entrada del portalateral según el criterio de diseño.
 
         - caudal_medio: el caudal medio de todos los emisores es el nominal.
-        - presion_minima: el lateral más desfavorecido recibe justo la presión
-          que necesita para que su emisor más desfavorecido alcance la presión
-          mínima (emisores autocompensados).
+        - presion_minima: el emisor más desfavorecido recibe la presión mínima
+          (emisores autocompensados).
         """
-        emisores = {id(lat.emisor): lat.emisor for c in self.conexiones for lat in c.laterales}
-        if criterio is None:
-            todos_compensados = all(e.autocompensado for e in emisores.values())
-            criterio = CRITERIO_PRESION_MINIMA if todos_compensados else CRITERIO_CAUDAL_MEDIO
-
+        criterio = criterio or criterio_por_defecto(self.laterales)
         if criterio == CRITERIO_CAUDAL_MEDIO:
-            objetivo = sum(lat.emisor.caudal_nominal_lh * lat.numero_emisores
-                           for c in self.conexiones for lat in c.laterales)
+            objetivo = sum(lat.emisor.caudal_nominal_lh * lat.numero_emisores for lat in self.laterales)
             return self._resolver(lambda r: r.caudal_total_lh, objetivo, detallado)
-
         if criterio == CRITERIO_PRESION_MINIMA:
-            requeridas = {}
-            for c in self.conexiones:
-                for lat in c.laterales:
-                    if id(lat) not in requeridas:
-                        requeridas[id(lat)] = lat.presion_entrada_requerida(
-                            CRITERIO_PRESION_MINIMA).presion_entrada_m
-            necesidad = [max(requeridas[id(lat)] for lat in c.laterales) for c in self.conexiones]
-
-            def margen_minimo(r):
-                return min(h - req for h, req in zip(r.presiones_m, necesidad))
-
-            return self._resolver(margen_minimo, 0.0, detallado)
-
+            minima = presion_minima_requerida(self.laterales)
+            r = self._resolver(lambda r: r.presion_min_emisor_m, minima, detallado)
+            return corregir_presion_minima(r, minima, self.simular) if detallado else r
         raise ValueError(f"Criterio desconocido: {criterio!r}")
+
+
+def presion_minima_requerida(laterales):
+    return min(lat.emisor.presion_compensacion_m for lat in laterales)
+
+
+def corregir_presion_minima(resultado, minima, simular, tolerancia=0.002):
+    """Ajusta la presión de entrada con el cálculo detallado.
+
+    La solución con curvas interpoladas puede dejar al emisor más desfavorecido
+    unos milímetros por debajo de la presión mínima; como las presiones de los
+    emisores siguen casi 1:1 a la de entrada, se sube lo que falte.
+    """
+    for _ in range(5):
+        deficit = minima - resultado.presion_min_emisor_m
+        if deficit <= 0:
+            break
+        resultado = simular(resultado.presion_entrada_m + deficit + tolerancia, detallado=True)
+    return resultado
+
+
+def criterio_por_defecto(laterales):
+    if all(lat.emisor.autocompensado for lat in laterales):
+        return CRITERIO_PRESION_MINIMA
+    return CRITERIO_CAUDAL_MEDIO
 
 
 def portalateral_uniforme(tuberia, lateral_izquierdo, lateral_derecho, separacion_laterales_m,
                           numero_conexiones, distancia_primera_conexion_m=None, **kwargs):
     """Portalateral con conexiones equidistantes y los mismos laterales en cada una.
 
-    Cualquiera de los dos laterales puede ser None (portalateral en un extremo).
+    Cualquiera de los dos laterales puede ser None (portalateral en un borde).
     """
     if distancia_primera_conexion_m is None:
         distancia_primera_conexion_m = separacion_laterales_m / 2

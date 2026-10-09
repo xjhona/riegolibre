@@ -13,11 +13,12 @@ riegolibre/                 Complemento de QGIS (esta carpeta es la que se insta
 │   ├── emisores.py         Goteros y cintas: q = k·h^x, autocompensados
 │   ├── tuberias.py         Tuberías y catálogo
 │   ├── lateral.py          Lateral emisor por emisor, presión requerida, longitud máxima
-│   ├── portalateral.py     Portalateral y subunidad completa
+│   ├── portalateral.py     Portalateral (laterales a uno o ambos lados)
+│   ├── subunidad.py        Subunidad (entrada en extremo o centro) y selección de diámetro
 │   ├── uniformidad.py      EU (Keller-Karmeli), variación de caudal, CU
 │   └── datos/              Catálogos editables (JSON)
 ├── integracion/            Conexión con QGIS: perfil del terreno desde un DEM
-└── gui/                    Ventanas (calculadora de lateral)
+└── gui/                    Ventanas: calculadora de lateral y subunidad
 tests/                      Pruebas automáticas
 scripts/                    Utilidades de desarrollo
 ```
@@ -48,7 +49,16 @@ Las pruebas del motor funcionan con cualquier Python 3.9 o superior. Las de inte
 - Emisor no compensado: la presión de entrada se fija para que el caudal medio sea el nominal. La variación de caudal admisible es del 10 % por defecto.
 - Emisor autocompensado: la presión de entrada se fija para que el emisor más desfavorecido reciba la presión mínima de compensación. Se exige además que ningún emisor quede fuera del rango.
 
-**Portalateral.** Para cada lateral distinto se construye su curva caudal–presión de entrada. Con ella se resuelve el portalateral, y con la solución final se calcula cada lateral en detalle.
+**Portalateral.** Para cada lateral distinto se construye una sola vez su curva: caudal y presiones extremas de los emisores en función de la presión de entrada. Con ella se resuelve el portalateral rápidamente, y con la solución final se calcula cada lateral en detalle.
+
+**Subunidad.** La válvula puede estar en un extremo del portalateral o en el centro. En el centro hay dos ramas que reciben la misma presión, y con pendiente una sube y la otra baja. Los laterales de cada lado pueden tener su propia pendiente transversal.
+
+**Selección del diámetro del portalateral.** Se evalúan todas las tuberías del catálogo y se elige la de menor diámetro que cumple estas condiciones:
+- variación de caudal en toda la subunidad,
+- velocidad máxima en el portalateral,
+- presión de entrada máxima, si se indica,
+- presión nominal de la tubería,
+- todos los emisores dentro de su rango de compensación.
 
 **Fricción.**
 - Darcy-Weisbach con factor de Swamee-Jain en régimen turbulento y 64/Re en laminar. Es la opción recomendada para laterales, que trabajan con números de Reynolds bajos al final.
@@ -60,7 +70,8 @@ Las pruebas del motor funcionan con cualquier Python 3.9 o superior. Las de inte
 
 - [x] Motor hidráulico de laterales y portalaterales
 - [x] Calculadora de lateral con perfil del terreno desde un DEM
-- [ ] Ventana de subunidad: portalateral y laterales, selección de diámetros
+- [x] Ventana de subunidad: portalateral y laterales, selección de diámetro
+- [ ] Portalateral telescópico (dos o más diámetros)
 - [ ] Herramientas de mapa: dibujar el bloque y generar los laterales automáticamente
 - [ ] Red principal, carga dinámica total y selección de bomba
 - [ ] Lista de materiales y memoria de cálculo

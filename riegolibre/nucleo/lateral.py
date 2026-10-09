@@ -10,6 +10,7 @@ Convención de cotas: la pendiente es positiva cuando el terreno sube en el
 sentido del flujo (de la entrada hacia el final del lateral).
 """
 
+import math
 from dataclasses import dataclass, field
 from typing import List, Optional, Sequence, Tuple
 
@@ -94,6 +95,7 @@ class Lateral:
     perfil: Optional[Sequence[Tuple[float, float]]] = None  # [(distancia, cota)], reemplaza la pendiente
     metodo: str = "darcy"
     _cotas: Optional[List[float]] = field(default=None, init=False, repr=False, compare=False)
+    _curva: Optional["CurvaLateral"] = field(default=None, init=False, repr=False, compare=False)
 
     def __post_init__(self):
         if self.numero_emisores < 1:
@@ -134,6 +136,12 @@ class Lateral:
         if self._cotas is None:
             self._cotas = [self.cota(x) for x in self.posiciones()]
         return self._cotas
+
+    def curva(self):
+        """Curva presión de entrada → caudal y presiones extremas (se calcula una vez)."""
+        if self._curva is None:
+            self._curva = CurvaLateral(self)
+        return self._curva
 
     # ------------------------------------------------------------------ cálculo
 
@@ -215,6 +223,59 @@ class Lateral:
         if criterio == CRITERIO_PRESION_MINIMA:
             return self._resolver(lambda r: r.presion_min_m, self.emisor.presion_compensacion_m)
         raise ValueError(f"Criterio desconocido: {criterio!r}")
+
+
+class CurvaLateral:
+    """Comportamiento de un lateral en función de su presión de entrada.
+
+    Tabla precalculada (presión de entrada, caudal total, presión mínima y máxima
+    de los emisores) que se interpola. Sirve para resolver portalaterales sin
+    recalcular cada lateral emisor por emisor en cada iteración.
+    """
+
+    def __init__(self, lateral, presion_final_max_m=120.0, puntos=80):
+        self.emisor = lateral.emisor
+        presiones_finales = [0.0] + [
+            0.05 * (presion_final_max_m / 0.05) ** (i / (puntos - 1)) for i in range(puntos)]
+        filas = []
+        for h in presiones_finales:
+            r = lateral.simular_desde_final(h)
+            filas.append((r.presion_entrada_m, r.caudal_total_lh, r.presion_min_m, r.presion_max_m))
+        filas.sort()
+        self.filas = []
+        for fila in filas:
+            if not self.filas or (fila[0] > self.filas[-1][0] and fila[1] >= self.filas[-1][1]):
+                self.filas.append(fila)
+
+    def estado(self, presion_entrada_m):
+        """Devuelve (caudal total L/h, presión mínima, presión máxima) de los emisores."""
+        filas = self.filas
+        h = presion_entrada_m
+        if h <= filas[0][0]:
+            h0, q0, hmin0, hmax0 = filas[0]
+            if h <= 0:
+                return 0.0, min(hmin0, h), min(hmax0, h)
+            factor = (h / h0) ** 0.5 if h0 > 0 else 1.0
+            return q0 * factor, hmin0 - (h0 - h), hmax0 - (h0 - h)
+        if h >= filas[-1][0]:
+            (h1, q1, _, _), (h2, q2, hmin2, hmax2) = filas[-2], filas[-1]
+            q = q2
+            if q1 > 0 and q2 > q1:
+                q = q2 * (h / h2) ** (math.log(q2 / q1) / math.log(h2 / h1))
+            return q, hmin2 + (h - h2), hmax2 + (h - h2)
+        bajo, alto = 0, len(filas) - 1
+        while alto - bajo > 1:
+            medio = (bajo + alto) // 2
+            if filas[medio][0] <= h:
+                bajo = medio
+            else:
+                alto = medio
+        a, b = filas[bajo], filas[alto]
+        t = (h - a[0]) / (b[0] - a[0])
+        return tuple(a[k] + (b[k] - a[k]) * t for k in (1, 2, 3))
+
+    def caudal(self, presion_entrada_m):
+        return self.estado(presion_entrada_m)[0]
 
 
 def longitud_maxima(tuberia, emisor, espaciamiento_m, pendiente=0.0,

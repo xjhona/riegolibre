@@ -103,6 +103,80 @@ class PruebasIntegracionQgis(unittest.TestCase):
         dialogo.calcular_longitud_maxima()
         self.assertIn("Longitud máxima", dialogo.texto.toHtml())
 
+    def test_subunidad_seleccion_automatica(self):
+        from riegolibre.gui.dialogo_subunidad import AUTOMATICA, DialogoSubunidad
+        dialogo = DialogoSubunidad(iface=None)
+        self.assertEqual(dialogo.combo_tuberia_porta.currentData(), AUTOMATICA)
+        dialogo.calcular()
+        html = dialogo.texto.toHtml()
+        self.assertIn("automática", html)
+        self.assertIn("Cumple", html)
+        tabla = dialogo.tabla_diametros
+        self.assertEqual(tabla.rowCount(), len(dialogo.tuberias_portalateral))
+        estados = [tabla.item(f, 6).text() for f in range(tabla.rowCount())]
+        primera = next(i for i, e in enumerate(estados) if e.startswith("✔"))
+        self.assertTrue(all(e.startswith("✘") for e in estados[:primera]))
+        self.assertEqual(dialogo.tabla_laterales.rowCount(), 40)
+
+        # Doble clic en la primera fila: fija esa tubería (que no cumple) y recalcula.
+        dialogo._usar_diametro(0, 0)
+        self.assertNotEqual(dialogo.combo_tuberia_porta.currentData(), AUTOMATICA)
+        self.assertIn("No cumple", dialogo.texto.toHtml())
+
+    def test_subunidad_con_dem_y_entrada_central(self):
+        from riegolibre.gui.dialogo_subunidad import DialogoSubunidad
+        from riegolibre.nucleo import ENTRADA_CENTRO
+        dialogo = DialogoSubunidad(iface=None)
+        dialogo.combo_emisor.setCurrentIndex(1)  # autocompensado
+        dialogo.combo_entrada.setCurrentIndex(dialogo.combo_entrada.findData(ENTRADA_CENTRO))
+        dialogo.check_terreno.setChecked(True)
+        dialogo.combo_linea.setLayer(self.lineas)
+        dialogo.combo_dem.setLayer(self.dem)
+        dialogo.calcular()
+        self.assertEqual(dialogo.spin_numero.value(), round(100 / 1.5))
+        self.assertEqual(dialogo.tabla_laterales.rowCount(), round(100 / 1.5))
+        ramas = {dialogo.tabla_laterales.item(f, 0).text()
+                 for f in range(dialogo.tabla_laterales.rowCount())}
+        self.assertEqual(ramas, {"Hacia el final", "Hacia el inicio"})
+        self.assertEqual(dialogo.resultado.emisores_fuera_de_rango, 0)
+        self.assertAlmostEqual(dialogo.resultado.presion_min_emisor_m, 5.0, delta=0.01)
+        self.assertIn("✔ Cumple", dialogo.texto.toPlainText())
+
+    def test_registro_en_qgis(self):
+        from qgis.PyQt.QtWidgets import QMainWindow
+        from riegolibre import classFactory
+
+        class IfaceFalsa:
+            def __init__(self):
+                self.ventana = QMainWindow()
+                self.menu, self.barra = [], []
+
+            def mainWindow(self):  # noqa: N802
+                return self.ventana
+
+            def addPluginToMenu(self, _menu, accion):  # noqa: N802
+                self.menu.append(accion)
+
+            def removePluginMenu(self, _menu, accion):  # noqa: N802
+                self.menu.remove(accion)
+
+            def addToolBarIcon(self, accion):  # noqa: N802
+                self.barra.append(accion)
+
+            def removeToolBarIcon(self, accion):  # noqa: N802
+                self.barra.remove(accion)
+
+        iface = IfaceFalsa()
+        plugin = classFactory(iface)
+        plugin.initGui()
+        self.assertEqual([a.text() for a in iface.menu],
+                         ["Calculadora de lateral (goteo)…", "Subunidad de riego (goteo)…"])
+        self.assertFalse(iface.menu[1].icon().isNull())
+        iface.menu[1].trigger()
+        self.assertTrue(plugin.dialogos["subunidad"].isVisible())
+        plugin.unload()
+        self.assertEqual(iface.menu, [])
+
 
 if __name__ == "__main__":
     unittest.main()

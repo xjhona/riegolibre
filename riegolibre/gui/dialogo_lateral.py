@@ -4,30 +4,16 @@ from qgis.core import Qgis
 from qgis.gui import QgsMapLayerComboBox
 from qgis.PyQt.QtCore import Qt
 from qgis.PyQt.QtWidgets import (QApplication, QCheckBox, QComboBox, QDialog,
-                                 QDialogButtonBox, QDoubleSpinBox, QFormLayout,
-                                 QGroupBox, QHBoxLayout, QLabel, QMessageBox,
-                                 QPushButton, QRadioButton, QSplitter,
-                                 QTextBrowser, QVBoxLayout, QWidget)
+                                 QDialogButtonBox, QFormLayout, QGroupBox,
+                                 QHBoxLayout, QLabel, QMessageBox, QPushButton,
+                                 QRadioButton, QSplitter, QTextBrowser,
+                                 QVBoxLayout, QWidget)
 
 from ..nucleo import (Lateral, PresionInsuficiente, cargar_catalogo_emisores,
                       cargar_catalogo_tuberias, longitud_maxima)
-
-try:
-    from matplotlib.backends.backend_qtagg import FigureCanvasQTAgg
-    from matplotlib.figure import Figure
-except ImportError:  # QGIS sin matplotlib: se muestran solo los resultados en texto
-    FigureCanvasQTAgg = None
-
-
-def _spin(minimo, maximo, valor, paso, decimales=2, sufijo=""):
-    spin = QDoubleSpinBox()
-    spin.setRange(minimo, maximo)
-    spin.setDecimals(decimales)
-    spin.setSingleStep(paso)
-    spin.setValue(valor)
-    if sufijo:
-        spin.setSuffix(f" {sufijo}")
-    return spin
+from .comunes import (M_POR_BAR, Figure, FigureCanvasQTAgg, descripcion_emisor,
+                      html_avisos, html_estado, html_tabla)
+from .comunes import spin as _spin
 
 
 class DialogoLateral(QDialog):
@@ -165,14 +151,7 @@ class DialogoLateral(QDialog):
         return grupo
 
     def _actualizar_emisor(self):
-        e = self.emisor()
-        if e.autocompensado:
-            texto = (f"Autocompensado: {e.caudal_nominal_lh:g} L/h entre {e.presion_compensacion_m:g} "
-                     f"y {e.presion_max_m:g} m · CV {e.cv:g}")
-        else:
-            texto = (f"q = {e.k:.4f}·h^{e.exponente:g}  ({e.caudal_nominal_lh:g} L/h a "
-                     f"{e.presion_nominal_m:g} m) · CV {e.cv:g}")
-        self.etiqueta_emisor.setText(texto)
+        self.etiqueta_emisor.setText(descripcion_emisor(self.emisor()))
 
     def _actualizar_modo(self):
         self.spin_presion.setEnabled(self.radio_conocida.isChecked())
@@ -269,8 +248,7 @@ class DialogoLateral(QDialog):
         variacion_max = self.spin_variacion.value() / 100
         presion_max = self.spin_presion_max.value() or None
         cumple = r.cumple(variacion_max) and (presion_max is None or r.presion_entrada_m <= presion_max)
-        estado = ("<span style='color:#2e7d32'><b>✔ Cumple</b></span>" if cumple
-                  else "<span style='color:#c62828'><b>✘ No cumple</b></span>")
+        estado = html_estado(cumple)
         avisos = []
         if r.emisores_fuera_de_rango:
             avisos.append(f"{r.emisores_fuera_de_rango} emisores fuera del rango de compensación.")
@@ -286,7 +264,7 @@ class DialogoLateral(QDialog):
 
         filas = [
             ("Longitud del lateral", f"{lateral.longitud_m:.1f} m ({r.numero_emisores} emisores)"),
-            ("Presión de entrada", f"<b>{r.presion_entrada_m:.2f} m</b> ({r.presion_entrada_m / 10.197:.2f} bar)"),
+            ("Presión de entrada", f"<b>{r.presion_entrada_m:.2f} m</b> ({r.presion_entrada_m / M_POR_BAR:.2f} bar)"),
             ("Caudal del lateral", f"<b>{r.caudal_total_lh:.1f} L/h</b> ({r.caudal_total_lh / 3600:.3f} L/s)"),
             ("Velocidad en la entrada", f"{r.velocidad_entrada_ms:.2f} m/s"),
             ("Pérdida por fricción", f"{r.perdida_friccion_m:.2f} m"),
@@ -299,12 +277,7 @@ class DialogoLateral(QDialog):
             ("Variación de caudal", f"{r.variacion_caudal:.1%}"),
             ("Uniformidad de emisión (EU)", f"{r.uniformidad_emision:.1f} %"),
         ]
-        html = [f"<h3>{titulo} — {estado}</h3><table cellpadding='3'>"]
-        html += [f"<tr><td>{a}</td><td>{b}</td></tr>" for a, b in filas]
-        html.append("</table>")
-        if avisos:
-            html.append("<p style='color:#c62828'>" + "<br>".join("⚠ " + a for a in avisos) + "</p>")
-        self.texto.setHtml("".join(html))
+        self.texto.setHtml(f"<h3>{titulo} — {estado}</h3>" + html_tabla(filas) + html_avisos(avisos))
         self._graficar(lateral, r)
 
     def _graficar(self, lateral, r):
