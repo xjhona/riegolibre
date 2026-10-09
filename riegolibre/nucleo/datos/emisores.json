@@ -1,0 +1,89 @@
+{
+  "_nota": "Valores genéricos de referencia. Reemplácelos por los datos del catálogo del fabricante (q = k·h^x, CV, rango de compensación).",
+  "emisores": [
+    {
+      "nombre": "Gotero autocompensado 1.6 L/h (genérico)",
+      "caudal_nominal_lh": 1.6,
+      "presion_nominal_m": 10.0,
+      "exponente": 0.0,
+      "cv": 0.03,
+      "autocompensado": true,
+      "presion_min_m": 5.0,
+      "presion_max_m": 40.0,
+      "tipo": "gotero",
+      "longitud_equivalente_m": 0.15
+    },
+    {
+      "nombre": "Gotero autocompensado 2.0 L/h (genérico)",
+      "caudal_nominal_lh": 2.0,
+      "presion_nominal_m": 10.0,
+      "exponente": 0.0,
+      "cv": 0.03,
+      "autocompensado": true,
+      "presion_min_m": 5.0,
+      "presion_max_m": 40.0,
+      "tipo": "gotero",
+      "longitud_equivalente_m": 0.15
+    },
+    {
+      "nombre": "Gotero autocompensado 4.0 L/h (genérico)",
+      "caudal_nominal_lh": 4.0,
+      "presion_nominal_m": 10.0,
+      "exponente": 0.0,
+      "cv": 0.03,
+      "autocompensado": true,
+      "presion_min_m": 5.0,
+      "presion_max_m": 40.0,
+      "tipo": "gotero",
+      "longitud_equivalente_m": 0.15
+    },
+    {
+      "nombre": "Gotero no compensado 2.0 L/h (genérico)",
+      "caudal_nominal_lh": 2.0,
+      "presion_nominal_m": 10.0,
+      "exponente": 0.5,
+      "cv": 0.05,
+      "autocompensado": false,
+      "presion_min_m": null,
+      "presion_max_m": null,
+      "tipo": "gotero",
+      "longitud_equivalente_m": 0.15
+    },
+    {
+      "nombre": "Gotero no compensado 4.0 L/h (genérico)",
+      "caudal_nominal_lh": 4.0,
+      "presion_nominal_m": 10.0,
+      "exponente": 0.5,
+      "cv": 0.05,
+      "autocompensado": false,
+      "presion_min_m": null,
+      "presion_max_m": null,
+      "tipo": "gotero",
+      "longitud_equivalente_m": 0.15
+    },
+    {
+      "nombre": "Cinta de goteo 1.0 L/h a 8 m (genérica)",
+      "caudal_nominal_lh": 1.0,
+      "presion_nominal_m": 8.0,
+      "exponente": 0.5,
+      "cv": 0.03,
+      "autocompensado": false,
+      "presion_min_m": null,
+      "presion_max_m": null,
+      "tipo": "cinta",
+      "longitud_equivalente_m": 0.05
+    },
+    {
+      "nombre": "Cinta de goteo 0.7 L/h a 8 m (genérica)",
+      "caudal_nominal_lh": 0.7,
+      "presion_nominal_m": 8.0,
+      "exponente": 0.5,
+      "cv": 0.03,
+      "autocompensado": false,
+      "presion_min_m": null,
+      "presion_max_m": null,
+      "tipo": "cinta",
+      "longitud_equivalente_m": 0.05
+    }
+  ]
+}

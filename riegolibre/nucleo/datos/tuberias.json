@@ -1,0 +1,309 @@
+{
+  "_nota": "Diámetros interiores referenciales (PVC calculado con SDR 41/33/26 para C-5/C-7.5/C-10). Verifíquelos con el catálogo del fabricante.",
+  "tuberias": [
+    {
+      "nombre": "Manguera PE 16 mm (pared 1.0 mm)",
+      "material": "PE",
+      "usos": [
+        "lateral"
+      ],
+      "diametro_nominal_mm": 16,
+      "diametro_interior_mm": 14.0,
+      "rugosidad_mm": 0.0015,
+      "c_hazen": 140,
+      "presion_nominal_m": 25
+    },
+    {
+      "nombre": "Manguera PE 16 mm (pared 1.2 mm)",
+      "material": "PE",
+      "usos": [
+        "lateral"
+      ],
+      "diametro_nominal_mm": 16,
+      "diametro_interior_mm": 13.6,
+      "rugosidad_mm": 0.0015,
+      "c_hazen": 140,
+      "presion_nominal_m": 30
+    },
+    {
+      "nombre": "Manguera PE 20 mm (pared 1.2 mm)",
+      "material": "PE",
+      "usos": [
+        "lateral"
+      ],
+      "diametro_nominal_mm": 20,
+      "diametro_interior_mm": 17.6,
+      "rugosidad_mm": 0.0015,
+      "c_hazen": 140,
+      "presion_nominal_m": 30
+    },
+    {
+      "nombre": "Cinta de goteo 16 mm",
+      "material": "PE",
+      "usos": [
+        "lateral"
+      ],
+      "diametro_nominal_mm": 16,
+      "diametro_interior_mm": 16.0,
+      "rugosidad_mm": 0.0015,
+      "c_hazen": 140,
+      "presion_nominal_m": 10
+    },
+    {
+      "nombre": "Cinta de goteo 22 mm",
+      "material": "PE",
+      "usos": [
+        "lateral"
+      ],
+      "diametro_nominal_mm": 22,
+      "diametro_interior_mm": 22.2,
+      "rugosidad_mm": 0.0015,
+      "c_hazen": 140,
+      "presion_nominal_m": 8
+    },
+    {
+      "nombre": "Tubería PE 32 mm PN4",
+      "material": "PE",
+      "usos": [
+        "portalateral"
+      ],
+      "diametro_nominal_mm": 32,
+      "diametro_interior_mm": 28.4,
+      "rugosidad_mm": 0.0015,
+      "c_hazen": 140,
+      "presion_nominal_m": 40
+    },
+    {
+      "nombre": "Tubería PE 40 mm PN4",
+      "material": "PE",
+      "usos": [
+        "portalateral"
+      ],
+      "diametro_nominal_mm": 40,
+      "diametro_interior_mm": 35.6,
+      "rugosidad_mm": 0.0015,
+      "c_hazen": 140,
+      "presion_nominal_m": 40
+    },
+    {
+      "nombre": "Tubería PE 50 mm PN4",
+      "material": "PE",
+      "usos": [
+        "portalateral"
+      ],
+      "diametro_nominal_mm": 50,
+      "diametro_interior_mm": 44.6,
+      "rugosidad_mm": 0.0015,
+      "c_hazen": 140,
+      "presion_nominal_m": 40
+    },
+    {
+      "nombre": "Tubería PVC 63 mm C-5",
+      "material": "PVC",
+      "usos": [
+        "portalateral",
+        "principal"
+      ],
+      "diametro_nominal_mm": 63,
+      "diametro_interior_mm": 59.8,
+      "rugosidad_mm": 0.0015,
+      "c_hazen": 150,
+      "presion_nominal_m": 50
+    },
+    {
+      "nombre": "Tubería PVC 75 mm C-5",
+      "material": "PVC",
+      "usos": [
+        "portalateral",
+        "principal"
+      ],
+      "diametro_nominal_mm": 75,
+      "diametro_interior_mm": 71.2,
+      "rugosidad_mm": 0.0015,
+      "c_hazen": 150,
+      "presion_nominal_m": 50
+    },
+    {
+      "nombre": "Tubería PVC 90 mm C-5",
+      "material": "PVC",
+      "usos": [
+        "portalateral",
+        "principal"
+      ],
+      "diametro_nominal_mm": 90,
+      "diametro_interior_mm": 85.6,
+      "rugosidad_mm": 0.0015,
+      "c_hazen": 150,
+      "presion_nominal_m": 50
+    },
+    {
+      "nombre": "Tubería PVC 110 mm C-5",
+      "material": "PVC",
+      "usos": [
+        "portalateral",
+        "principal"
+      ],
+      "diametro_nominal_mm": 110,
+      "diametro_interior_mm": 104.6,
+      "rugosidad_mm": 0.0015,
+      "c_hazen": 150,
+      "presion_nominal_m": 50
+    },
+    {
+      "nombre": "Tubería PVC 160 mm C-5",
+      "material": "PVC",
+      "usos": [
+        "portalateral",
+        "principal"
+      ],
+      "diametro_nominal_mm": 160,
+      "diametro_interior_mm": 152.0,
+      "rugosidad_mm": 0.0015,
+      "c_hazen": 150,
+      "presion_nominal_m": 50
+    },
+    {
+      "nombre": "Tubería PVC 63 mm C-7.5",
+      "material": "PVC",
+      "usos": [
+        "portalateral",
+        "principal"
+      ],
+      "diametro_nominal_mm": 63,
+      "diametro_interior_mm": 59.0,
+      "rugosidad_mm": 0.0015,
+      "c_hazen": 150,
+      "presion_nominal_m": 75
+    },
+    {
+      "nombre": "Tubería PVC 75 mm C-7.5",
+      "material": "PVC",
+      "usos": [
+        "portalateral",
+        "principal"
+      ],
+      "diametro_nominal_mm": 75,
+      "diametro_interior_mm": 70.4,
+      "rugosidad_mm": 0.0015,
+      "c_hazen": 150,
+      "presion_nominal_m": 75
+    },
+    {
+      "nombre": "Tubería PVC 90 mm C-7.5",
+      "material": "PVC",
+      "usos": [
+        "portalateral",
+        "principal"
+      ],
+      "diametro_nominal_mm": 90,
+      "diametro_interior_mm": 84.4,
+      "rugosidad_mm": 0.0015,
+      "c_hazen": 150,
+      "presion_nominal_m": 75
+    },
+    {
+      "nombre": "Tubería PVC 110 mm C-7.5",
+      "material": "PVC",
+      "usos": [
+        "portalateral",
+        "principal"
+      ],
+      "diametro_nominal_mm": 110,
+      "diametro_interior_mm": 103.2,
+      "rugosidad_mm": 0.0015,
+      "c_hazen": 150,
+      "presion_nominal_m": 75
+    },
+    {
+      "nombre": "Tubería PVC 160 mm C-7.5",
+      "material": "PVC",
+      "usos": [
+        "portalateral",
+        "principal"
+      ],
+      "diametro_nominal_mm": 160,
+      "diametro_interior_mm": 150.2,
+      "rugosidad_mm": 0.0015,
+      "c_hazen": 150,
+      "presion_nominal_m": 75
+    },
+    {
+      "nombre": "Tubería PVC 48 mm C-10",
+      "material": "PVC",
+      "usos": [
+        "portalateral",
+        "principal"
+      ],
+      "diametro_nominal_mm": 48,
+      "diametro_interior_mm": 44.2,
+      "rugosidad_mm": 0.0015,
+      "c_hazen": 150,
+      "presion_nominal_m": 100
+    },
+    {
+      "nombre": "Tubería PVC 63 mm C-10",
+      "material": "PVC",
+      "usos": [
+        "portalateral",
+        "principal"
+      ],
+      "diametro_nominal_mm": 63,
+      "diametro_interior_mm": 58.0,
+      "rugosidad_mm": 0.0015,
+      "c_hazen": 150,
+      "presion_nominal_m": 100
+    },
+    {
+      "nombre": "Tubería PVC 75 mm C-10",
+      "material": "PVC",
+      "usos": [
+        "portalateral",
+        "principal"
+      ],
+      "diametro_nominal_mm": 75,
+      "diametro_interior_mm": 69.2,
+      "rugosidad_mm": 0.0015,
+      "c_hazen": 150,
+      "presion_nominal_m": 100
+    },
+    {
+      "nombre": "Tubería PVC 90 mm C-10",
+      "material": "PVC",
+      "usos": [
+        "portalateral",
+        "principal"
+      ],
+      "diametro_nominal_mm": 90,
+      "diametro_interior_mm": 83.0,
+      "rugosidad_mm": 0.0015,
+      "c_hazen": 150,
+      "presion_nominal_m": 100
+    },
+    {
+      "nombre": "Tubería PVC 110 mm C-10",
+      "material": "PVC",
+      "usos": [
+        "portalateral",
+        "principal"
+      ],
+      "diametro_nominal_mm": 110,
+      "diametro_interior_mm": 101.4,
+      "rugosidad_mm": 0.0015,
+      "c_hazen": 150,
+      "presion_nominal_m": 100
+    },
+    {
+      "nombre": "Tubería PVC 160 mm C-10",
+      "material": "PVC",
+      "usos": [
+        "portalateral",
+        "principal"
+      ],
+      "diametro_nominal_mm": 160,
+      "diametro_interior_mm": 147.6,
+      "rugosidad_mm": 0.0015,
+      "c_hazen": 150,
+      "presion_nominal_m": 100
+    }
+  ]
+}

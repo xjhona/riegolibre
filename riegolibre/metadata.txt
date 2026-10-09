@@ -1,0 +1,17 @@
+[general]
+name=RiegoLibre
+qgisMinimumVersion=3.34
+supportsQt6=True
+description=Diseño hidráulico de riego tecnificado (goteo) dentro de QGIS.
+about=RiegoLibre es un complemento libre (GPL-3.0) para diseñar sistemas de riego por goteo: cálculo de laterales emisor por emisor, portalaterales y subunidades, usando el perfil del terreno de un DEM. En desarrollo: los resultados deben verificarse antes de usarse en un proyecto real.
+version=0.1.0
+author=Jhonatan
+email=jhonatanchilet@gmail.com
+tags=riego,goteo,irrigation,drip,hidráulica,hydraulics,agricultura
+category=Plugins
+icon=icon.svg
+experimental=True
+deprecated=False
+homepage=https://github.com/xjhona/riegolibre
+repository=https://github.com/xjhona/riegolibre
+tracker=https://github.com/xjhona/riegolibre/issues

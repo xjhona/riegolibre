@@ -1,0 +1,67 @@
+# RiegoLibre
+
+Complemento libre (GPL-3.0) para QGIS que sirve para diseñar riego tecnificado. La primera etapa es **riego por goteo**.
+
+> ⚠️ Está en desarrollo. Verifique los resultados con cálculos manuales o con los catálogos del fabricante antes de usarlos en un proyecto real.
+
+## Estructura
+
+```
+riegolibre/                 Complemento de QGIS (esta carpeta es la que se instala)
+├── nucleo/                 Motor de cálculo en Python puro, sin dependencias de QGIS
+│   ├── hidraulica.py       Darcy-Weisbach, Hazen-Williams, factor F de Christiansen
+│   ├── emisores.py         Goteros y cintas: q = k·h^x, autocompensados
+│   ├── tuberias.py         Tuberías y catálogo
+│   ├── lateral.py          Lateral emisor por emisor, presión requerida, longitud máxima
+│   ├── portalateral.py     Portalateral y subunidad completa
+│   ├── uniformidad.py      EU (Keller-Karmeli), variación de caudal, CU
+│   └── datos/              Catálogos editables (JSON)
+├── integracion/            Conexión con QGIS: perfil del terreno desde un DEM
+└── gui/                    Ventanas (calculadora de lateral)
+tests/                      Pruebas automáticas
+scripts/                    Utilidades de desarrollo
+```
+
+## Instalación para desarrollo (Windows)
+
+```powershell
+powershell -ExecutionPolicy Bypass -File scripts\instalar_desarrollo.ps1
+```
+
+El script enlaza `riegolibre/` con la carpeta de complementos de QGIS. Después, en QGIS, vaya a **Complementos → Administrar e instalar complementos → Instalados** y active **RiegoLibre**.
+
+Para recargar los cambios sin reiniciar QGIS, instale el complemento **Plugin Reloader**.
+
+## Pruebas
+
+Las pruebas del motor funcionan con cualquier Python 3.9 o superior. Las de integración solo corren con el Python de QGIS; con otro Python se omiten.
+
+```powershell
+& "C:\Program Files\QGIS 3.40.6\bin\python-qgis-ltr.bat" -m unittest discover -s tests -t .
+```
+
+## Método de cálculo
+
+**Lateral.** Se calcula paso a paso desde el último emisor hacia la entrada. En cada tramo se suman el caudal real de los emisores aguas abajo, la pérdida por fricción y el desnivel del terreno, ya sea con pendiente uniforme o con el perfil del DEM. La inserción de cada emisor se modela como una longitud equivalente.
+
+**Criterios de diseño.**
+- Emisor no compensado: la presión de entrada se fija para que el caudal medio sea el nominal. La variación de caudal admisible es del 10 % por defecto.
+- Emisor autocompensado: la presión de entrada se fija para que el emisor más desfavorecido reciba la presión mínima de compensación. Se exige además que ningún emisor quede fuera del rango.
+
+**Portalateral.** Para cada lateral distinto se construye su curva caudal–presión de entrada. Con ella se resuelve el portalateral, y con la solución final se calcula cada lateral en detalle.
+
+**Fricción.**
+- Darcy-Weisbach con factor de Swamee-Jain en régimen turbulento y 64/Re en laminar. Es la opción recomendada para laterales, que trabajan con números de Reynolds bajos al final.
+- Hazen-Williams como alternativa.
+
+**Convención de pendiente.** Positiva cuando el terreno sube desde la entrada hacia el final.
+
+## Hoja de ruta
+
+- [x] Motor hidráulico de laterales y portalaterales
+- [x] Calculadora de lateral con perfil del terreno desde un DEM
+- [ ] Ventana de subunidad: portalateral y laterales, selección de diámetros
+- [ ] Herramientas de mapa: dibujar el bloque y generar los laterales automáticamente
+- [ ] Red principal, carga dinámica total y selección de bomba
+- [ ] Lista de materiales y memoria de cálculo
+- [ ] Riego por aspersión
