@@ -98,6 +98,16 @@ class PruebasSubunidad(unittest.TestCase):
         self.assertIsNone(elegida)
         self.assertIn("variación de caudal", evaluaciones[0].motivos[0])
 
+    def test_disenar_sugiere_cuando_fallan_los_laterales(self):
+        from riegolibre.nucleo import disenar_subunidad
+        a, b = laterales(n=300)
+        diseno = disenar_subunidad(lambda t: subunidad_rectangular(t, a, b, 1.5, 10), [PVC63],
+                                   CriteriosDiseno(0.10))
+        self.assertIs(diseno.tuberia, PVC63)
+        self.assertTrue(diseno.automatica)
+        self.assertIn("autocompensados", diseno.avisos[-1])
+        self.assertIsNotNone(diseno.resultado.laterales)  # cálculo detallado
+
     def test_un_solo_lado(self):
         a, _ = laterales()
         sub = subunidad_rectangular(PVC63, a, None, 1.5, 20, posicion_entrada=ENTRADA_EXTREMO)

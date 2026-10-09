@@ -102,6 +102,15 @@ class PruebasLateral(unittest.TestCase):
         self.assertEqual(r.emisores_fuera_de_rango, 0)
 
 
+class PruebasFuncionPerdida(unittest.TestCase):
+    def test_igual_a_perdida(self):
+        for metodo in ("darcy", "hazen"):
+            rapida = PE16.funcion_perdida(0.45, metodo)
+            for q_lh in (0.0, 1.0, 50.0, 200.0, 400.0, 2000.0):  # laminar, transición y turbulento
+                q = q_lh * LH_A_M3S
+                self.assertAlmostEqual(rapida(q), PE16.perdida(q, 0.45, metodo), places=12)
+
+
 class PruebasCatalogos(unittest.TestCase):
     def test_cargan(self):
         self.assertTrue(cargar_catalogo_emisores())

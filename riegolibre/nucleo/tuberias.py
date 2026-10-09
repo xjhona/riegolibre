@@ -37,6 +37,30 @@ class Tuberia:
                 caudal_m3s, self.diametro_m, longitud_m, self.c_hazen)
         raise ValueError(f"Método desconocido: {metodo!r}. Use uno de {METODOS}.")
 
+    def funcion_perdida(self, longitud_m, metodo="darcy"):
+        """Función caudal (m³/s, >= 0) -> pérdida (m) para un tramo de longitud fija.
+
+        Equivale a perdida() con las constantes precalculadas; se usa en los
+        bucles del cálculo emisor por emisor, donde se llama miles de veces.
+        """
+        d = self.diametro_m
+        if metodo == "hazen":
+            k = 10.674 * longitud_m / (self.c_hazen ** 1.852 * d ** 4.871)
+            return lambda q: k * q ** 1.852 if q > 0 else 0.0
+        if metodo != "darcy":
+            raise ValueError(f"Método desconocido: {metodo!r}. Use uno de {METODOS}.")
+        area = hidraulica.area(d)
+        a_reynolds = d / (area * hidraulica.VISCOSIDAD_CINEMATICA_20C)  # Re = a·q
+        a_energia = longitud_m / d / (2 * hidraulica.G * area * area)  # hf = f·a·q²
+        rr = self.rugosidad_mm / 1000.0 / d
+        friccion = hidraulica.factor_friccion
+
+        def perdida(q):
+            if q <= 0:
+                return 0.0
+            return friccion(a_reynolds * q, rr) * a_energia * q * q
+        return perdida
+
     def velocidad(self, caudal_m3s):
         return hidraulica.velocidad(caudal_m3s, self.diametro_m)
 

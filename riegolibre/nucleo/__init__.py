@@ -10,9 +10,10 @@ from .lateral import (CRITERIO_CAUDAL_MEDIO, CRITERIO_PRESION_MINIMA, CurvaLater
                       Lateral, ResultadoLateral, longitud_maxima)
 from .portalateral import (ConexionLateral, Portalateral, ResultadoPortalateral,
                            portalateral_uniforme)
-from .subunidad import (ENTRADA_CENTRO, ENTRADA_EXTREMO, CriteriosDiseno,
+from .subunidad import (ENTRADA_CENTRO, ENTRADA_EXTREMO, CriteriosDiseno, Diseno,
                         EvaluacionDiametro, ResultadoSubunidad, Subunidad,
-                        evaluar_diametros, incumplimientos, subunidad_rectangular)
+                        disenar_subunidad, evaluar_diametros, incumplimientos,
+                        subunidad_desde_conexiones, subunidad_rectangular)
 from .tuberias import Tuberia, cargar_catalogo_tuberias
 from .uniformidad import (coeficiente_uniformidad_christiansen,
                           uniformidad_emision_keller, variacion_caudal)
@@ -23,9 +24,9 @@ __all__ = [
     "CRITERIO_CAUDAL_MEDIO", "CRITERIO_PRESION_MINIMA",
     "CurvaLateral", "Lateral", "ResultadoLateral", "longitud_maxima",
     "ConexionLateral", "Portalateral", "ResultadoPortalateral", "portalateral_uniforme",
-    "ENTRADA_CENTRO", "ENTRADA_EXTREMO", "CriteriosDiseno", "EvaluacionDiametro",
-    "ResultadoSubunidad", "Subunidad", "evaluar_diametros", "incumplimientos",
-    "subunidad_rectangular",
+    "ENTRADA_CENTRO", "ENTRADA_EXTREMO", "CriteriosDiseno", "Diseno", "EvaluacionDiametro",
+    "ResultadoSubunidad", "Subunidad", "disenar_subunidad", "evaluar_diametros",
+    "incumplimientos", "subunidad_desde_conexiones", "subunidad_rectangular",
     "Tuberia", "cargar_catalogo_tuberias",
     "coeficiente_uniformidad_christiansen", "uniformidad_emision_keller", "variacion_caudal",
 ]

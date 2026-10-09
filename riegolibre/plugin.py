@@ -18,6 +18,7 @@ class RiegoLibrePlugin:
     def initGui(self):  # noqa: N802 (nombre exigido por QGIS)
         self._agregar_accion("icon.svg", "Calculadora de lateral (goteo)…", "lateral")
         self._agregar_accion("icon_subunidad.svg", "Subunidad de riego (goteo)…", "subunidad")
+        self._agregar_accion("icon_mapa.svg", "Diseño de subunidad en el mapa (goteo)…", "mapa")
 
     def _agregar_accion(self, icono, texto, dialogo):
         accion = QAction(QIcon(os.path.join(CARPETA, icono)), texto, self.iface.mainWindow())
@@ -41,8 +42,10 @@ class RiegoLibrePlugin:
         if dialogo is None:
             if nombre == "lateral":
                 from .gui.dialogo_lateral import DialogoLateral as Clase
-            else:
+            elif nombre == "subunidad":
                 from .gui.dialogo_subunidad import DialogoSubunidad as Clase
+            else:
+                from .gui.dialogo_mapa import DialogoMapa as Clase
             dialogo = self.dialogos[nombre] = Clase(self.iface, self.iface.mainWindow())
         dialogo.show()
         dialogo.raise_()

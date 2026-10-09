@@ -17,8 +17,10 @@ riegolibre/                 Complemento de QGIS (esta carpeta es la que se insta
 │   ├── subunidad.py        Subunidad (entrada en extremo o centro) y selección de diámetro
 │   ├── uniformidad.py      EU (Keller-Karmeli), variación de caudal, CU
 │   └── datos/              Catálogos editables (JSON)
-├── integracion/            Conexión con QGIS: perfil del terreno desde un DEM
-└── gui/                    Ventanas: calculadora de lateral y subunidad
+├── integracion/            Conexión con QGIS
+│   ├── perfil_terreno.py   Perfil del terreno desde un DEM
+│   └── subunidad_mapa.py   Generación de laterales en el bloque y capas de resultado
+└── gui/                    Ventanas: lateral, subunidad y diseño en el mapa
 tests/                      Pruebas automáticas
 scripts/                    Utilidades de desarrollo
 ```
@@ -40,6 +42,17 @@ Las pruebas del motor funcionan con cualquier Python 3.9 o superior. Las de inte
 ```powershell
 & "C:\Program Files\QGIS 3.40.6\bin\python-qgis-ltr.bat" -m unittest discover -s tests -t .
 ```
+
+## Diseño en el mapa
+
+Menú **Complementos → RiegoLibre → Diseño de subunidad en el mapa**:
+
+1. Dibuje el **bloque** (polígono) y el **portalateral** (línea). El botón *Crear capas para dibujar* prepara capas temporales en el SRC del proyecto. Todo debe estar en un SRC proyectado en metros (UTM).
+2. **Generar laterales**: se trazan cada cierta separación, perpendiculares al portalateral o con un azimut fijo, a uno o ambos lados, y se recortan en el borde del bloque con un margen. La capa generada se puede editar: borrar, mover o alargar laterales.
+3. **Calcular**: cada lateral se calcula con su longitud real y su perfil del DEM. La válvula puede ir al inicio, en el centro o al final del portalateral. Los resultados se añaden al mapa en el grupo *RiegoLibre · nombre*:
+   - laterales coloreados por presión mínima de emisor,
+   - tramos del portalateral con caudal, velocidad y presiones,
+   - punto de la válvula con presión y caudal requeridos.
 
 ## Método de cálculo
 
@@ -72,7 +85,7 @@ Las pruebas del motor funcionan con cualquier Python 3.9 o superior. Las de inte
 - [x] Calculadora de lateral con perfil del terreno desde un DEM
 - [x] Ventana de subunidad: portalateral y laterales, selección de diámetro
 - [ ] Portalateral telescópico (dos o más diámetros)
-- [ ] Herramientas de mapa: dibujar el bloque y generar los laterales automáticamente
+- [x] Herramientas de mapa: dibujar el bloque y generar los laterales automáticamente
 - [ ] Red principal, carga dinámica total y selección de bomba
 - [ ] Lista de materiales y memoria de cálculo
 - [ ] Riego por aspersión

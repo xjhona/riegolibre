@@ -123,18 +123,41 @@ class Subunidad:
         raise ValueError(f"Criterio desconocido: {criterio!r}")
 
 
-def _perfil_rama(perfil, centro, sentido):
-    """Perfil visto desde la entrada central: sentido +1 hacia el final, -1 hacia el inicio."""
+def _perfil_rama(perfil, entrada, sentido):
+    """Perfil visto desde la entrada: sentido +1 hacia el final, -1 hacia el inicio."""
     if perfil is None:
         return None
-    puntos = [(0.0, interpolar_perfil(perfil, centro))]
+    puntos = [(0.0, interpolar_perfil(perfil, entrada))]
     for x, z in perfil:
-        d = (x - centro) * sentido
+        d = (x - entrada) * sentido
         if d > 0:
             puntos.append((d, z))
     if len(puntos) < 2:
         puntos.append((1.0, puntos[0][1]))
     return puntos
+
+
+def subunidad_desde_conexiones(tuberia, conexiones, distancia_entrada_m=0.0, pendiente=0.0,
+                               perfil=None, metodo="darcy"):
+    """Subunidad a partir de conexiones medidas desde el inicio del portalateral.
+
+    La válvula está a distancia_entrada_m del inicio; las conexiones situadas
+    después forman la rama que avanza (sentido +1) y las situadas antes, la que
+    retrocede (sentido -1). Cada conexión puede llevar laterales distintos.
+    """
+    if not conexiones:
+        raise ValueError("La subunidad no tiene laterales.")
+    ramas = []
+    for sentido in (1, -1):
+        propias = [ConexionLateral((c.distancia_m - distancia_entrada_m) * sentido, c.laterales)
+                   for c in conexiones
+                   if (c.distancia_m - distancia_entrada_m) * sentido > 0
+                   or (sentido == 1 and c.distancia_m == distancia_entrada_m)]
+        if propias:
+            ramas.append(Portalateral(tuberia, propias, pendiente=pendiente * sentido,
+                                      perfil=_perfil_rama(perfil, distancia_entrada_m, sentido),
+                                      metodo=metodo, sentido=sentido))
+    return Subunidad(ramas)
 
 
 def subunidad_rectangular(tuberia, lateral_a, lateral_b, separacion_laterales_m, numero_laterales,
@@ -154,26 +177,16 @@ def subunidad_rectangular(tuberia, lateral_a, lateral_b, separacion_laterales_m,
         raise ValueError("La subunidad necesita al menos una posición de laterales.")
     if distancia_primera_conexion_m is None:
         distancia_primera_conexion_m = separacion_laterales_m / 2
-    posiciones = [distancia_primera_conexion_m + i * separacion_laterales_m
+    conexiones = [ConexionLateral(distancia_primera_conexion_m + i * separacion_laterales_m, laterales)
                   for i in range(numero_laterales)]
-    comunes = dict(metodo=metodo)
-
     if posicion_entrada == ENTRADA_EXTREMO:
-        conexiones = [ConexionLateral(x, laterales) for x in posiciones]
-        return Subunidad([Portalateral(tuberia, conexiones, pendiente=pendiente, perfil=perfil, **comunes)])
-
-    if posicion_entrada != ENTRADA_CENTRO:
+        entrada = 0.0
+    elif posicion_entrada == ENTRADA_CENTRO:
+        entrada = (conexiones[-1].distancia_m + distancia_primera_conexion_m) / 2
+    else:
         raise ValueError(f"Posición de entrada desconocida: {posicion_entrada!r}")
-    longitud = posiciones[-1] + distancia_primera_conexion_m
-    centro = longitud / 2
-    ramas = []
-    for sentido in (1, -1):
-        conexiones = [ConexionLateral((x - centro) * sentido, laterales)
-                      for x in posiciones if (x - centro) * sentido > 0 or (sentido == 1 and x == centro)]
-        if conexiones:
-            ramas.append(Portalateral(tuberia, conexiones, pendiente=pendiente * sentido,
-                                      perfil=_perfil_rama(perfil, centro, sentido), **comunes))
-    return Subunidad(ramas)
+    return subunidad_desde_conexiones(tuberia, conexiones, entrada, pendiente=pendiente,
+                                      perfil=perfil, metodo=metodo)
 
 
 # ------------------------------------------------------------------ selección
@@ -241,3 +254,51 @@ def evaluar_diametros(construir: Callable, tuberias, criterios, criterio=None,
         evaluaciones.append(EvaluacionDiametro(tuberia, r, incumplimientos(r, criterios, tuberia)))
     elegida = next((i for i, e in enumerate(evaluaciones) if e.cumple), None)
     return evaluaciones, elegida
+
+
+@dataclass
+class Diseno:
+    """Resultado de diseñar una subunidad (ver disenar_subunidad)."""
+    subunidad: Subunidad
+    resultado: ResultadoSubunidad
+    tuberia: object
+    evaluaciones: List[EvaluacionDiametro]
+    elegida: Optional[int]
+    avisos: List[str]
+    automatica: bool
+
+
+def disenar_subunidad(construir: Callable, tuberias, criterios, tuberia_fija=None,
+                      presion_entrada_m=None, criterio=None):
+    """Evalúa los diámetros, elige la tubería y calcula la subunidad en detalle.
+
+    Con tuberia_fija=None se usa la menor tubería que cumple; si ninguna cumple,
+    la de mayor diámetro (con un aviso).
+    """
+    evaluaciones, elegida = evaluar_diametros(construir, tuberias, criterios, criterio,
+                                              presion_entrada_m)
+    avisos = []
+    if tuberia_fija is not None:
+        tuberia = tuberia_fija
+    elif elegida is not None:
+        tuberia = evaluaciones[elegida].tuberia
+    else:
+        calculables = [e for e in evaluaciones if e.resultado is not None]
+        if not calculables:
+            raise ValueError("No se pudo calcular la subunidad con ninguna tubería: "
+                             + evaluaciones[-1].motivos[0])
+        mayor = calculables[-1]
+        tuberia = mayor.tuberia
+        avisos.append("Ningún diámetro del catálogo cumple todos los criterios; "
+                      "se muestra el de mayor diámetro.")
+        if mayor.resultado.variacion_caudal > criterios.variacion_caudal_max:
+            avisos.append("Incluso con el mayor diámetro la variación de caudal no cumple: se debe a "
+                          "los laterales o al desnivel del terreno, no al portalateral. Considere "
+                          "emisores autocompensados, laterales más cortos o de mayor diámetro, "
+                          "o dividir el bloque en más subunidades.")
+    subunidad = construir(tuberia)
+    if presion_entrada_m is None:
+        resultado = subunidad.presion_entrada_requerida(criterio, detallado=True)
+    else:
+        resultado = subunidad.simular(presion_entrada_m, detallado=True)
+    return Diseno(subunidad, resultado, tuberia, evaluaciones, elegida, avisos, tuberia_fija is None)

@@ -150,7 +150,8 @@ class Lateral:
         tuberia, emisor, metodo = self.tuberia, self.emisor, self.metodo
         n = self.numero_emisores
         z = self.cotas()
-        tramo = self.espaciamiento_m + emisor.longitud_equivalente_m
+        perdida_tramo = tuberia.funcion_perdida(self.espaciamiento_m + emisor.longitud_equivalente_m, metodo)
+        caudal_emisor = emisor.caudal
 
         presiones = [0.0] * n
         caudales = [0.0] * n
@@ -159,10 +160,10 @@ class Lateral:
         perdida_total = 0.0
         for i in range(n - 1, -1, -1):
             if i < n - 1:
-                hf = tuberia.perdida(caudal_acumulado * LH_A_M3S, tramo, metodo)
+                hf = perdida_tramo(caudal_acumulado * LH_A_M3S)
                 perdida_total += hf
                 presiones[i] = presiones[i + 1] + hf + (z[i + 1] - z[i])
-            caudales[i] = emisor.caudal(presiones[i])
+            caudales[i] = caudal_emisor(presiones[i])
             caudal_acumulado += caudales[i]
 
         tramo_entrada = self.distancia_primer_emisor_m + emisor.longitud_equivalente_m

@@ -117,6 +117,7 @@ class ResultadoPortalateral(EstadisticasEmisores):
     numero_emisores: int
     cv: float
     laterales: Optional[List[List[ResultadoLateral]]] = None  # detalle por conexión
+    sentido: int = 1  # +1 si avanza en el sentido del portalateral, -1 si retrocede
 
 
 @dataclass
@@ -127,6 +128,7 @@ class Portalateral:
     perfil: Optional[Sequence[Tuple[float, float]]] = None
     metodo: str = "darcy"
     longitud_equivalente_conexion_m: float = 0.0
+    sentido: int = 1  # +1 si avanza en el sentido del portalateral dibujado, -1 si retrocede
 
     def __post_init__(self):
         if not self.conexiones:
@@ -219,6 +221,7 @@ class Portalateral:
             numero_emisores=self.numero_emisores,
             cv=max(lat.emisor.cv for lat in self.laterales),
             laterales=detalle,
+            sentido=self.sentido,
         )
 
     def _resolver(self, extraer, objetivo, detallado):

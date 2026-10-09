@@ -1,25 +1,19 @@
-"""Diseño de una subunidad de goteo: laterales + portalateral con selección de diámetro."""
+"""Diseño de una subunidad de goteo rectangular: laterales + portalateral."""
 
 from qgis.core import Qgis
 from qgis.gui import QgsMapLayerComboBox
 from qgis.PyQt.QtCore import Qt
-from qgis.PyQt.QtGui import QBrush, QColor, QFont
-from qgis.PyQt.QtWidgets import (QAbstractItemView, QApplication, QCheckBox,
-                                 QComboBox, QDialog, QDialogButtonBox,
-                                 QFormLayout, QGroupBox, QHBoxLayout,
-                                 QHeaderView, QLabel, QMessageBox, QPushButton,
-                                 QRadioButton, QScrollArea, QSpinBox,
-                                 QSplitter, QTableWidget, QTableWidgetItem,
-                                 QTabWidget, QTextBrowser, QVBoxLayout, QWidget)
+from qgis.PyQt.QtWidgets import (QApplication, QCheckBox, QComboBox, QDialog,
+                                 QDialogButtonBox, QFormLayout, QGroupBox,
+                                 QLabel, QMessageBox, QPushButton, QScrollArea,
+                                 QSpinBox, QSplitter, QVBoxLayout, QWidget)
 
-from ..nucleo import (ENTRADA_CENTRO, ENTRADA_EXTREMO, CriteriosDiseno, Lateral,
+from ..nucleo import (ENTRADA_CENTRO, ENTRADA_EXTREMO, Lateral,
                       PresionInsuficiente, cargar_catalogo_emisores,
-                      cargar_catalogo_tuberias, evaluar_diametros,
-                      incumplimientos, subunidad_rectangular)
-from .comunes import (M_POR_BAR, Figure, FigureCanvasQTAgg, combo, descripcion_emisor,
-                      html_avisos, html_estado, html_tabla, spin)
-
-AUTOMATICA = -1
+                      cargar_catalogo_tuberias, disenar_subunidad,
+                      subunidad_rectangular)
+from .comunes import ComboTuberiaPortalateral, GrupoCriterios, GrupoLaterales, spin
+from .panel_resultados import PanelResultadosSubunidad
 
 
 class DialogoSubunidad(QDialog):
@@ -29,16 +23,18 @@ class DialogoSubunidad(QDialog):
         self.setWindowTitle("RiegoLibre · Subunidad de riego (goteo)")
         self.resize(1200, 760)
 
-        self.tuberias_lateral = cargar_catalogo_tuberias(uso="lateral")
         self.tuberias_portalateral = sorted(cargar_catalogo_tuberias(uso="portalateral"),
                                             key=lambda t: t.diametro_interior_mm)
-        self.emisores = cargar_catalogo_emisores()
+        self.grupo_laterales = GrupoLaterales(cargar_catalogo_tuberias(uso="lateral"),
+                                              cargar_catalogo_emisores())
+        self._completar_grupo_laterales()
+        self.grupo_criterios = GrupoCriterios()
 
         contenido = QWidget()
         izquierda = QVBoxLayout(contenido)
-        izquierda.addWidget(self._grupo_laterales())
+        izquierda.addWidget(self.grupo_laterales)
         izquierda.addWidget(self._grupo_portalateral())
-        izquierda.addWidget(self._grupo_criterios())
+        izquierda.addWidget(self.grupo_criterios)
         izquierda.addStretch()
         desplazable = QScrollArea()
         desplazable.setWidget(contenido)
@@ -47,26 +43,16 @@ class DialogoSubunidad(QDialog):
         desplazable.setMinimumWidth(400)
         desplazable.setMaximumWidth(520)
 
-        self.pestanas = QTabWidget()
-        self.pestanas.addTab(self._pestana_resumen(), "Resumen")
-        self.tabla_diametros = self._tabla([
-            "Tubería", "DI (mm)", "Presión entrada (m)", "Velocidad (m/s)",
-            "Var. caudal", "EU (%)", "Resultado"])
-        self.tabla_diametros.cellDoubleClicked.connect(self._usar_diametro)
-        pestana = QWidget()
-        capa = QVBoxLayout(pestana)
-        capa.addWidget(QLabel("Doble clic en una fila para calcular la subunidad con esa tubería."))
-        capa.addWidget(self.tabla_diametros)
-        self.pestanas.addTab(pestana, "Diámetros del portalateral")
-        self.tabla_laterales = self._tabla([
-            "Rama", "Posición (m)", "Presión portalateral (m)", "Caudal (L/h)",
-            "Presión mín. emisor (m)", "Presión máx. emisor (m)", "Caudal mín. emisor (L/h)",
-            "Fuera de rango"])
-        self.pestanas.addTab(self.tabla_laterales, "Laterales")
+        self.panel = PanelResultadosSubunidad(
+            "<p>Configure los laterales y el portalateral y pulse <b>Calcular</b>.</p>"
+            "<p>Con la tubería <b>automática</b> se elige el menor diámetro del catálogo que cumple "
+            "la variación de caudal, la velocidad máxima y la presión máxima indicadas. "
+            "La pestaña <i>Diámetros del portalateral</i> muestra la comparación completa.</p>")
+        self.panel.tuberia_elegida.connect(self._usar_tuberia)
 
         divisor = QSplitter(Qt.Orientation.Horizontal)
         divisor.addWidget(desplazable)
-        divisor.addWidget(self.pestanas)
+        divisor.addWidget(self.panel)
         divisor.setStretchFactor(0, 0)
         divisor.setStretchFactor(1, 1)
 
@@ -81,40 +67,13 @@ class DialogoSubunidad(QDialog):
         principal = QVBoxLayout(self)
         principal.addWidget(divisor)
         principal.addWidget(botones)
-
-        self._actualizar_emisor()
-        self._actualizar_modo()
         self._actualizar_terreno()
         self._actualizar_longitud_portalateral()
-        self.texto.setHtml(
-            "<p>Configure los laterales y el portalateral y pulse <b>Calcular</b>.</p>"
-            "<p>Con la tubería <b>automática</b> se elige el menor diámetro del catálogo que cumple "
-            "la variación de caudal, la velocidad máxima y la presión máxima indicadas. "
-            "La pestaña <i>Diámetros del portalateral</i> muestra la comparación completa.</p>")
 
     # ---------------------------------------------------------------- interfaz
 
-    def _grupo_laterales(self):
-        grupo = QGroupBox("Laterales")
-        formulario = QFormLayout(grupo)
-        self.combo_tuberia_lateral = combo()
-        for t in self.tuberias_lateral:
-            self.combo_tuberia_lateral.addItem(f"{t.nombre}  (DI {t.diametro_interior_mm:.1f} mm)")
-        formulario.addRow("Tubería:", self.combo_tuberia_lateral)
-
-        self.combo_emisor = combo()
-        for e in self.emisores:
-            self.combo_emisor.addItem(e.nombre)
-        self.combo_emisor.currentIndexChanged.connect(self._actualizar_emisor)
-        formulario.addRow("Emisor:", self.combo_emisor)
-        self.etiqueta_emisor = QLabel()
-        self.etiqueta_emisor.setWordWrap(True)
-        formulario.addRow("", self.etiqueta_emisor)
-
-        self.spin_espaciamiento = spin(0.05, 10, 0.30, 0.05, sufijo="m")
-        formulario.addRow("Espaciamiento entre emisores:", self.spin_espaciamiento)
-        self.spin_primer = spin(0.0, 10, 0.30, 0.05, sufijo="m")
-        formulario.addRow("Distancia al primer emisor:", self.spin_primer)
+    def _completar_grupo_laterales(self):
+        formulario = self.grupo_laterales.formulario
         self.spin_longitud_a = spin(0, 1000, 50, 5, decimales=1, sufijo="m")
         formulario.addRow("Longitud de laterales, lado A:", self.spin_longitud_a)
         self.spin_longitud_b = spin(0, 1000, 50, 5, decimales=1, sufijo="m")
@@ -125,15 +84,11 @@ class DialogoSubunidad(QDialog):
             "Pendiente transversal, positiva si el terreno sube hacia el lado A. "
             "Los laterales del lado B tienen la pendiente contraria.")
         formulario.addRow("Pendiente hacia el lado A:", self.spin_pendiente_lateral)
-        return grupo
 
     def _grupo_portalateral(self):
         grupo = QGroupBox("Portalateral")
         formulario = QFormLayout(grupo)
-        self.combo_tuberia_porta = combo()
-        self.combo_tuberia_porta.addItem("Automática (menor diámetro que cumple)", AUTOMATICA)
-        for i, t in enumerate(self.tuberias_portalateral):
-            self.combo_tuberia_porta.addItem(f"{t.nombre}  (DI {t.diametro_interior_mm:.1f} mm)", i)
+        self.combo_tuberia_porta = ComboTuberiaPortalateral(self.tuberias_portalateral)
         formulario.addRow("Tubería:", self.combo_tuberia_porta)
 
         self.spin_separacion = spin(0.2, 20, 1.5, 0.1, sufijo="m")
@@ -172,63 +127,6 @@ class DialogoSubunidad(QDialog):
         formulario.addRow(nota)
         return grupo
 
-    def _grupo_criterios(self):
-        grupo = QGroupBox("Criterios de diseño")
-        formulario = QFormLayout(grupo)
-        self.radio_requerida = QRadioButton("Calcular la presión de entrada necesaria")
-        self.radio_conocida = QRadioButton("Presión de entrada conocida:")
-        self.radio_requerida.setChecked(True)
-        self.radio_requerida.toggled.connect(self._actualizar_modo)
-        formulario.addRow(self.radio_requerida)
-        fila = QHBoxLayout()
-        self.spin_presion = spin(0.5, 150, 15, 0.5, sufijo="m")
-        fila.addWidget(self.radio_conocida)
-        fila.addWidget(self.spin_presion)
-        formulario.addRow(fila)
-
-        self.combo_metodo = QComboBox()
-        self.combo_metodo.addItem("Darcy-Weisbach", "darcy")
-        self.combo_metodo.addItem("Hazen-Williams", "hazen")
-        formulario.addRow("Fórmula de pérdidas:", self.combo_metodo)
-        self.spin_variacion = spin(1, 50, 10, 1, decimales=1, sufijo="%")
-        self.spin_variacion.setToolTip("Variación de caudal entre todos los emisores de la subunidad.")
-        formulario.addRow("Variación de caudal admisible:", self.spin_variacion)
-        self.spin_velocidad = spin(0.3, 5, 1.5, 0.1, sufijo="m/s")
-        formulario.addRow("Velocidad máxima en portalateral:", self.spin_velocidad)
-        self.spin_presion_max = spin(0, 150, 0, 1, decimales=1, sufijo="m")
-        self.spin_presion_max.setSpecialValueText("sin límite")
-        formulario.addRow("Presión de entrada máxima:", self.spin_presion_max)
-        return grupo
-
-    def _pestana_resumen(self):
-        self.texto = QTextBrowser()
-        divisor = QSplitter(Qt.Orientation.Vertical)
-        divisor.addWidget(self.texto)
-        self.figura = None
-        if FigureCanvasQTAgg is not None:
-            self.figura = Figure(figsize=(6, 3.2), layout="constrained")
-            self.lienzo = FigureCanvasQTAgg(self.figura)
-            divisor.addWidget(self.lienzo)
-        divisor.setSizes([330, 330])
-        return divisor
-
-    @staticmethod
-    def _tabla(columnas):
-        tabla = QTableWidget(0, len(columnas))
-        tabla.setHorizontalHeaderLabels(columnas)
-        tabla.setEditTriggers(QAbstractItemView.EditTrigger.NoEditTriggers)
-        tabla.setSelectionBehavior(QAbstractItemView.SelectionBehavior.SelectRows)
-        tabla.verticalHeader().setVisible(False)
-        tabla.horizontalHeader().setSectionResizeMode(QHeaderView.ResizeMode.ResizeToContents)
-        tabla.horizontalHeader().setStretchLastSection(True)
-        return tabla
-
-    def _actualizar_emisor(self):
-        self.etiqueta_emisor.setText(descripcion_emisor(self.emisor()))
-
-    def _actualizar_modo(self):
-        self.spin_presion.setEnabled(self.radio_conocida.isChecked())
-
     def _actualizar_terreno(self):
         usar = self.check_terreno.isChecked()
         self.combo_linea.setEnabled(usar)
@@ -240,35 +138,26 @@ class DialogoSubunidad(QDialog):
         longitud = self.spin_numero.value() * self.spin_separacion.value()
         self.etiqueta_longitud.setText(f"{longitud:.1f} m")
 
-    # ------------------------------------------------------------------ datos
+    def _usar_tuberia(self, tuberia):
+        self.combo_tuberia_porta.elegir(tuberia)
+        self.calcular()
 
-    def emisor(self):
-        return self.emisores[self.combo_emisor.currentIndex()]
-
-    def tuberia_lateral(self):
-        return self.tuberias_lateral[self.combo_tuberia_lateral.currentIndex()]
-
-    def criterios(self):
-        return CriteriosDiseno(
-            variacion_caudal_max=self.spin_variacion.value() / 100,
-            velocidad_max_ms=self.spin_velocidad.value(),
-            presion_entrada_max_m=self.spin_presion_max.value() or None,
-        )
+    # ---------------------------------------------------------------- cálculo
 
     def _crear_laterales(self):
-        metodo = self.combo_metodo.currentData()
+        grupo = self.grupo_laterales
         pendiente = self.spin_pendiente_lateral.value() / 100
         laterales = []
         for longitud, signo in ((self.spin_longitud_a.value(), 1), (self.spin_longitud_b.value(), -1)):
             if longitud <= 0:
                 laterales.append(None)
                 continue
-            if longitud < self.spin_primer.value():
+            if longitud < grupo.spin_primer.value():
                 raise ValueError("La longitud de los laterales es menor que la distancia al primer emisor.")
             laterales.append(Lateral.desde_longitud(
-                self.tuberia_lateral(), self.emisor(), self.spin_espaciamiento.value(), longitud,
-                distancia_primer_emisor_m=self.spin_primer.value(),
-                pendiente=signo * pendiente, metodo=metodo))
+                grupo.tuberia(), grupo.emisor(), grupo.spin_espaciamiento.value(), longitud,
+                distancia_primer_emisor_m=grupo.spin_primer.value(),
+                pendiente=signo * pendiente, metodo=self.grupo_criterios.metodo()))
         if laterales == [None, None]:
             raise ValueError("Indique la longitud de los laterales de al menos un lado.")
         return laterales
@@ -288,13 +177,25 @@ class DialogoSubunidad(QDialog):
         self.spin_numero.setValue(numero)
         return numero, 0.0, perfil
 
-    # ---------------------------------------------------------------- cálculo
-
     def calcular(self):
         error = None
         QApplication.setOverrideCursor(Qt.CursorShape.WaitCursor)
         try:
-            datos = self._calcular()
+            lateral_a, lateral_b = self._crear_laterales()
+            numero, pendiente, perfil = self._geometria_portalateral()
+            separacion = self.spin_separacion.value()
+            entrada = self.combo_entrada.currentData()
+            metodo = self.grupo_criterios.metodo()
+
+            def construir(tuberia):
+                return subunidad_rectangular(tuberia, lateral_a, lateral_b, separacion, numero,
+                                             posicion_entrada=entrada, pendiente=pendiente,
+                                             perfil=perfil, metodo=metodo)
+
+            diseno = disenar_subunidad(construir, self.tuberias_portalateral,
+                                       self.grupo_criterios.criterios(),
+                                       tuberia_fija=self.combo_tuberia_porta.tuberia(),
+                                       presion_entrada_m=self.grupo_criterios.presion_conocida())
         except (ValueError, PresionInsuficiente) as e:
             error = str(e)
         finally:
@@ -302,186 +203,7 @@ class DialogoSubunidad(QDialog):
         if error:
             QMessageBox.warning(self, "RiegoLibre", error)
             return
-        self._mostrar(*datos)
-
-    def _calcular(self):
-        lateral_a, lateral_b = self._crear_laterales()
-        numero, pendiente, perfil = self._geometria_portalateral()
-        separacion = self.spin_separacion.value()
-        entrada = self.combo_entrada.currentData()
-        metodo = self.combo_metodo.currentData()
-
-        def construir(tuberia):
-            return subunidad_rectangular(tuberia, lateral_a, lateral_b, separacion, numero,
-                                         posicion_entrada=entrada, pendiente=pendiente,
-                                         perfil=perfil, metodo=metodo)
-
-        criterios = self.criterios()
-        presion = self.spin_presion.value() if self.radio_conocida.isChecked() else None
-        evaluaciones, elegida = evaluar_diametros(construir, self.tuberias_portalateral, criterios,
-                                                  presion_entrada_m=presion)
-
-        avisos = []
-        indice = self.combo_tuberia_porta.currentData()
-        if indice != AUTOMATICA:
-            tuberia = self.tuberias_portalateral[indice]
-        elif elegida is not None:
-            tuberia = evaluaciones[elegida].tuberia
-        else:
-            calculables = [e for e in evaluaciones if e.resultado is not None]
-            if not calculables:
-                raise ValueError("No se pudo calcular la subunidad con ninguna tubería: "
-                                 + evaluaciones[-1].motivos[0])
-            tuberia = calculables[-1].tuberia
-            avisos.append("Ningún diámetro del catálogo cumple todos los criterios; "
-                          "se muestra el de mayor diámetro.")
-
-        subunidad = construir(tuberia)
-        if presion is None:
-            resultado = subunidad.presion_entrada_requerida(detallado=True)
-        else:
-            resultado = subunidad.simular(presion, detallado=True)
-        return subunidad, resultado, tuberia, evaluaciones, elegida, avisos, (lateral_a, lateral_b)
-
-    # --------------------------------------------------------------- resultados
-
-    def _mostrar(self, subunidad, r, tuberia, evaluaciones, elegida, avisos, laterales):
-        self.resultado = r
-        criterios = self.criterios()
-        motivos = incumplimientos(r, criterios, tuberia)
-        tuberia_lateral = self.tuberia_lateral()
-        presion_max_laterales = max(p for rama in r.ramas for p in rama.presiones_m)
-        if tuberia_lateral.presion_nominal_m and presion_max_laterales > tuberia_lateral.presion_nominal_m:
-            avisos.append(f"La presión en la entrada de algunos laterales ({presion_max_laterales:.1f} m) "
-                          f"supera la nominal de la tubería lateral ({tuberia_lateral.presion_nominal_m:g} m).")
-
-        longitud_porta = self.spin_numero.value() * self.spin_separacion.value()
+        longitud_porta = numero * separacion
         ancho = self.spin_longitud_a.value() + self.spin_longitud_b.value()
-        area_m2 = longitud_porta * ancho
-        q = r.caudal_total_lh
-        numero_laterales = sum(len(c.laterales) for rama in subunidad.ramas for c in rama.conexiones)
-        presiones_laterales = [p for rama in r.ramas for p in rama.presiones_m]
-        modo = "automática" if self.combo_tuberia_porta.currentData() == AUTOMATICA else "elegida"
-
-        filas = [
-            ("Tubería del portalateral", f"<b>{tuberia.nombre}</b> ({modo})"),
-            ("Presión en la entrada (válvula)",
-             f"<b>{r.presion_entrada_m:.2f} m</b> ({r.presion_entrada_m / M_POR_BAR:.2f} bar)"),
-            ("Caudal de la subunidad",
-             f"<b>{q:,.0f} L/h</b> ({q / 3600:.2f} L/s · {q / 1000:.2f} m³/h)"),
-            ("Laterales / emisores", f"{numero_laterales} / {r.numero_emisores:,}"),
-            ("Área", f"{area_m2 / 10000:.3f} ha ({longitud_porta:.1f} × {ancho:.1f} m)"),
-            ("Precipitación horaria", f"{q / area_m2:.2f} mm/h" if area_m2 else "—"),
-            ("Velocidad máxima en portalateral", f"{r.velocidad_max_ms:.2f} m/s"),
-            ("Pérdida por fricción en portalateral", f"{r.perdida_friccion_max_m:.2f} m"),
-            ("Presión en entrada de laterales",
-             f"{min(presiones_laterales):.2f} – {max(presiones_laterales):.2f} m"),
-            ("Presión en emisores (mín. / máx.)",
-             f"{r.presion_min_emisor_m:.2f} / {r.presion_max_emisor_m:.2f} m"),
-            ("Caudal de emisores (mín. / medio / máx.)",
-             f"{r.caudal_min_lh:.3f} / {r.caudal_medio_lh:.3f} / {r.caudal_max_lh:.3f} L/h"),
-            ("Variación de caudal", f"{r.variacion_caudal:.1%}"),
-            ("Uniformidad de emisión (EU)", f"{r.uniformidad_emision:.1f} %"),
-            ("Emisores fuera de rango", f"{r.emisores_fuera_de_rango}"),
-        ]
-        avisos = [m[0].upper() + m[1:] + "." for m in motivos] + avisos
-        self.texto.setHtml(f"<h3>Subunidad — {html_estado(not motivos)}</h3>"
-                           + html_tabla(filas) + html_avisos(avisos))
-        self._llenar_diametros(evaluaciones, elegida, tuberia)
-        self._llenar_laterales(r)
-        self._graficar(r, laterales[0] or laterales[1])
-        self.pestanas.setCurrentIndex(0)
-
-    def _llenar_diametros(self, evaluaciones, elegida, tuberia_usada):
-        self._evaluaciones = evaluaciones
-        tabla = self.tabla_diametros
-        tabla.setRowCount(len(evaluaciones))
-        for fila, e in enumerate(evaluaciones):
-            r = e.resultado
-            valores = [e.tuberia.nombre, f"{e.tuberia.diametro_interior_mm:.1f}"]
-            if r is None:
-                valores += ["—"] * 4
-            else:
-                valores += [f"{r.presion_entrada_m:.2f}", f"{r.velocidad_max_ms:.2f}",
-                            f"{r.variacion_caudal:.1%}", f"{r.uniformidad_emision:.1f}"]
-            valores.append("✔ cumple" if e.cumple else "✘ " + "; ".join(e.motivos))
-            for columna, valor in enumerate(valores):
-                item = QTableWidgetItem(valor)
-                if e.cumple:
-                    item.setForeground(QBrush(QColor("#2e7d32")))
-                if e.tuberia is tuberia_usada:
-                    fuente = QFont()
-                    fuente.setBold(True)
-                    item.setFont(fuente)
-                if fila == elegida:
-                    item.setBackground(QBrush(QColor(46, 125, 50, 40)))
-                tabla.setItem(fila, columna, item)
-
-    def _usar_diametro(self, fila, _columna):
-        tuberia = self._evaluaciones[fila].tuberia
-        indice = self.combo_tuberia_porta.findData(self.tuberias_portalateral.index(tuberia))
-        self.combo_tuberia_porta.setCurrentIndex(indice)
-        self.calcular()
-
-    @staticmethod
-    def _ramas_con_signo(r):
-        """Por rama: (nombre, signo) — con entrada central la segunda rama va hacia el inicio."""
-        if len(r.ramas) == 1:
-            return [("Única", 1)]
-        return [("Hacia el final", 1), ("Hacia el inicio", -1)]
-
-    def _llenar_laterales(self, r):
-        filas = []
-        for (nombre, signo), rama in zip(self._ramas_con_signo(r), r.ramas):
-            for i, d in enumerate(rama.distancias_m):
-                filas.append((signo * d, [
-                    nombre, f"{signo * d:.1f}", f"{rama.presiones_m[i]:.2f}",
-                    f"{rama.caudales_lh[i]:.1f}", f"{rama.h_min_m[i]:.2f}", f"{rama.h_max_m[i]:.2f}",
-                    f"{rama.q_min_lh[i]:.3f}", "Sí" if rama.fuera_de_rango[i] else "No"]))
-        filas.sort(key=lambda f: f[0])
-        tabla = self.tabla_laterales
-        tabla.setRowCount(len(filas))
-        for fila, (_, valores) in enumerate(filas):
-            for columna, valor in enumerate(valores):
-                item = QTableWidgetItem(valor)
-                if columna and valor.replace(".", "").replace("-", "").isdigit():
-                    item.setTextAlignment(Qt.AlignmentFlag.AlignRight | Qt.AlignmentFlag.AlignVCenter)
-                tabla.setItem(fila, columna, item)
-
-    def _graficar(self, r, lateral):
-        if self.figura is None:
-            return
-        puntos = []
-        for (_, signo), rama in zip(self._ramas_con_signo(r), r.ramas):
-            for i, d in enumerate(rama.distancias_m):
-                puntos.append((signo * d, rama.presiones_m[i], rama.h_min_m[i], rama.h_max_m[i],
-                               rama.cotas_m[i]))
-        puntos.append((0.0, r.presion_entrada_m, None, None, 0.0))
-        puntos.sort(key=lambda p: p[0])
-        x = [p[0] for p in puntos]
-        con_emisores = [p for p in puntos if p[2] is not None]
-
-        self.figura.clear()
-        ejes = self.figura.add_subplot(111)
-        ejes.plot(x, [p[1] for p in puntos], color="#1e88e5", label="Presión en el portalateral")
-        ejes.fill_between([p[0] for p in con_emisores], [p[2] for p in con_emisores],
-                          [p[3] for p in con_emisores], color="#43a047", alpha=0.25,
-                          label="Presión en emisores (mín.–máx.)")
-        ejes.plot([0], [r.presion_entrada_m], "o", color="#c62828", label="Entrada (válvula)")
-        e = lateral.emisor
-        if e.autocompensado:
-            ejes.axhline(e.presion_compensacion_m, color="#43a047", linestyle=":",
-                         label="Inicio de compensación")
-        else:
-            ejes.axhline(e.presion_nominal_m, color="#43a047", linestyle=":", label="Presión nominal")
-        ejes.set_xlabel("Posición a lo largo del portalateral, desde la entrada (m)")
-        ejes.set_ylabel("Presión (m.c.a.)")
-        ejes.grid(True, alpha=0.3)
-
-        terreno = ejes.twinx()
-        terreno.plot(x, [p[4] for p in puntos], color="#6d4c41", linewidth=1, label="Terreno (relativo)")
-        terreno.set_ylabel("Cota relativa (m)")
-        lineas = ejes.get_legend_handles_labels()
-        lineas_t = terreno.get_legend_handles_labels()
-        ejes.legend(lineas[0] + lineas_t[0], lineas[1] + lineas_t[1], loc="best", fontsize=8)
-        self.lienzo.draw()
+        self.panel.mostrar(diseno, self.grupo_criterios.criterios(), self.grupo_laterales.tuberia(),
+                           longitud_porta * ancho, f"{longitud_porta:.1f} × {ancho:.1f} m")

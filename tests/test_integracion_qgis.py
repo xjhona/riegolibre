@@ -104,43 +104,43 @@ class PruebasIntegracionQgis(unittest.TestCase):
         self.assertIn("Longitud máxima", dialogo.texto.toHtml())
 
     def test_subunidad_seleccion_automatica(self):
-        from riegolibre.gui.dialogo_subunidad import AUTOMATICA, DialogoSubunidad
+        from riegolibre.gui.dialogo_subunidad import DialogoSubunidad
         dialogo = DialogoSubunidad(iface=None)
-        self.assertEqual(dialogo.combo_tuberia_porta.currentData(), AUTOMATICA)
+        self.assertIsNone(dialogo.combo_tuberia_porta.tuberia())
         dialogo.calcular()
-        html = dialogo.texto.toHtml()
+        html = dialogo.panel.texto.toHtml()
         self.assertIn("automática", html)
         self.assertIn("Cumple", html)
-        tabla = dialogo.tabla_diametros
+        tabla = dialogo.panel.tabla_diametros
         self.assertEqual(tabla.rowCount(), len(dialogo.tuberias_portalateral))
         estados = [tabla.item(f, 6).text() for f in range(tabla.rowCount())]
         primera = next(i for i, e in enumerate(estados) if e.startswith("✔"))
         self.assertTrue(all(e.startswith("✘") for e in estados[:primera]))
-        self.assertEqual(dialogo.tabla_laterales.rowCount(), 40)
+        self.assertEqual(dialogo.panel.tabla_laterales.rowCount(), 40)
 
         # Doble clic en la primera fila: fija esa tubería (que no cumple) y recalcula.
-        dialogo._usar_diametro(0, 0)
-        self.assertNotEqual(dialogo.combo_tuberia_porta.currentData(), AUTOMATICA)
-        self.assertIn("No cumple", dialogo.texto.toHtml())
+        dialogo.panel._doble_clic_diametro(0, 0)
+        self.assertIs(dialogo.combo_tuberia_porta.tuberia(), dialogo.tuberias_portalateral[0])
+        self.assertIn("No cumple", dialogo.panel.texto.toHtml())
 
     def test_subunidad_con_dem_y_entrada_central(self):
         from riegolibre.gui.dialogo_subunidad import DialogoSubunidad
         from riegolibre.nucleo import ENTRADA_CENTRO
         dialogo = DialogoSubunidad(iface=None)
-        dialogo.combo_emisor.setCurrentIndex(1)  # autocompensado
+        dialogo.grupo_laterales.combo_emisor.setCurrentIndex(1)  # autocompensado
         dialogo.combo_entrada.setCurrentIndex(dialogo.combo_entrada.findData(ENTRADA_CENTRO))
         dialogo.check_terreno.setChecked(True)
         dialogo.combo_linea.setLayer(self.lineas)
         dialogo.combo_dem.setLayer(self.dem)
         dialogo.calcular()
         self.assertEqual(dialogo.spin_numero.value(), round(100 / 1.5))
-        self.assertEqual(dialogo.tabla_laterales.rowCount(), round(100 / 1.5))
-        ramas = {dialogo.tabla_laterales.item(f, 0).text()
-                 for f in range(dialogo.tabla_laterales.rowCount())}
+        tabla = dialogo.panel.tabla_laterales
+        self.assertEqual(tabla.rowCount(), round(100 / 1.5))
+        ramas = {tabla.item(f, 0).text() for f in range(tabla.rowCount())}
         self.assertEqual(ramas, {"Hacia el final", "Hacia el inicio"})
-        self.assertEqual(dialogo.resultado.emisores_fuera_de_rango, 0)
-        self.assertAlmostEqual(dialogo.resultado.presion_min_emisor_m, 5.0, delta=0.01)
-        self.assertIn("✔ Cumple", dialogo.texto.toPlainText())
+        self.assertEqual(dialogo.panel.resultado.emisores_fuera_de_rango, 0)
+        self.assertAlmostEqual(dialogo.panel.resultado.presion_min_emisor_m, 5.0, delta=0.01)
+        self.assertIn("✔ Cumple", dialogo.panel.texto.toPlainText())
 
     def test_registro_en_qgis(self):
         from qgis.PyQt.QtWidgets import QMainWindow
@@ -170,8 +170,9 @@ class PruebasIntegracionQgis(unittest.TestCase):
         plugin = classFactory(iface)
         plugin.initGui()
         self.assertEqual([a.text() for a in iface.menu],
-                         ["Calculadora de lateral (goteo)…", "Subunidad de riego (goteo)…"])
-        self.assertFalse(iface.menu[1].icon().isNull())
+                         ["Calculadora de lateral (goteo)…", "Subunidad de riego (goteo)…",
+                          "Diseño de subunidad en el mapa (goteo)…"])
+        self.assertTrue(all(not a.icon().isNull() for a in iface.menu))
         iface.menu[1].trigger()
         self.assertTrue(plugin.dialogos["subunidad"].isVisible())
         plugin.unload()
