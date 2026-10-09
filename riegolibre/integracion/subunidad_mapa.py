@@ -259,7 +259,8 @@ def capas_resultado(diseno, modelo, portalateral, distancia_entrada_m, crs, nomb
         "field=id_origen:integer&field=conexion:integer&field=dist_porta:double"
         "&field=longitud:double&field=emisores:integer&field=p_entrada:double&field=caudal_lh:double"
         "&field=p_min:double&field=p_max:double&field=q_min:double&field=q_max:double"
-        "&field=var_caudal:double&field=fuera_rango:integer",
+        "&field=var_caudal:double&field=fuera_rango:integer&field=tuberia:string(80)"
+        "&field=emisor:string(80)",
         f"Laterales · {nombre}", crs)
     tramos = _capa(
         "LineString",
@@ -278,7 +279,8 @@ def capas_resultado(diseno, modelo, portalateral, distancia_entrada_m, crs, nomb
         caudal_aguas_abajo = sum(rama_r.caudales_lh)
         anterior, presion_anterior = 0.0, r.presion_entrada_m
         for j, i in enumerate(indices):
-            for lat_mapa, res in zip(modelo.origen[i], rama_r.laterales[j]):
+            for lat_mapa, lateral, res in zip(modelo.origen[i], modelo.conexiones[i].laterales,
+                                              rama_r.laterales[j]):
                 entidad = QgsFeature(laterales.fields())
                 entidad.setGeometry(lat_mapa.geometria)
                 entidad.setAttributes([
@@ -286,7 +288,7 @@ def capas_resultado(diseno, modelo, portalateral, distancia_entrada_m, crs, nomb
                     res.numero_emisores, round(res.presion_entrada_m, 3), round(res.caudal_total_lh, 2),
                     round(res.presion_min_m, 3), round(res.presion_max_m, 3), round(res.caudal_min_lh, 4),
                     round(res.caudal_max_lh, 4), round(100 * res.variacion_caudal, 2),
-                    res.emisores_fuera_de_rango])
+                    res.emisores_fuera_de_rango, lateral.tuberia.nombre, lateral.emisor.nombre])
                 entidades_lat.append(entidad)
 
             actual = rama_r.distancias_m[j]

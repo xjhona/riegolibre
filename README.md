@@ -16,13 +16,16 @@ riegolibre/                 Complemento de QGIS (esta carpeta es la que se insta
 │   ├── portalateral.py     Portalateral (laterales a uno o ambos lados)
 │   ├── subunidad.py        Subunidad (entrada en extremo o centro) y selección de diámetro
 │   ├── red.py              Red principal ramificada: turnos, diámetros, clases y bomba
+│   ├── precios.py          Lectura de listas de precios e identificación de tuberías
+│   ├── materiales.py       Partidas, tubos, desperdicio, costos y exportación a Excel
 │   ├── uniformidad.py      EU (Keller-Karmeli), variación de caudal, CU
 │   └── datos/              Catálogos editables (JSON)
 ├── integracion/            Conexión con QGIS
 │   ├── perfil_terreno.py   Perfil del terreno desde un DEM
 │   ├── subunidad_mapa.py   Generación de laterales en el bloque y capas de resultado
-│   └── red_mapa.py         Topología de la red principal dibujada y capas de resultado
-└── gui/                    Ventanas: lateral, subunidad, diseño en el mapa y red principal
+│   ├── red_mapa.py         Topología de la red principal dibujada y capas de resultado
+│   └── materiales_mapa.py  Metrado a partir de las capas de resultado del proyecto
+└── gui/                    Ventanas: lateral, subunidad, diseño en el mapa, red y materiales
 tests/                      Pruebas automáticas
 scripts/                    Utilidades de desarrollo
 ```
@@ -80,6 +83,23 @@ La ventana también muestra el perfil hidráulico de la ruta crítica: la línea
 
 Por ahora solo se calculan redes ramificadas, sin circuitos cerrados.
 
+## Lista de materiales y costos
+
+Menú **Complementos → RiegoLibre → Lista de materiales y costos**:
+
+- **Metrado**: se arma con las capas de resultado del proyecto (subunidades en el mapa y red principal):
+  - metros de tubería por tipo en laterales, portalaterales y red principal,
+  - número de emisores,
+  - conectores iniciales y cierres (uno por lateral),
+  - válvulas de subunidad y bomba.
+- **Lista de precios**: un CSV con las columnas `codigo, descripcion, unidad, precio`. Las tuberías se reconocen por su descripción (material, diámetro y clase), por ejemplo «PVC PIPE UF 63mm C-5 x 6 METERS». Si la descripción indica un largo de tubo («x 6 METERS»), el precio es por tubo; los largos de bobina («500m», «B-450M») indican precio por metro.
+- **Asignación automática**: las tuberías y los conectores iniciales reciben su artículo equivalente. Si hay varios, se usa el de precio central (mediana).
+- **Asignación manual**: el resto se elige con doble clic y un buscador. La elección queda guardada en el proyecto de QGIS.
+- **Desperdicio**: porcentaje configurable sobre los metros de tubería. El número de tubos se redondea hacia arriba.
+- **Exportación**: a Excel (.xlsx) con fórmula de total, o a CSV.
+
+Los precios son referenciales: actualice la lista de precios cuando cambie.
+
 ## Método de cálculo
 
 **Lateral.** Se calcula paso a paso desde el último emisor hacia la entrada. En cada tramo se suman el caudal real de los emisores aguas abajo, la pérdida por fricción y el desnivel del terreno, ya sea con pendiente uniforme o con el perfil del DEM. La inserción de cada emisor se modela como una longitud equivalente.
@@ -92,7 +112,7 @@ Por ahora solo se calculan redes ramificadas, sin circuitos cerrados.
 
 **Subunidad.** La válvula puede estar en un extremo del portalateral o en el centro. En el centro hay dos ramas que reciben la misma presión, y con pendiente una sube y la otra baja. Los laterales de cada lado pueden tener su propia pendiente transversal.
 
-**Selección del diámetro del portalateral.** Se evalúan todas las tuberías del catálogo y se elige la de menor diámetro que cumple estas condiciones:
+**Selección del diámetro del portalateral.** Se evalúan todas las tuberías del catálogo y se elige la de menor diámetro nominal que cumple estas condiciones. Entre tubos del mismo diámetro se prefiere la clase de presión más baja: pared más delgada, más diámetro interior y menor precio.
 - variación de caudal en toda la subunidad,
 - velocidad máxima en el portalateral,
 - presión de entrada máxima, si se indica,
@@ -113,5 +133,7 @@ Por ahora solo se calculan redes ramificadas, sin circuitos cerrados.
 - [ ] Portalateral telescópico (dos o más diámetros)
 - [x] Herramientas de mapa: dibujar el bloque y generar los laterales automáticamente
 - [x] Red principal, carga dinámica total y punto de diseño de la bomba
-- [ ] Lista de materiales y memoria de cálculo
+- [x] Lista de materiales y costos con lista de precios
+- [ ] Memoria de cálculo
+- [ ] Elección de diámetros de la red por costo (tubería + energía de bombeo)
 - [ ] Riego por aspersión

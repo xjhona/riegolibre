@@ -20,6 +20,7 @@ class RiegoLibrePlugin:
         self._agregar_accion("icon_subunidad.svg", "Subunidad de riego (goteo)…", "subunidad")
         self._agregar_accion("icon_mapa.svg", "Diseño de subunidad en el mapa (goteo)…", "mapa")
         self._agregar_accion("icon_red.svg", "Red principal y bomba…", "red")
+        self._agregar_accion("icon_materiales.svg", "Lista de materiales y costos…", "materiales")
 
     def _agregar_accion(self, icono, texto, dialogo):
         accion = QAction(QIcon(os.path.join(CARPETA, icono)), texto, self.iface.mainWindow())
@@ -47,8 +48,10 @@ class RiegoLibrePlugin:
                 from .gui.dialogo_subunidad import DialogoSubunidad as Clase
             elif nombre == "mapa":
                 from .gui.dialogo_mapa import DialogoMapa as Clase
-            else:
+            elif nombre == "red":
                 from .gui.dialogo_red import DialogoRed as Clase
+            else:
+                from .gui.dialogo_materiales import DialogoMateriales as Clase
             dialogo = self.dialogos[nombre] = Clase(self.iface, self.iface.mainWindow())
         dialogo.show()
         dialogo.raise_()

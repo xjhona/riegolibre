@@ -14,6 +14,7 @@ from .lateral import CRITERIO_CAUDAL_MEDIO, CRITERIO_PRESION_MINIMA
 from .portalateral import (ConexionLateral, EstadisticasEmisores, Portalateral,
                            ResultadoPortalateral, corregir_presion_minima,
                            criterio_por_defecto, presion_minima_requerida)
+from .tuberias import clave_economica
 
 ENTRADA_EXTREMO = "extremo"
 ENTRADA_CENTRO = "centro"
@@ -237,11 +238,11 @@ def evaluar_diametros(construir: Callable, tuberias, criterios, criterio=None,
 
     construir(tuberia) debe devolver la Subunidad con esa tubería en el portalateral.
     Si se da presion_entrada_m se evalúa con esa presión; si no, con la requerida.
-    Devuelve (evaluaciones ordenadas por diámetro, índice de la más pequeña que cumple
-    o None).
+    Devuelve (evaluaciones en orden de preferencia —ver clave_economica—, índice de
+    la primera que cumple o None).
     """
     evaluaciones = []
-    for tuberia in sorted(tuberias, key=lambda t: t.diametro_interior_mm):
+    for tuberia in sorted(tuberias, key=clave_economica):
         try:
             subunidad = construir(tuberia)
             if presion_entrada_m is None:

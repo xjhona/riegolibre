@@ -15,7 +15,7 @@ from dataclasses import dataclass, field
 from typing import Dict, List, Optional, Sequence, Tuple
 
 from .hidraulica import LH_A_M3S
-from .tuberias import Tuberia
+from .tuberias import Tuberia, clave_economica
 
 
 @dataclass
@@ -229,12 +229,6 @@ class Red:
 # ---------------------------------------------------------- dimensionamiento
 
 
-def _clave_economica(tuberia):
-    """Menor diámetro nominal primero y, dentro de él, la clase de presión más baja."""
-    return (tuberia.diametro_nominal_mm or tuberia.diametro_interior_mm,
-            tuberia.presion_nominal_m or 0.0, -tuberia.diametro_interior_mm)
-
-
 def motivos_tuberia(tuberia, caudal_lh, presion_max_m, criterios):
     """Lista de criterios que la tubería no cumple para un caudal y una presión dados."""
     motivos = []
@@ -253,7 +247,7 @@ def motivos_tuberia(tuberia, caudal_lh, presion_max_m, criterios):
 
 def elegir_tuberia(candidatas, caudal_lh, presion_max_m, criterios):
     """La tubería más económica que cumple; si ninguna cumple, la mejor posible."""
-    ordenadas = sorted(candidatas, key=_clave_economica)
+    ordenadas = sorted(candidatas, key=clave_economica)
     for tuberia in ordenadas:
         if not motivos_tuberia(tuberia, caudal_lh, presion_max_m, criterios):
             return tuberia

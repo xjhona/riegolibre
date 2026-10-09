@@ -3,6 +3,7 @@ import unittest
 from riegolibre.nucleo import (ENTRADA_CENTRO, ENTRADA_EXTREMO, CriteriosDiseno, Emisor,
                                Lateral, Tuberia, cargar_catalogo_tuberias,
                                evaluar_diametros, subunidad_rectangular)
+from riegolibre.nucleo.tuberias import clave_economica
 
 PE16 = Tuberia("PE 16", 13.6)
 PVC63 = Tuberia("PVC 63", 59.8, material="PVC", c_hazen=150)
@@ -85,8 +86,9 @@ class PruebasSubunidad(unittest.TestCase):
         evaluaciones, elegida = evaluar_diametros(construir, candidatas, criterios)
         self.assertIsNotNone(elegida)
         self.assertTrue(evaluaciones[elegida].cumple)
-        diametros = [e.tuberia.diametro_interior_mm for e in evaluaciones]
-        self.assertEqual(diametros, sorted(diametros))
+        self.assertEqual([e.tuberia for e in evaluaciones], sorted(candidatas, key=clave_economica))
+        # Entre tubos del mismo diámetro nominal se prefiere la clase más baja (C-5).
+        self.assertIn("C-5", evaluaciones[elegida].tuberia.nombre)
         for e in evaluaciones[:elegida]:
             self.assertFalse(e.cumple)
             self.assertTrue(e.motivos)

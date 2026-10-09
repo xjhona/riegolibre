@@ -11,6 +11,7 @@ from qgis.PyQt.QtWidgets import (QApplication, QComboBox, QDialog,
 from ..nucleo import (Lateral, PresionInsuficiente, cargar_catalogo_emisores,
                       cargar_catalogo_tuberias, disenar_subunidad,
                       subunidad_desde_conexiones)
+from ..nucleo.tuberias import clave_economica
 from .comunes import (ComboTuberiaPortalateral, GrupoCriterios, GrupoLaterales,
                       html_tabla, spin)
 from .panel_resultados import PanelResultadosSubunidad
@@ -38,7 +39,7 @@ class DialogoMapa(QDialog):
         self.resize(1250, 800)
 
         self.tuberias_portalateral = sorted(cargar_catalogo_tuberias(uso="portalateral"),
-                                            key=lambda t: t.diametro_interior_mm)
+                                            key=clave_economica)
         self.grupo_laterales = GrupoLaterales(cargar_catalogo_tuberias(uso="lateral"),
                                               cargar_catalogo_emisores(), "Laterales y emisores")
         self.grupo_criterios = GrupoCriterios()

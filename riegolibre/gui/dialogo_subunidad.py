@@ -12,6 +12,7 @@ from ..nucleo import (ENTRADA_CENTRO, ENTRADA_EXTREMO, Lateral,
                       PresionInsuficiente, cargar_catalogo_emisores,
                       cargar_catalogo_tuberias, disenar_subunidad,
                       subunidad_rectangular)
+from ..nucleo.tuberias import clave_economica
 from .comunes import ComboTuberiaPortalateral, GrupoCriterios, GrupoLaterales, spin
 from .panel_resultados import PanelResultadosSubunidad
 
@@ -24,7 +25,7 @@ class DialogoSubunidad(QDialog):
         self.resize(1200, 760)
 
         self.tuberias_portalateral = sorted(cargar_catalogo_tuberias(uso="portalateral"),
-                                            key=lambda t: t.diametro_interior_mm)
+                                            key=clave_economica)
         self.grupo_laterales = GrupoLaterales(cargar_catalogo_tuberias(uso="lateral"),
                                               cargar_catalogo_emisores())
         self._completar_grupo_laterales()

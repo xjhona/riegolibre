@@ -65,6 +65,16 @@ class Tuberia:
         return hidraulica.velocidad(caudal_m3s, self.diametro_m)
 
 
+def clave_economica(tuberia):
+    """Orden de preferencia: menor diámetro nominal y, dentro de él, la clase de presión más baja.
+
+    Entre tubos del mismo diámetro nominal, la clase más baja tiene la pared más
+    delgada: más diámetro interior y menor precio.
+    """
+    return (tuberia.diametro_nominal_mm or tuberia.diametro_interior_mm,
+            tuberia.presion_nominal_m or 0.0, -tuberia.diametro_interior_mm)
+
+
 def cargar_catalogo_tuberias(ruta=RUTA_CATALOGO, uso=None):
     with open(ruta, encoding="utf-8") as archivo:
         datos = json.load(archivo)
