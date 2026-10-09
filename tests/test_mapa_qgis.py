@@ -185,6 +185,27 @@ class PruebasDialogoMapa(unittest.TestCase):
         caudales = {f["rama"] for f in tramos.getFeatures()}
         self.assertEqual(caudales, {"hacia el final", "hacia el inicio"})
 
+    def test_portalateral_telescopico(self):
+        dialogo = self._dialogo()
+        dialogo.edit_nombre.setText("Telescópica")
+        dialogo.generar_laterales()
+        dialogo.combo_dem.setLayer(self.dem)
+        dialogo.combo_diametros.setCurrentIndex(2)  # hasta tres diámetros
+        dialogo.calcular()
+        diseno = dialogo.panel.diseno
+        self.assertTrue(diseno.telescopico)
+        grupo = QgsProject.instance().layerTreeRoot().findGroup("RiegoLibre · Telescópica")
+        tramos = next(n.layer() for n in grupo.findLayers() if n.layer().name().startswith("Portalateral"))
+        # Cada tramo dibujado lleva su tubería; los metros por tubería coinciden con el cálculo.
+        en_mapa, calculado = {}, {}
+        for f in tramos.getFeatures():
+            en_mapa[f["tuberia"]] = en_mapa.get(f["tuberia"], 0.0) + f.geometry().length()
+        for s in diseno.resultado.secciones:
+            calculado[s.tuberia.nombre] = calculado.get(s.tuberia.nombre, 0.0) + s.longitud_m
+        self.assertEqual(set(en_mapa), set(calculado))
+        for nombre, metros in calculado.items():
+            self.assertAlmostEqual(en_mapa[nombre], metros, delta=0.01)
+
     def test_recalcular_reemplaza_el_grupo(self):
         dialogo = self._dialogo()
         dialogo.edit_nombre.setText("Repetida")

@@ -4,9 +4,13 @@ Cada conexión del portalateral alimenta uno o dos laterales (por ejemplo, a cad
 lado). Dentro de la iteración del portalateral cada lateral se representa con su
 curva presión-caudal (ver CurvaLateral); con la solución final, y si se pide el
 cálculo detallado, se calcula cada lateral emisor por emisor.
+
+El portalateral puede ser telescópico: a partir de ciertas distancias desde la
+entrada cambia a una tubería de menor diámetro (reducciones).
 """
 
-from dataclasses import dataclass
+import math
+from dataclasses import dataclass, field
 from typing import List, Optional, Sequence, Tuple
 
 from .hidraulica import (LH_A_M3S, PresionInsuficiente, interpolar_perfil,
@@ -101,6 +105,20 @@ class EstadisticasEmisores:
 
 
 @dataclass
+class SeccionPortalateral:
+    """Tramo del portalateral con una misma tubería."""
+    tuberia: Tuberia
+    desde_m: float  # desde la entrada
+    hasta_m: float
+    presion_max_m: float
+    velocidad_max_ms: float
+
+    @property
+    def longitud_m(self):
+        return self.hasta_m - self.desde_m
+
+
+@dataclass
 class ResultadoPortalateral(EstadisticasEmisores):
     distancias_m: List[float]
     cotas_m: List[float]  # relativas a la entrada
@@ -118,17 +136,21 @@ class ResultadoPortalateral(EstadisticasEmisores):
     cv: float
     laterales: Optional[List[List[ResultadoLateral]]] = None  # detalle por conexión
     sentido: int = 1  # +1 si avanza en el sentido del portalateral, -1 si retrocede
+    velocidad_max_ms: float = 0.0  # en todo el portalateral (en uno telescópico puede no ser la de entrada)
+    secciones: List[SeccionPortalateral] = field(default_factory=list)
 
 
 @dataclass
 class Portalateral:
-    tuberia: Tuberia
+    tuberia: Tuberia  # la de la entrada
     conexiones: List[ConexionLateral]
     pendiente: float = 0.0  # m/m, positiva si sube en el sentido del flujo
     perfil: Optional[Sequence[Tuple[float, float]]] = None
     metodo: str = "darcy"
     longitud_equivalente_conexion_m: float = 0.0
     sentido: int = 1  # +1 si avanza en el sentido del portalateral dibujado, -1 si retrocede
+    # Portalateral telescópico: [(distancia desde la entrada, tubería desde allí hacia el final)].
+    reducciones: Sequence[Tuple[float, Tuberia]] = ()
 
     def __post_init__(self):
         if not self.conexiones:
@@ -136,6 +158,46 @@ class Portalateral:
         self.conexiones = sorted(self.conexiones, key=lambda c: c.distancia_m)
         if self.perfil is not None:
             self.perfil = sorted((float(d), float(z)) for d, z in self.perfil)
+        self.reducciones = sorted(((float(d), t) for d, t in self.reducciones), key=lambda r: r[0])
+        self._tramos = None
+
+    @property
+    def tuberias(self):
+        """Tuberías usadas, de la entrada al final."""
+        return [self.tuberia] + [t for _, t in self.reducciones]
+
+    def tuberia_en(self, distancia):
+        """Tubería en un punto (distancia desde la entrada); en una reducción, la de aguas abajo."""
+        tuberia = self.tuberia
+        for desde, t in self.reducciones:
+            if distancia >= desde - 1e-9:
+                tuberia = t
+        return tuberia
+
+    def piezas(self, desde, hasta):
+        """[(tubería, inicio, fin)] entre dos distancias desde la entrada."""
+        inicios = [0.0] + [d for d, _ in self.reducciones]
+        piezas = []
+        for i, tuberia in enumerate(self.tuberias):
+            fin = inicios[i + 1] if i + 1 < len(inicios) else math.inf
+            a, b = max(desde, inicios[i]), min(hasta, fin)
+            if b > a + 1e-9:
+                piezas.append((tuberia, a, b))
+        return piezas
+
+    def _tramos_hidraulicos(self):
+        """Por cada tramo (entrada → conexión 0, conexión i → i+1): [(tubería, longitud)].
+
+        La longitud equivalente de la conexión se suma a la primera pieza del tramo.
+        """
+        if self._tramos is None:
+            distancias = [0.0] + [c.distancia_m for c in self.conexiones]
+            self._tramos = []
+            for a, b in zip(distancias, distancias[1:]):
+                piezas = [[t, fin - inicio] for t, inicio, fin in self.piezas(a, b)] or [[self.tuberia_en(a), 0.0]]
+                piezas[0][1] += self.longitud_equivalente_conexion_m
+                self._tramos.append([tuple(p) for p in piezas])
+        return self._tramos
 
     def cota(self, distancia):
         if self.perfil is not None:
@@ -154,8 +216,11 @@ class Portalateral:
     def numero_emisores(self):
         return sum(lat.numero_emisores for lat in self.laterales)
 
-    def simular_desde_final(self, presion_final_m, detallado=False):
+    def simular_desde_final(self, presion_final_m, detallado=False, con_secciones=False):
         conexiones = self.conexiones
+        tramos = self._tramos_hidraulicos()
+        metodo = self.metodo
+        velocidad_max = 0.0
         n = len(conexiones)
         distancias = [c.distancia_m for c in conexiones]
         z = [self.cota(d) for d in distancias]
@@ -169,8 +234,11 @@ class Portalateral:
         perdida_total = 0.0
         for i in range(n - 1, -1, -1):
             if i < n - 1:
-                tramo = distancias[i + 1] - distancias[i] + self.longitud_equivalente_conexion_m
-                hf = self.tuberia.perdida(acumulado * LH_A_M3S, tramo, self.metodo)
+                q = acumulado * LH_A_M3S
+                hf = 0.0
+                for tuberia, longitud in tramos[i + 1]:
+                    hf += tuberia.perdida(q, longitud, metodo)
+                    velocidad_max = max(velocidad_max, tuberia.velocidad(q))
                 perdida_total += hf
                 presiones[i] = presiones[i + 1] + hf + (z[i + 1] - z[i])
             caudal = 0.0
@@ -187,8 +255,11 @@ class Portalateral:
             q_max[i] = max(e.caudal(h) for h, e in maximos)
             fuera[i] = any(e.fuera_de_rango(h) for h, e in minimos + maximos)
             acumulado += caudal
-        hf = self.tuberia.perdida(acumulado * LH_A_M3S,
-                                  distancias[0] + self.longitud_equivalente_conexion_m, self.metodo)
+        q = acumulado * LH_A_M3S
+        hf = 0.0
+        for tuberia, longitud in tramos[0]:
+            hf += tuberia.perdida(q, longitud, metodo)
+            velocidad_max = max(velocidad_max, tuberia.velocidad(q))
         perdida_total += hf
 
         detalle = None
@@ -205,6 +276,7 @@ class Portalateral:
                 fuera[i] = any(r.emisores_fuera_de_rango for r in fila)
             acumulado = sum(caudales)
 
+        presion_entrada = presiones[0] + hf + z[0]
         return ResultadoPortalateral(
             distancias_m=distancias,
             cotas_m=z,
@@ -215,19 +287,36 @@ class Portalateral:
             q_min_lh=q_min,
             q_max_lh=q_max,
             fuera_de_rango=fuera,
-            presion_entrada_m=presiones[0] + hf + z[0],
+            presion_entrada_m=presion_entrada,
             perdida_friccion_m=perdida_total,
             velocidad_entrada_ms=self.tuberia.velocidad(acumulado * LH_A_M3S),
             numero_emisores=self.numero_emisores,
             cv=max(lat.emisor.cv for lat in self.laterales),
             laterales=detalle,
             sentido=self.sentido,
+            velocidad_max_ms=velocidad_max,
+            secciones=(self._secciones(distancias, presiones, caudales, presion_entrada)
+                       if detallado or con_secciones else []),
         )
+
+    def _secciones(self, distancias, presiones, caudales, presion_entrada):
+        """Presión y velocidad máximas en cada tramo de una misma tubería."""
+        perfil = [(0.0, presion_entrada)] + list(zip(distancias, presiones))
+        secciones = []
+        for tuberia, desde, hasta in self.piezas(0.0, self.longitud_m):
+            puntos = [desde, hasta] + [d for d in distancias if desde < d < hasta]
+            presion = max(interpolar_perfil(perfil, d) for d in puntos)
+            # El mayor caudal de la sección es el que entra en ella: el de las conexiones
+            # aguas abajo de su inicio (una conexión justo en la reducción toma el agua antes).
+            q = sum(c for d, c in zip(distancias, caudales) if desde == 0.0 or d > desde + 1e-9)
+            secciones.append(SeccionPortalateral(tuberia, desde, hasta, presion,
+                                                 tuberia.velocidad(q * LH_A_M3S)))
+        return secciones
 
     def _resolver(self, extraer, objetivo, detallado):
         h_final = resolver_creciente(
             lambda h: extraer(self.simular_desde_final(h)), objetivo, 0.0, 10.0, tolerancia=1e-4)
-        return self.simular_desde_final(h_final, detallado=detallado)
+        return self.simular_desde_final(h_final, detallado=detallado, con_secciones=True)
 
     def simular(self, presion_entrada_m, detallado=True):
         """Calcula el portalateral para una presión conocida en su entrada."""

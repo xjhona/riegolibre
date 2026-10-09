@@ -292,16 +292,21 @@ def capas_resultado(diseno, modelo, portalateral, distancia_entrada_m, crs, nomb
                 entidades_lat.append(entidad)
 
             actual = rama_r.distancias_m[j]
-            desde = distancia_entrada_m + rama.sentido * anterior
-            hasta = distancia_entrada_m + rama.sentido * actual
-            if abs(hasta - desde) > 1e-6:
+            # Un tramo por tubería: en un portalateral telescópico el tramo se corta en la reducción.
+            for tuberia_pieza, a, b in rama.piezas(anterior, actual):
+                desde = distancia_entrada_m + rama.sentido * a
+                hasta = distancia_entrada_m + rama.sentido * b
+                if abs(hasta - desde) <= 1e-6:
+                    continue
+                presion_a, presion_b = (presion_anterior + (rama_r.presiones_m[j] - presion_anterior)
+                                        * (x - anterior) / (actual - anterior) for x in (a, b))
                 tramo = QgsFeature(tramos.fields())
                 tramo.setGeometry(QgsGeometry(portalateral.constGet().curveSubstring(min(desde, hasta),
                                                                                     max(desde, hasta))))
                 tramo.setAttributes([
                     nombre_rama, round(desde, 2), round(hasta, 2), round(caudal_aguas_abajo, 1),
-                    round(tuberia.velocidad(caudal_aguas_abajo / 3.6e6), 3), round(presion_anterior, 3),
-                    round(rama_r.presiones_m[j], 3), tuberia.nombre])
+                    round(tuberia_pieza.velocidad(caudal_aguas_abajo / 3.6e6), 3), round(presion_a, 3),
+                    round(presion_b, 3), tuberia_pieza.nombre])
                 entidades_tramo.append(tramo)
             caudal_aguas_abajo -= rama_r.caudales_lh[j]
             anterior, presion_anterior = actual, rama_r.presiones_m[j]

@@ -14,8 +14,8 @@ from ..nucleo import (Lateral, PresionInsuficiente, cargar_catalogo_emisores,
                       subunidad_desde_conexiones)
 from ..nucleo.memoria import resumen_subunidad
 from ..nucleo.tuberias import clave_economica
-from .comunes import (ComboTuberiaPortalateral, GrupoCriterios, GrupoLaterales,
-                      html_tabla, spin)
+from .comunes import (ComboDiametros, ComboTuberiaPortalateral, GrupoCriterios,
+                      GrupoLaterales, html_tabla, spin)
 from .panel_resultados import PanelResultadosSubunidad
 
 ENTRADA_INICIO, ENTRADA_CENTRO, ENTRADA_FINAL = "inicio", "centro", "final"
@@ -159,6 +159,8 @@ class DialogoMapa(QDialog):
         formulario.addRow("Entrada (válvula):", self.combo_entrada)
         self.combo_tuberia_porta = ComboTuberiaPortalateral(self.tuberias_portalateral)
         formulario.addRow("Tubería del portalateral:", self.combo_tuberia_porta)
+        self.combo_diametros = ComboDiametros()
+        formulario.addRow("Diámetros:", self.combo_diametros)
         return grupo
 
     def _actualizar_direccion(self):
@@ -313,14 +315,16 @@ class DialogoMapa(QDialog):
             entrada = {ENTRADA_INICIO: 0.0, ENTRADA_CENTRO: portalateral.length() / 2,
                        ENTRADA_FINAL: portalateral.length()}[self.combo_entrada.currentData()]
 
-            def construir(tuberia):
+            def construir(tuberia, reducciones=()):
                 return subunidad_desde_conexiones(tuberia, modelo.conexiones, entrada,
-                                                  perfil=modelo.perfil_portalateral, metodo=metodo)
+                                                  perfil=modelo.perfil_portalateral, metodo=metodo,
+                                                  reducciones=reducciones)
 
             diseno = disenar_subunidad(construir, self.tuberias_portalateral,
                                        self.grupo_criterios.criterios(),
                                        tuberia_fija=self.combo_tuberia_porta.tuberia(),
-                                       presion_entrada_m=self.grupo_criterios.presion_conocida())
+                                       presion_entrada_m=self.grupo_criterios.presion_conocida(),
+                                       diametros_max=self.combo_diametros.maximo())
             area = bloque.area() if bloque is not None else 0.0
             descartados = {id(lat) for lat in modelo.descartados}
             longitudes = [lat.longitud_m for lat in laterales_mapa if id(lat) not in descartados]

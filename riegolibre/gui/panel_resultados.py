@@ -9,7 +9,7 @@ from qgis.PyQt.QtWidgets import (QAbstractItemView, QHeaderView, QLabel,
 from ..nucleo import incumplimientos
 from ..nucleo.graficos import (dibujar_perfil_subunidad, puntos_perfil_subunidad,
                                referencia_emisor)
-from ..nucleo.memoria import avisos_subunidad
+from ..nucleo.memoria import avisos_subunidad, descripcion_telescopico
 from .comunes import (M_POR_BAR, Figure, FigureCanvasQTAgg, html_avisos,
                       html_estado, html_tabla)
 
@@ -81,7 +81,8 @@ class PanelResultadosSubunidad(QTabWidget):
         numero_laterales = sum(len(c.laterales) for rama in diseno.subunidad.ramas for c in rama.conexiones)
         modo = "automática" if diseno.automatica else "elegida"
         filas = [
-            ("Tubería del portalateral", f"<b>{tuberia.nombre}</b> ({modo})"),
+            ("Tubería del portalateral", f"<b>{tuberia.nombre}</b> ({modo})" if not diseno.telescopico
+             else f"<b>Telescópico</b> ({modo}): {descripcion_telescopico(diseno)} desde la válvula"),
             ("Presión en la entrada (válvula)",
              f"<b>{r.presion_entrada_m:.2f} m</b> ({r.presion_entrada_m / M_POR_BAR:.2f} bar)"),
             ("Caudal de la subunidad",

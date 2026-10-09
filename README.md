@@ -150,6 +150,13 @@ Se exporta a **PDF**, a **ODT**, que se abre y edita en Word o LibreOffice, o a 
 - presión nominal de la tubería,
 - todos los emisores dentro de su rango de compensación.
 
+**Portalateral telescópico.** Con *Diámetros: hasta dos* o *hasta tres*, el portalateral puede reducir su diámetro hacia el final, donde lleva menos caudal.
+- La tubería de la entrada es la que cumpliría sola en todo el portalateral.
+- Para el tramo final se prueba cada diámetro menor, con la clase de presión más baja que resiste. Una búsqueda binaria entre las conexiones encuentra el punto de cambio más cercano a la válvula que sigue cumpliendo los criterios: variación de caudal, velocidad en cada tramo y presión nominal de cada tubería.
+- Se elige la alternativa con menos material (longitud × diámetro²) y se repite con el tramo siguiente.
+- Con la válvula en el centro, el cambio de diámetro está a la misma distancia de la válvula en las dos ramas.
+- En el mapa, cada tramo del portalateral lleva su tubería, de modo que el metrado sale por tubería.
+
 **Fricción.**
 - Darcy-Weisbach con factor de Swamee-Jain en régimen turbulento y 64/Re en laminar. Es la opción recomendada para laterales, que trabajan con números de Reynolds bajos al final.
 - Hazen-Williams como alternativa.
@@ -161,7 +168,7 @@ Se exporta a **PDF**, a **ODT**, que se abre y edita en Word o LibreOffice, o a 
 - [x] Motor hidráulico de laterales y portalaterales
 - [x] Calculadora de lateral con perfil del terreno desde un DEM
 - [x] Ventana de subunidad: portalateral y laterales, selección de diámetro
-- [ ] Portalateral telescópico (dos o más diámetros)
+- [x] Portalateral telescópico (dos o tres diámetros)
 - [x] Herramientas de mapa: dibujar el bloque y generar los laterales automáticamente
 - [x] Red principal, carga dinámica total y punto de diseño de la bomba
 - [x] Lista de materiales y costos con lista de precios

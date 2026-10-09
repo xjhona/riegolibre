@@ -34,6 +34,21 @@ def _r(valor, decimales=3):
     return None if valor is None else round(valor, decimales)
 
 
+def nombre_rama(numero_ramas, sentido):
+    if numero_ramas == 1:
+        return "única"
+    return "hacia el final" if sentido > 0 else "hacia el inicio"
+
+
+def descripcion_telescopico(diseno):
+    """Tuberías del portalateral con sus distancias desde la válvula, p. ej. «A (0–38 m) → B (38–70 m)»."""
+    largo = max(rama.longitud_m for rama in diseno.subunidad.ramas)
+    inicios = [0.0] + [d for d, _ in diseno.reducciones]
+    tubos = [diseno.tuberia] + [t for _, t in diseno.reducciones]
+    fines = inicios[1:] + [largo]
+    return " → ".join(f"{t.nombre} ({a:.1f}–{b:.1f} m)" for t, a, b in zip(tubos, inicios, fines))
+
+
 # ------------------------------------------------------------------ avisos
 
 
@@ -76,6 +91,11 @@ def resumen_subunidad(nombre, diseno, criterios, metodo, area_m2=0.0, longitudes
     emisor = lateral.emisor
     longitudes = list(longitudes_laterales_m or [lat.longitud_m for lat in laterales])
     presiones_laterales = [p for rama in r.ramas for p in rama.presiones_m]
+    secciones = [{"rama": nombre_rama(len(r.ramas), rama.sentido), "tuberia": s.tuberia.nombre,
+                  "di_mm": s.tuberia.diametro_interior_mm, "desde_m": _r(s.desde_m, 2),
+                  "hasta_m": _r(s.hasta_m, 2), "velocidad_max_ms": _r(s.velocidad_max_ms),
+                  "presion_max_m": _r(s.presion_max_m)}
+                 for rama in r.ramas for s in rama.secciones]
     evaluaciones = []
     for e in diseno.evaluaciones:
         er = e.resultado
@@ -114,6 +134,9 @@ def resumen_subunidad(nombre, diseno, criterios, metodo, area_m2=0.0, longitudes
             "tuberia": tuberia.nombre, "di_mm": tuberia.diametro_interior_mm,
             "automatica": diseno.automatica, "ramas": len(r.ramas),
             "longitud_m": _r(sum(max(rama.distancias_m) for rama in r.ramas), 2),
+            "telescopico": diseno.telescopico,
+            "descripcion": descripcion_telescopico(diseno) if diseno.telescopico else diseno.tuberia.nombre,
+            "secciones": secciones,
         },
         "resultados": {
             "presion_entrada_m": _r(r.presion_entrada_m), "caudal_lh": _r(r.caudal_total_lh, 1),
@@ -432,6 +455,13 @@ def _seccion_bases(datos, num):
         "emisores no compensados, para que el caudal medio sea el nominal; con autocompensados, para que "
         "el emisor más desfavorecido reciba la presión de inicio de compensación. El diámetro del "
         "portalateral es el más económico del catálogo que cumple todos los criterios.</p>")
+    if any(s["portalateral"].get("telescopico") for s in datos.subunidades):
+        partes.append(
+            "<p><b>Portalateral telescópico:</b> la tubería de la entrada es la que cumpliría sola en todo el "
+            "portalateral. Hacia el final, donde el caudal es menor, se prueba cada diámetro menor y se busca "
+            "el punto de cambio más cercano a la válvula que sigue cumpliendo los criterios (variación de "
+            "caudal, velocidad en cada tramo, presiones nominales). Entre las alternativas se elige la de "
+            "menos material (longitud × diámetro²).</p>")
     if datos.red:
         partes.append(
             "<h3>Red principal y bomba</h3>"
@@ -488,8 +518,10 @@ def _seccion_subunidades(datos, num, imagenes):
                           f"{lat['longitud_max_m']:.1f} m (mín. / media / máx.)"),
             ("Emisor", _descripcion_emisor(s["emisor"])),
             ("Espaciamiento de emisores", f"{lat['espaciamiento_m']:g} m"),
-            ("Portalateral", f"{_e(porta['tuberia'])} (DI {porta['di_mm']:g} mm, "
-                             f"{'selección automática' if porta['automatica'] else 'elegida por el proyectista'})"
+            ("Portalateral", (f"telescópico: {_e(porta['descripcion'])} desde la válvula"
+                              if porta.get("telescopico") else
+                              f"{_e(porta['tuberia'])} (DI {porta['di_mm']:g} mm)")
+                             + f" · {'selección automática' if porta['automatica'] else 'elegida por el proyectista'}"
                              f" · {porta['longitud_m']:,.1f} m · entrada {entrada}"),
             ("Fórmula de pérdidas", NOMBRES_METODO.get(s["metodo"], _e(s["metodo"]))),
             ("Presión de entrada", presion),
@@ -515,6 +547,13 @@ def _seccion_subunidades(datos, num, imagenes):
             ("Uniformidad de emisión (EU)", f"<b>{r['uniformidad_emision']:.1f} %</b>"),
             ("Emisores fuera del rango de compensación", f"{r['emisores_fuera_de_rango']:,}"),
         ]))
+        if porta.get("telescopico"):
+            filas = [[_e(x["rama"]), _n(x["desde_m"], 1), _n(x["hasta_m"], 1), _e(x["tuberia"]),
+                      _n(x["di_mm"], 1), _n(x["velocidad_max_ms"]), _n(x["presion_max_m"])]
+                     for x in porta["secciones"]]
+            partes.append("<p><b>Tramos del portalateral telescópico</b> (distancias desde la válvula)</p>"
+                          + _tabla(["Rama", "Desde (m)", "Hasta (m)", "Tubería", "DI (mm)", "V máx. (m/s)",
+                                    "P máx. (m)"], filas, numericas=(1, 2, 4, 5, 6), anchos={3: 30}))
         if s["evaluaciones"]:
             evaluaciones = s["evaluaciones"]
             elegida = next((j for j, e in enumerate(evaluaciones) if e["elegida"]), None)
@@ -533,7 +572,9 @@ def _seccion_subunidades(datos, num, imagenes):
                                     "Var. caudal", "EU (%)", "Resultado"], filas,
                                    numericas=(1, 2, 3, 4, 5), clases=clases, anchos={0: 22, 6: 33})
                           + "<p class='nota'>Tuberías ordenadas de la más económica a la más cara "
-                            "(diámetro nominal y clase); en negrita, la usada"
+                            "(diámetro nominal y clase), con un solo diámetro en todo el portalateral; "
+                          + ("en negrita, la de la entrada del portalateral telescópico"
+                             if porta.get("telescopico") else "en negrita, la usada")
                           + (f". Se omiten {len(s['evaluaciones']) - len(evaluaciones)} alternativas más caras."
                              if len(evaluaciones) < len(s["evaluaciones"]) else ".") + "</p>")
         partes.append(_figura(imagenes, f"subunidad_{i}",

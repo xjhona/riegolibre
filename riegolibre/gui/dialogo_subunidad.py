@@ -13,7 +13,8 @@ from ..nucleo import (ENTRADA_CENTRO, ENTRADA_EXTREMO, Lateral,
                       cargar_catalogo_tuberias, disenar_subunidad,
                       subunidad_rectangular)
 from ..nucleo.tuberias import clave_economica
-from .comunes import ComboTuberiaPortalateral, GrupoCriterios, GrupoLaterales, spin
+from .comunes import (ComboDiametros, ComboTuberiaPortalateral, GrupoCriterios,
+                      GrupoLaterales, spin)
 from .panel_resultados import PanelResultadosSubunidad
 
 
@@ -91,6 +92,8 @@ class DialogoSubunidad(QDialog):
         formulario = QFormLayout(grupo)
         self.combo_tuberia_porta = ComboTuberiaPortalateral(self.tuberias_portalateral)
         formulario.addRow("Tubería:", self.combo_tuberia_porta)
+        self.combo_diametros = ComboDiametros()
+        formulario.addRow("Diámetros:", self.combo_diametros)
 
         self.spin_separacion = spin(0.2, 20, 1.5, 0.1, sufijo="m")
         self.spin_separacion.setToolTip("Distancia entre hileras de laterales (marco entre líneas).")
@@ -188,15 +191,16 @@ class DialogoSubunidad(QDialog):
             entrada = self.combo_entrada.currentData()
             metodo = self.grupo_criterios.metodo()
 
-            def construir(tuberia):
+            def construir(tuberia, reducciones=()):
                 return subunidad_rectangular(tuberia, lateral_a, lateral_b, separacion, numero,
                                              posicion_entrada=entrada, pendiente=pendiente,
-                                             perfil=perfil, metodo=metodo)
+                                             perfil=perfil, metodo=metodo, reducciones=reducciones)
 
             diseno = disenar_subunidad(construir, self.tuberias_portalateral,
                                        self.grupo_criterios.criterios(),
                                        tuberia_fija=self.combo_tuberia_porta.tuberia(),
-                                       presion_entrada_m=self.grupo_criterios.presion_conocida())
+                                       presion_entrada_m=self.grupo_criterios.presion_conocida(),
+                                       diametros_max=self.combo_diametros.maximo())
         except (ValueError, PresionInsuficiente) as e:
             error = str(e)
         finally:

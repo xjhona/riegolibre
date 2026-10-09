@@ -126,6 +126,22 @@ class ComboTuberiaPortalateral(QComboBox):
         self.setCurrentIndex(self.findData(self.tuberias.index(tuberia)))
 
 
+class ComboDiametros(QComboBox):
+    """Número máximo de diámetros del portalateral (más de uno: telescópico)."""
+
+    def __init__(self):
+        super().__init__()
+        self.addItem("Uno (uniforme)", 1)
+        self.addItem("Hasta dos (telescópico)", 2)
+        self.addItem("Hasta tres (telescópico)", 3)
+        self.setToolTip("Portalateral telescópico: la tubería de la entrada es la que cumpliría sola; "
+                        "hacia el final, donde el caudal es menor, se reduce el diámetro mientras se "
+                        "sigan cumpliendo los criterios.")
+
+    def maximo(self):
+        return self.currentData()
+
+
 class GrupoCriterios(QGroupBox):
     """Modo de cálculo, fórmula de pérdidas y criterios de diseño de la subunidad."""
 

@@ -127,6 +127,28 @@ class PruebasResumenes(unittest.TestCase):
             self.assertIn(esperado, texto)
         self.assertNotIn("Elección de diámetros por costo total", memoria_html(self._datos()))
 
+    def test_documento_con_portalateral_telescopico(self):
+        a, b = laterales(COMP, n=100)
+        tuberias = sorted(cargar_catalogo_tuberias(uso="portalateral"), key=clave_economica)
+        criterios = CriteriosDiseno(0.10, 1.5)
+        diseno = disenar_subunidad(lambda t, r=(): subunidad_rectangular(t, a, b, 1.5, 60, reducciones=r),
+                                   tuberias, criterios, diametros_max=2)
+        self.assertTrue(diseno.telescopico)
+        s = resumen_subunidad("Bloque T", diseno, criterios, "darcy", area_m2=5400.0)
+        self.assertEqual(json.loads(json.dumps(s)), s)
+        porta = s["portalateral"]
+        self.assertTrue(porta["telescopico"])
+        self.assertEqual([x["tuberia"] for x in porta["secciones"]],
+                         [diseno.tuberia.nombre, diseno.reducciones[0][1].nombre])
+        self.assertAlmostEqual(porta["secciones"][0]["hasta_m"], diseno.reducciones[0][0], places=2)
+        self.assertIn(" → ", porta["descripcion"])
+        texto = memoria_html(self._datos(subunidades=[self.sub, s]))
+        for esperado in ("Tramos del portalateral telescópico", "Portalateral telescópico:",
+                         "telescópico: " + porta["descripcion"].replace(">", "&gt;")):
+            self.assertIn(esperado, texto)
+        self.assertFalse(self.sub["portalateral"]["telescopico"])
+        self.assertNotIn("Tramos del portalateral telescópico", memoria_html(self._datos()))
+
     def test_documento_parcial_e_imagenes(self):
         datos = self._datos(red=None, presupuesto=None, notas="")
         texto = memoria_html(datos, {"mapa": "mapa.png", "subunidad_0": "s0.png"})
