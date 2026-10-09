@@ -1,11 +1,22 @@
 """Metrado a partir de las capas de resultado de RiegoLibre en el proyecto."""
 
-from qgis.core import QgsProject, QgsVectorLayer
+import json
+import os
 
-from ..nucleo.materiales import Partida, ordenar
+from qgis.core import QgsProject, QgsSettings, QgsVectorLayer
+
+from ..nucleo.materiales import Partida, asignar_articulos, clave_articulo, ordenar
+from ..nucleo.memoria import Presupuesto
+from ..nucleo.precios import cargar_lista_precios
 from .subunidad_mapa import PROPIEDAD
 
 SIN_IDENTIFICAR = "sin identificar (recalcule la subunidad)"
+# Ajustes del usuario (valen para todos los proyectos).
+AJUSTE_LISTA = "RiegoLibre/lista_precios"
+AJUSTE_MONEDA = "RiegoLibre/moneda"
+AJUSTE_DESPERDICIO = "RiegoLibre/desperdicio"  # en %
+# Artículos elegidos a mano, guardados en el proyecto: clave de partida -> clave de artículo.
+ENTRADA_ARTICULOS = ("RiegoLibre", "articulos")
 
 
 def _tipo(capa):
@@ -91,3 +102,40 @@ def partidas_del_proyecto(proyecto=None):
             f"Bomba {f['caudal_ls']:.2f} L/s a {f['cdt_m']:.1f} m de CDT ({f['potencia_hp']:.1f} HP)",
             1, "und", "bomba"))
     return ordenar(partidas), resumen
+
+
+def elecciones_del_proyecto(proyecto=None):
+    texto, _ok = (proyecto or QgsProject.instance()).readEntry(*ENTRADA_ARTICULOS, "{}")
+    try:
+        return json.loads(texto)
+    except ValueError:
+        return {}
+
+
+def guardar_eleccion(clave, articulo, proyecto=None):
+    """Recuerda en el proyecto el artículo elegido para una partida (None lo olvida)."""
+    proyecto = proyecto or QgsProject.instance()
+    elecciones = elecciones_del_proyecto(proyecto)
+    if articulo is None:
+        elecciones.pop(clave, None)
+    else:
+        elecciones[clave] = clave_articulo(articulo)
+    proyecto.writeEntry(*ENTRADA_ARTICULOS, json.dumps(elecciones, ensure_ascii=False))
+
+
+def presupuesto_del_proyecto(tuberias_por_nombre, proyecto=None):
+    """Metrado del proyecto con precios de la última lista abierta, o None si no hay lista o metrado.
+
+    Usa la moneda, el desperdicio y los artículos elegidos en la ventana de materiales.
+    """
+    ajustes = QgsSettings()
+    ruta = ajustes.value(AJUSTE_LISTA, "")
+    if not ruta or not os.path.exists(ruta):
+        return None
+    partidas, _resumen = partidas_del_proyecto(proyecto)
+    if not partidas:
+        return None
+    asignar_articulos(partidas, cargar_lista_precios(ruta), tuberias_por_nombre,
+                      elecciones_del_proyecto(proyecto))
+    return Presupuesto(partidas, float(ajustes.value(AJUSTE_DESPERDICIO, 5.0, type=float)) / 100,
+                       ajustes.value(AJUSTE_MONEDA, "USD"), os.path.basename(ruta))

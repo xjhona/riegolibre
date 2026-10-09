@@ -6,6 +6,7 @@ probarse por separado (scripts, cuadernos, otras interfaces).
 
 from .emisores import Emisor, cargar_catalogo_emisores
 from .hidraulica import PresionInsuficiente, factor_christiansen
+from .memoria import DatosMemoria, memoria_html, resumen_red, resumen_subunidad
 from .lateral import (CRITERIO_CAUDAL_MEDIO, CRITERIO_PRESION_MINIMA, CurvaLateral,
                       Lateral, ResultadoLateral, longitud_maxima)
 from .portalateral import (ConexionLateral, Portalateral, ResultadoPortalateral,
@@ -25,6 +26,7 @@ __all__ = [
     "Emisor", "cargar_catalogo_emisores",
     "PresionInsuficiente", "factor_christiansen",
     "CRITERIO_CAUDAL_MEDIO", "CRITERIO_PRESION_MINIMA",
+    "DatosMemoria", "memoria_html", "resumen_red", "resumen_subunidad",
     "CurvaLateral", "Lateral", "ResultadoLateral", "longitud_maxima",
     "ConexionLateral", "Portalateral", "ResultadoPortalateral", "portalateral_uniforme",
     "ENTRADA_CENTRO", "ENTRADA_EXTREMO", "CriteriosDiseno", "Diseno", "EvaluacionDiametro",

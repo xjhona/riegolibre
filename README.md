@@ -18,14 +18,17 @@ riegolibre/                 Complemento de QGIS (esta carpeta es la que se insta
 │   ├── red.py              Red principal ramificada: turnos, diámetros, clases y bomba
 │   ├── precios.py          Lectura de listas de precios e identificación de tuberías
 │   ├── materiales.py       Partidas, tubos, desperdicio, costos y exportación a Excel
+│   ├── memoria.py          Resúmenes de resultados y documento de la memoria de cálculo
+│   ├── graficos.py         Gráficos de presiones (matplotlib)
 │   ├── uniformidad.py      EU (Keller-Karmeli), variación de caudal, CU
 │   └── datos/              Catálogos editables (JSON)
 ├── integracion/            Conexión con QGIS
 │   ├── perfil_terreno.py   Perfil del terreno desde un DEM
 │   ├── subunidad_mapa.py   Generación de laterales en el bloque y capas de resultado
 │   ├── red_mapa.py         Topología de la red principal dibujada y capas de resultado
-│   └── materiales_mapa.py  Metrado a partir de las capas de resultado del proyecto
-└── gui/                    Ventanas: lateral, subunidad, diseño en el mapa, red y materiales
+│   ├── materiales_mapa.py  Metrado a partir de las capas de resultado del proyecto
+│   └── memoria_mapa.py     Resúmenes guardados en las capas y plano general
+└── gui/                    Ventanas: lateral, subunidad, diseño en el mapa, red, materiales y memoria
 tests/                      Pruebas automáticas
 scripts/                    Utilidades de desarrollo
 ```
@@ -100,6 +103,28 @@ Menú **Complementos → RiegoLibre → Lista de materiales y costos**:
 
 Los precios son referenciales: actualice la lista de precios cuando cambie.
 
+## Memoria de cálculo
+
+Menú **Complementos → RiegoLibre → Memoria de cálculo**. Cada vez que se calcula una subunidad en el mapa o la red principal, el resumen del cálculo queda guardado en sus capas de resultado. La memoria se arma con esos resúmenes:
+
+1. Datos del proyecto: cliente, ubicación, proyectista y fecha. Quedan guardados en el proyecto de QGIS.
+2. Resumen: área, caudal, punto de diseño de la bomba, costo y si se cumplen los criterios.
+3. Plano general con las capas visibles, barra de escala y norte.
+4. Bases de cálculo: solo las fórmulas que se usaron.
+5. Cada subunidad:
+   - datos de diseño y resultados hidráulicos,
+   - tabla de selección del diámetro del portalateral,
+   - gráfico de presiones.
+6. Red principal:
+   - tuberías por tramo,
+   - válvulas,
+   - perfil de la ruta crítica.
+7. Equipo de bombeo: CDT desglosada, potencia, motor comercial sugerido y turnos.
+8. Presupuesto, con la lista de precios, la moneda, el desperdicio y los artículos elegidos en la ventana de materiales.
+9. Observaciones.
+
+Se exporta a **PDF**, a **ODT**, que se abre y edita en Word o LibreOffice, o a **HTML** con las imágenes incluidas. Si cambia el diseño, vuelva a calcular y pulse *Actualizar vista previa*.
+
 ## Método de cálculo
 
 **Lateral.** Se calcula paso a paso desde el último emisor hacia la entrada. En cada tramo se suman el caudal real de los emisores aguas abajo, la pérdida por fricción y el desnivel del terreno, ya sea con pendiente uniforme o con el perfil del DEM. La inserción de cada emisor se modela como una longitud equivalente.
@@ -134,6 +159,6 @@ Los precios son referenciales: actualice la lista de precios cuando cambie.
 - [x] Herramientas de mapa: dibujar el bloque y generar los laterales automáticamente
 - [x] Red principal, carga dinámica total y punto de diseño de la bomba
 - [x] Lista de materiales y costos con lista de precios
-- [ ] Memoria de cálculo
+- [x] Memoria de cálculo (PDF, ODT y HTML)
 - [ ] Elección de diámetros de la red por costo (tubería + energía de bombeo)
 - [ ] Riego por aspersión

@@ -12,6 +12,9 @@ from qgis.PyQt.QtWidgets import (QAbstractItemView, QApplication, QComboBox,
 
 from ..nucleo import (CriteriosRed, DatosBomba, cargar_catalogo_tuberias,
                       dimensionar_red, punto_bomba)
+from ..nucleo.graficos import dibujar_perfil_red
+from ..nucleo.memoria import avisos_red, resumen_red
+from ..nucleo.red import bomba_critica, perfil_ruta_critica
 from .comunes import (M_POR_BAR, Figure, FigureCanvasQTAgg, html_avisos, html_estado,
                       html_tabla, spin)
 
@@ -277,6 +280,7 @@ class DialogoRed(QDialog):
 
     def calcular(self):
         from ..integracion.perfil_terreno import MuestreadorDem, entidad_unica
+        from ..integracion.memoria_mapa import guardar_resumen
         from ..integracion.red_mapa import capas_resultado, construir_red
         from ..integracion.subunidad_mapa import (geometria_en, reemplazar_grupo,
                                                   verificar_crs_metrico)
@@ -299,8 +303,10 @@ class DialogoRed(QDialog):
                                      perdida_valvula_m=self.spin_perdida_valvula.value())
             resultado = dimensionar_red(red_mapa.red, self.tuberias, self.criterios())
             bombas = [punto_bomba(r, self.datos_bomba()) for r in resultado.turnos]
-            critica = max(bombas, key=lambda b: (b.carga_dinamica_total_m, b.caudal_lh))
+            critica = bomba_critica(bombas)
             capas = capas_resultado(red_mapa, resultado, critica, crs)
+            guardar_resumen(capas[0], resumen_red(red_mapa.red, resultado, bombas, self.datos_bomba(),
+                                                  red_mapa.sin_dem))
             reemplazar_grupo(NOMBRE_GRUPO, capas)
             if self.iface is not None:
                 self.iface.mapCanvas().refresh()
@@ -320,16 +326,8 @@ class DialogoRed(QDialog):
         red = red_mapa.red
         turno = resultado.turno(critica.turno)
         longitud = sum(t.longitud_m for t in red.tramos)
-        caudal_max = max(b.caudal_lh for b in bombas)
         cumple = not resultado.motivos
-        avisos = list(resultado.avisos)
-        for id_tramo, motivos in resultado.motivos.items():
-            avisos.append(f"Tramo {id_tramo}: " + "; ".join(motivos) + ".")
-        if red_mapa.sin_dem:
-            avisos.append("Sin DEM: la red se calculó con el terreno plano.")
-        if len(bombas) > 1 and abs(caudal_max - critica.caudal_lh) > 1:
-            avisos.append(f"El caudal máximo ({caudal_max / 3600:.2f} L/s) no coincide con el del turno "
-                          "crítico: verifique la curva de la bomba en ambos puntos (ver pestaña Turnos).")
+        avisos = avisos_red(resultado, bombas, red_mapa.sin_dem)
 
         metros = {}
         for t in red.tramos:
@@ -380,30 +378,5 @@ class DialogoRed(QDialog):
         """Perfil de la ruta hasta la válvula más desfavorecida del turno crítico."""
         if self.figura is None:
             return
-        activas = [v for v in red.valvulas if v.turno == turno.turno]
-        valvula = min(activas, key=turno.exceso)
-        x, terreno, piezometrica = [], [], []
-        inicio = 0.0
-        for t in red.camino(valvula.nodo):
-            r = turno.tramos[t.id]
-            j = r.perdida_m / t.longitud_m if t.longitud_m else 0.0
-            puntos = [(0.0, red.cotas[t.desde])] + list(t.perfil or ()) + [(t.longitud_m, red.cotas[t.hasta])]
-            for d, z in puntos:
-                x.append(inicio + d)
-                terreno.append(z)
-                piezometrica.append(turno.cargas[t.desde] - j * d)
-            inicio += t.longitud_m
-
-        self.figura.clear()
-        ejes = self.figura.add_subplot(111)
-        ejes.fill_between(x, min(terreno) - 1, terreno, color="#8d6e63", alpha=0.35, label="Terreno")
-        ejes.plot(x, piezometrica, color="#1e88e5", label="Línea piezométrica")
-        requerida = red.cotas[valvula.nodo] + valvula.presion_requerida_m + valvula.perdida_m
-        ejes.plot([x[-1]], [requerida], "o", color="#c62828", label=f"Carga requerida en {valvula.id}")
-        ejes.plot([0], [turno.carga_fuente_m], "s", color="#1565c0", label="Salida del cabezal")
-        ejes.set_xlabel("Distancia desde la fuente (m)")
-        ejes.set_ylabel("Cota (m)")
-        ejes.set_title(f"Ruta crítica del turno {turno.turno}", fontsize=10)
-        ejes.grid(True, alpha=0.3)
-        ejes.legend(loc="best", fontsize=8)
+        dibujar_perfil_red(self.figura, perfil_ruta_critica(red, turno))
         self.lienzo.draw()

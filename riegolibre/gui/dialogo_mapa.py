@@ -11,6 +11,7 @@ from qgis.PyQt.QtWidgets import (QApplication, QComboBox, QDialog,
 from ..nucleo import (Lateral, PresionInsuficiente, cargar_catalogo_emisores,
                       cargar_catalogo_tuberias, disenar_subunidad,
                       subunidad_desde_conexiones)
+from ..nucleo.memoria import resumen_subunidad
 from ..nucleo.tuberias import clave_economica
 from .comunes import (ComboTuberiaPortalateral, GrupoCriterios, GrupoLaterales,
                       html_tabla, spin)
@@ -276,6 +277,7 @@ class DialogoMapa(QDialog):
 
     def calcular(self):
         from ..integracion import subunidad_mapa as mapa
+        from ..integracion.memoria_mapa import guardar_resumen
 
         def calculo():
             crs, portalateral, bloque = self._geometrias()
@@ -315,17 +317,22 @@ class DialogoMapa(QDialog):
                                        self.grupo_criterios.criterios(),
                                        tuberia_fija=self.combo_tuberia_porta.tuberia(),
                                        presion_entrada_m=self.grupo_criterios.presion_conocida())
+            area = bloque.area() if bloque is not None else 0.0
+            descartados = {id(lat) for lat in modelo.descartados}
+            longitudes = [lat.longitud_m for lat in laterales_mapa if id(lat) not in descartados]
             capas = mapa.capas_resultado(diseno, modelo, portalateral, entrada, crs, self.nombre())
+            guardar_resumen(capas[0], resumen_subunidad(
+                self.nombre(), diseno, self.grupo_criterios.criterios(), metodo, area, longitudes,
+                self.grupo_criterios.presion_conocida(), avisos))
             mapa.reemplazar_grupo(f"RiegoLibre · {self.nombre()}", capas)
             if self.iface is not None:
                 self.iface.mapCanvas().refresh()
-            return diseno, bloque, avisos
+            return diseno, bloque, area, avisos
 
         datos = self._ejecutar(calculo)
         if datos is None:
             return
-        diseno, bloque, avisos = datos
-        area = bloque.area() if bloque is not None else 0.0
+        diseno, bloque, area, avisos = datos
         texto_area = "bloque" if bloque is not None else "sin bloque"
         self.panel.mostrar(diseno, self.grupo_criterios.criterios(), self.grupo_laterales.tuberia(),
                            area, texto_area, avisos)

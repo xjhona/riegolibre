@@ -17,9 +17,11 @@ class PruebasMaterialesQgis(unittest.TestCase):
     @classmethod
     def setUpClass(cls):
         cls.app = _iniciar_qgis()
-        from riegolibre.gui.dialogo_materiales import AJUSTE_LISTA, AJUSTE_MONEDA
+        from riegolibre.integracion.materiales_mapa import (AJUSTE_DESPERDICIO, AJUSTE_LISTA,
+                                                            AJUSTE_MONEDA)
         # No tocar los ajustes reales del usuario.
-        cls.ajustes_originales = {k: QgsSettings().value(k) for k in (AJUSTE_LISTA, AJUSTE_MONEDA)}
+        cls.ajustes_originales = {k: QgsSettings().value(k)
+                                  for k in (AJUSTE_LISTA, AJUSTE_MONEDA, AJUSTE_DESPERDICIO)}
         QgsSettings().remove(AJUSTE_LISTA)
         QgsProject.instance().clear()
         cls.carpeta = tempfile.TemporaryDirectory()

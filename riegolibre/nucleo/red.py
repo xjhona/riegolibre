@@ -363,3 +363,39 @@ def punto_bomba(resultado_turno, datos=DatosBomba()):
     q = resultado_turno.caudal_total_lh * LH_A_M3S
     potencia = 9.81 * q * cdt / datos.eficiencia  # kW (ρ·g = 9.81 kN/m³)
     return PuntoBomba(resultado_turno.turno, resultado_turno.caudal_total_lh, cdt, potencia)
+
+
+def bomba_critica(bombas):
+    """El punto de bomba de mayor CDT (a igual CDT, el de mayor caudal)."""
+    return max(bombas, key=lambda b: (b.carga_dinamica_total_m, b.caudal_lh))
+
+
+@dataclass
+class PerfilRuta:
+    """Terreno y línea piezométrica desde la fuente hasta una válvula."""
+    turno: int
+    valvula: str
+    distancias_m: List[float]
+    terreno_m: List[float]
+    piezometrica_m: List[float]
+    carga_requerida_m: float  # cota piezométrica necesaria antes de la válvula
+    carga_fuente_m: float
+
+
+def perfil_ruta_critica(red, turno):
+    """Perfil hasta la válvula con menos exceso de presión de un turno (ResultadoTurno)."""
+    activas = [v for v in red.valvulas if v.turno == turno.turno]
+    valvula = min(activas, key=turno.exceso)
+    x, terreno, piezometrica = [], [], []
+    inicio = 0.0
+    for t in red.camino(valvula.nodo):
+        r = turno.tramos[t.id]
+        j = r.perdida_m / t.longitud_m if t.longitud_m else 0.0
+        puntos = [(0.0, red.cotas[t.desde])] + list(t.perfil or ()) + [(t.longitud_m, red.cotas[t.hasta])]
+        for d, z in puntos:
+            x.append(inicio + d)
+            terreno.append(z)
+            piezometrica.append(turno.cargas[t.desde] - j * d)
+        inicio += t.longitud_m
+    requerida = red.cotas[valvula.nodo] + valvula.presion_requerida_m + valvula.perdida_m
+    return PerfilRuta(turno.turno, valvula.id, x, terreno, piezometrica, requerida, turno.carga_fuente_m)

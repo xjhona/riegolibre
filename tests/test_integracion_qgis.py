@@ -172,10 +172,12 @@ class PruebasIntegracionQgis(unittest.TestCase):
         self.assertEqual([a.text() for a in iface.menu],
                          ["Calculadora de lateral (goteo)…", "Subunidad de riego (goteo)…",
                           "Diseño de subunidad en el mapa (goteo)…", "Red principal y bomba…",
-                          "Lista de materiales y costos…"])
+                          "Lista de materiales y costos…", "Memoria de cálculo…"])
         self.assertTrue(all(not a.icon().isNull() for a in iface.menu))
         iface.menu[1].trigger()
         self.assertTrue(plugin.dialogos["subunidad"].isVisible())
+        iface.menu[5].trigger()  # sin resultados en el proyecto: la memoria lo indica
+        self.assertIn("No hay resultados", plugin.dialogos["memoria"].etiqueta_estado.text())
         plugin.unload()
         self.assertEqual(iface.menu, [])
 

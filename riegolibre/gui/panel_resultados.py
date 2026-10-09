@@ -7,6 +7,9 @@ from qgis.PyQt.QtWidgets import (QAbstractItemView, QHeaderView, QLabel,
                                  QTabWidget, QTextBrowser, QVBoxLayout, QWidget)
 
 from ..nucleo import incumplimientos
+from ..nucleo.graficos import (dibujar_perfil_subunidad, puntos_perfil_subunidad,
+                               referencia_emisor)
+from ..nucleo.memoria import avisos_subunidad
 from .comunes import (M_POR_BAR, Figure, FigureCanvasQTAgg, html_avisos,
                       html_estado, html_tabla)
 
@@ -71,11 +74,8 @@ class PanelResultadosSubunidad(QTabWidget):
         self.diseno = diseno
         r, tuberia = diseno.resultado, diseno.tuberia
         motivos = incumplimientos(r, criterios, tuberia)
-        avisos = [m[0].upper() + m[1:] + "." for m in motivos] + list(diseno.avisos) + list(avisos)
+        avisos = avisos_subunidad(diseno, criterios, tuberia_lateral, avisos)
         presiones_laterales = [p for rama in r.ramas for p in rama.presiones_m]
-        if tuberia_lateral.presion_nominal_m and max(presiones_laterales) > tuberia_lateral.presion_nominal_m:
-            avisos.append(f"La presión en la entrada de algunos laterales ({max(presiones_laterales):.1f} m) "
-                          f"supera la nominal de la tubería lateral ({tuberia_lateral.presion_nominal_m:g} m).")
 
         q = r.caudal_total_lh
         numero_laterales = sum(len(c.laterales) for rama in diseno.subunidad.ramas for c in rama.conexiones)
@@ -159,36 +159,6 @@ class PanelResultadosSubunidad(QTabWidget):
     def _graficar(self, r, emisor):
         if self.figura is None:
             return
-        puntos = []
-        for rama in r.ramas:
-            for i, d in enumerate(rama.distancias_m):
-                puntos.append((rama.sentido * d, rama.presiones_m[i], rama.h_min_m[i],
-                               rama.h_max_m[i], rama.cotas_m[i]))
-        puntos.append((0.0, r.presion_entrada_m, None, None, 0.0))
-        puntos.sort(key=lambda p: p[0])
-        x = [p[0] for p in puntos]
-        con_emisores = [p for p in puntos if p[2] is not None]
-
-        self.figura.clear()
-        ejes = self.figura.add_subplot(111)
-        ejes.plot(x, [p[1] for p in puntos], color="#1e88e5", label="Presión en el portalateral")
-        ejes.fill_between([p[0] for p in con_emisores], [p[2] for p in con_emisores],
-                          [p[3] for p in con_emisores], color="#43a047", alpha=0.25,
-                          label="Presión en emisores (mín.–máx.)")
-        ejes.plot([0], [r.presion_entrada_m], "o", color="#c62828", label="Entrada (válvula)")
-        if emisor.autocompensado:
-            ejes.axhline(emisor.presion_compensacion_m, color="#43a047", linestyle=":",
-                         label="Inicio de compensación")
-        else:
-            ejes.axhline(emisor.presion_nominal_m, color="#43a047", linestyle=":", label="Presión nominal")
-        ejes.set_xlabel("Posición a lo largo del portalateral, desde la entrada (m)")
-        ejes.set_ylabel("Presión (m.c.a.)")
-        ejes.grid(True, alpha=0.3)
-
-        terreno = ejes.twinx()
-        terreno.plot(x, [p[4] for p in puntos], color="#6d4c41", linewidth=1, label="Terreno (relativo)")
-        terreno.set_ylabel("Cota relativa (m)")
-        lineas = ejes.get_legend_handles_labels()
-        lineas_t = terreno.get_legend_handles_labels()
-        ejes.legend(lineas[0] + lineas_t[0], lineas[1] + lineas_t[1], loc="best", fontsize=8)
+        dibujar_perfil_subunidad(self.figura, puntos_perfil_subunidad(r), r.presion_entrada_m,
+                                 *referencia_emisor(emisor))
         self.lienzo.draw()

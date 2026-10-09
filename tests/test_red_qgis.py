@@ -132,6 +132,10 @@ class PruebasRedMapa(unittest.TestCase):
         bomba = next(capas["Red principal · bomba"].getFeatures())
         critico = resultado.turno_critico
         self.assertAlmostEqual(bomba["cdt_m"], critico.presion_entrada_red_m + 7.0 + 2.0, places=2)
+        from riegolibre.integracion.memoria_mapa import resumenes_del_proyecto
+        _subunidades, red, _avisos = resumenes_del_proyecto()
+        self.assertAlmostEqual(red["bomba"]["cdt_m"], bomba["cdt_m"], places=2)
+        self.assertEqual(len(red["tramos"]), 3)
         excesos = {f["valvula"]: f["exceso"] for f in capas["Red principal · válvulas"].getFeatures()}
         self.assertAlmostEqual(min(excesos.values()), 0.0, places=2)
         self.assertIn("Punto de diseño de la bomba", dialogo.texto.toPlainText())

@@ -1,6 +1,5 @@
 """Lista de materiales y costos del proyecto."""
 
-import json
 import os
 from datetime import date
 
@@ -13,15 +12,15 @@ from qgis.PyQt.QtWidgets import (QAbstractItemView, QDialog, QDialogButtonBox,
                                  QListWidgetItem, QMessageBox, QPushButton,
                                  QTableWidget, QTableWidgetItem, QVBoxLayout)
 
+from ..integracion.materiales_mapa import (AJUSTE_DESPERDICIO, AJUSTE_LISTA,
+                                           AJUSTE_MONEDA, elecciones_del_proyecto,
+                                           guardar_eleccion)
 from ..nucleo import cargar_catalogo_tuberias
-from ..nucleo.materiales import (asignar_articulos, clave_articulo, exportar_csv,
-                                 exportar_excel, resumen_por_categoria, total)
+from ..nucleo.materiales import (asignar_articulos, exportar_csv, exportar_excel,
+                                 resumen_por_categoria, total)
 from ..nucleo.precios import buscar, cargar_lista_precios
 from .comunes import spin
 
-AJUSTE_LISTA = "RiegoLibre/lista_precios"
-AJUSTE_MONEDA = "RiegoLibre/moneda"
-ENTRADA_PROYECTO = ("RiegoLibre", "articulos")
 COLUMNAS = ["Categoría", "Material del diseño", "Cantidad", "Unidad", "A comprar", "Tubos",
             "Artículo de la lista de precios", "Precio unit.", "Subtotal"]
 
@@ -93,7 +92,8 @@ class DialogoMateriales(QDialog):
         self.edit_moneda = QLineEdit(ajustes.value(AJUSTE_MONEDA, "USD"))
         self.edit_moneda.setMaximumWidth(80)
         self.edit_moneda.textChanged.connect(self._actualizar_tabla)
-        self.spin_desperdicio = spin(0, 50, 5, 1, decimales=0, sufijo="%")
+        self.spin_desperdicio = spin(0, 50, float(ajustes.value(AJUSTE_DESPERDICIO, 5.0, type=float)), 1,
+                                     decimales=0, sufijo="%")
         self.spin_desperdicio.setToolTip("Se suma a los metros de tubería (cortes, uniones, imprevistos).")
         self.spin_desperdicio.valueChanged.connect(self._actualizar_tabla)
         fila_opciones.addWidget(QLabel("Moneda:"))
@@ -150,23 +150,6 @@ class DialogoMateriales(QDialog):
             self.cargar_lista(ruta, avisar=False)
         self.actualizar_metrado()
 
-    # ------------------------------------------------------------ elecciones
-
-    def _elecciones(self):
-        texto, _ok = QgsProject.instance().readEntry(*ENTRADA_PROYECTO, "{}")
-        try:
-            return json.loads(texto)
-        except ValueError:
-            return {}
-
-    def _guardar_eleccion(self, clave, articulo):
-        elecciones = self._elecciones()
-        if articulo is None:
-            elecciones.pop(clave, None)
-        else:
-            elecciones[clave] = clave_articulo(articulo)
-        QgsProject.instance().writeEntry(*ENTRADA_PROYECTO, json.dumps(elecciones, ensure_ascii=False))
-
     # --------------------------------------------------------------- acciones
 
     def _elegir_lista(self):
@@ -195,7 +178,7 @@ class DialogoMateriales(QDialog):
         self._asignar()
 
     def _asignar(self):
-        asignar_articulos(self.partidas, self.articulos, self.tuberias, self._elecciones())
+        asignar_articulos(self.partidas, self.articulos, self.tuberias, elecciones_del_proyecto())
         self._actualizar_tabla()
 
     def elegir_articulo(self, fila):
@@ -212,7 +195,7 @@ class DialogoMateriales(QDialog):
 
     def asignar(self, fila, articulo):
         partida = self.partidas[fila]
-        self._guardar_eleccion(partida.clave, articulo)
+        guardar_eleccion(partida.clave, articulo)
         partida.articulo, partida.automatico = articulo, False
         self._actualizar_tabla()
 
@@ -220,7 +203,7 @@ class DialogoMateriales(QDialog):
         fila = self.tabla.currentRow()
         if 0 <= fila < len(self.partidas):
             partida = self.partidas[fila]
-            self._guardar_eleccion(partida.clave, None)
+            guardar_eleccion(partida.clave, None)
             partida.articulo, partida.automatico = None, False
             self._actualizar_tabla()
 
@@ -231,6 +214,7 @@ class DialogoMateriales(QDialog):
 
     def _actualizar_tabla(self):
         QgsSettings().setValue(AJUSTE_MONEDA, self.edit_moneda.text())
+        QgsSettings().setValue(AJUSTE_DESPERDICIO, self.spin_desperdicio.value())
         d = self.desperdicio()
         self.tabla.setRowCount(len(self.partidas))
         for fila, p in enumerate(self.partidas):
