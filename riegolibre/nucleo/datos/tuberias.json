@@ -304,6 +304,78 @@
       "rugosidad_mm": 0.0015,
       "c_hazen": 150,
       "presion_nominal_m": 100
+    },
+    {
+      "nombre": "Tubería PVC 200 mm C-5",
+      "material": "PVC",
+      "usos": [
+        "principal"
+      ],
+      "diametro_nominal_mm": 200,
+      "diametro_interior_mm": 190.2,
+      "rugosidad_mm": 0.0015,
+      "c_hazen": 150,
+      "presion_nominal_m": 50
+    },
+    {
+      "nombre": "Tubería PVC 250 mm C-5",
+      "material": "PVC",
+      "usos": [
+        "principal"
+      ],
+      "diametro_nominal_mm": 250,
+      "diametro_interior_mm": 237.8,
+      "rugosidad_mm": 0.0015,
+      "c_hazen": 150,
+      "presion_nominal_m": 50
+    },
+    {
+      "nombre": "Tubería PVC 200 mm C-7.5",
+      "material": "PVC",
+      "usos": [
+        "principal"
+      ],
+      "diametro_nominal_mm": 200,
+      "diametro_interior_mm": 187.8,
+      "rugosidad_mm": 0.0015,
+      "c_hazen": 150,
+      "presion_nominal_m": 75
+    },
+    {
+      "nombre": "Tubería PVC 250 mm C-7.5",
+      "material": "PVC",
+      "usos": [
+        "principal"
+      ],
+      "diametro_nominal_mm": 250,
+      "diametro_interior_mm": 234.8,
+      "rugosidad_mm": 0.0015,
+      "c_hazen": 150,
+      "presion_nominal_m": 75
+    },
+    {
+      "nombre": "Tubería PVC 200 mm C-10",
+      "material": "PVC",
+      "usos": [
+        "principal"
+      ],
+      "diametro_nominal_mm": 200,
+      "diametro_interior_mm": 184.6,
+      "rugosidad_mm": 0.0015,
+      "c_hazen": 150,
+      "presion_nominal_m": 100
+    },
+    {
+      "nombre": "Tubería PVC 250 mm C-10",
+      "material": "PVC",
+      "usos": [
+        "principal"
+      ],
+      "diametro_nominal_mm": 250,
+      "diametro_interior_mm": 230.6,
+      "rugosidad_mm": 0.0015,
+      "c_hazen": 150,
+      "presion_nominal_m": 100
     }
   ]
 }

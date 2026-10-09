@@ -14,6 +14,9 @@ from .subunidad import (ENTRADA_CENTRO, ENTRADA_EXTREMO, CriteriosDiseno, Diseno
                         EvaluacionDiametro, ResultadoSubunidad, Subunidad,
                         disenar_subunidad, evaluar_diametros, incumplimientos,
                         subunidad_desde_conexiones, subunidad_rectangular)
+from .red import (CriteriosRed, DatosBomba, PuntoBomba, Red, ResultadoRed,
+                  ResultadoTurno, TramoRed, Valvula, dimensionar_red, elegir_tuberia,
+                  punto_bomba)
 from .tuberias import Tuberia, cargar_catalogo_tuberias
 from .uniformidad import (coeficiente_uniformidad_christiansen,
                           uniformidad_emision_keller, variacion_caudal)
@@ -27,6 +30,8 @@ __all__ = [
     "ENTRADA_CENTRO", "ENTRADA_EXTREMO", "CriteriosDiseno", "Diseno", "EvaluacionDiametro",
     "ResultadoSubunidad", "Subunidad", "disenar_subunidad", "evaluar_diametros",
     "incumplimientos", "subunidad_desde_conexiones", "subunidad_rectangular",
+    "CriteriosRed", "DatosBomba", "PuntoBomba", "Red", "ResultadoRed", "ResultadoTurno",
+    "TramoRed", "Valvula", "dimensionar_red", "elegir_tuberia", "punto_bomba",
     "Tuberia", "cargar_catalogo_tuberias",
     "coeficiente_uniformidad_christiansen", "uniformidad_emision_keller", "variacion_caudal",
 ]

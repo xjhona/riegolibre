@@ -15,12 +15,14 @@ riegolibre/                 Complemento de QGIS (esta carpeta es la que se insta
 │   ├── lateral.py          Lateral emisor por emisor, presión requerida, longitud máxima
 │   ├── portalateral.py     Portalateral (laterales a uno o ambos lados)
 │   ├── subunidad.py        Subunidad (entrada en extremo o centro) y selección de diámetro
+│   ├── red.py              Red principal ramificada: turnos, diámetros, clases y bomba
 │   ├── uniformidad.py      EU (Keller-Karmeli), variación de caudal, CU
 │   └── datos/              Catálogos editables (JSON)
 ├── integracion/            Conexión con QGIS
 │   ├── perfil_terreno.py   Perfil del terreno desde un DEM
-│   └── subunidad_mapa.py   Generación de laterales en el bloque y capas de resultado
-└── gui/                    Ventanas: lateral, subunidad y diseño en el mapa
+│   ├── subunidad_mapa.py   Generación de laterales en el bloque y capas de resultado
+│   └── red_mapa.py         Topología de la red principal dibujada y capas de resultado
+└── gui/                    Ventanas: lateral, subunidad, diseño en el mapa y red principal
 tests/                      Pruebas automáticas
 scripts/                    Utilidades de desarrollo
 ```
@@ -54,6 +56,30 @@ Menú **Complementos → RiegoLibre → Diseño de subunidad en el mapa**:
    - tramos del portalateral con caudal, velocidad y presiones,
    - punto de la válvula con presión y caudal requeridos.
 
+## Red principal y bomba
+
+Menú **Complementos → RiegoLibre → Red principal y bomba**:
+
+1. Cada subunidad diseñada en el mapa deja una capa *Válvula · nombre* con su caudal y presión requerida. También sirve cualquier capa de puntos con los campos `presion` (m) y `caudal_lh` (L/h).
+2. Dibuje la **fuente** (punto de la bomba y el cabezal) y las **tuberías** hasta cada válvula. No hace falta cortar las líneas en las uniones: los extremos, las uniones en T, la fuente y las válvulas se detectan dentro de una tolerancia.
+3. Pulse **Buscar válvulas**, asigne el **turno** de riego de cada una y pulse **Calcular**.
+
+Qué hace el cálculo:
+- **Turnos**: en cada turno funcionan solo sus válvulas.
+- **Carga en la fuente**: la necesaria para que la válvula más desfavorecida reciba su presión, con la pérdida de la válvula. Además, ningún punto de la red puede bajar de la presión mínima, incluidos los puntos altos del terreno según el DEM.
+- **Diámetro de cada tramo**: el menor que cumple la velocidad máxima y, opcionalmente, la pérdida unitaria máxima.
+- **Clase de presión**: la más baja que soporta la presión máxima real del tramo, incluidos los puntos bajos del terreno.
+- **Bomba**: CDT = presión a la entrada de la red + pérdidas del cabezal + altura de succión. Potencia = ρ·g·Q·CDT / η.
+
+Resultados en el mapa (grupo *RiegoLibre · Red principal*):
+- tuberías por tipo, con un grosor según el diámetro,
+- válvulas con la presión disponible y el exceso a regular,
+- bomba con su punto de diseño.
+
+La ventana también muestra el perfil hidráulico de la ruta crítica: la línea piezométrica sobre el terreno.
+
+Por ahora solo se calculan redes ramificadas, sin circuitos cerrados.
+
 ## Método de cálculo
 
 **Lateral.** Se calcula paso a paso desde el último emisor hacia la entrada. En cada tramo se suman el caudal real de los emisores aguas abajo, la pérdida por fricción y el desnivel del terreno, ya sea con pendiente uniforme o con el perfil del DEM. La inserción de cada emisor se modela como una longitud equivalente.
@@ -86,6 +112,6 @@ Menú **Complementos → RiegoLibre → Diseño de subunidad en el mapa**:
 - [x] Ventana de subunidad: portalateral y laterales, selección de diámetro
 - [ ] Portalateral telescópico (dos o más diámetros)
 - [x] Herramientas de mapa: dibujar el bloque y generar los laterales automáticamente
-- [ ] Red principal, carga dinámica total y selección de bomba
+- [x] Red principal, carga dinámica total y punto de diseño de la bomba
 - [ ] Lista de materiales y memoria de cálculo
 - [ ] Riego por aspersión

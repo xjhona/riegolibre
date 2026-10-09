@@ -171,7 +171,7 @@ class PruebasIntegracionQgis(unittest.TestCase):
         plugin.initGui()
         self.assertEqual([a.text() for a in iface.menu],
                          ["Calculadora de lateral (goteo)…", "Subunidad de riego (goteo)…",
-                          "Diseño de subunidad en el mapa (goteo)…"])
+                          "Diseño de subunidad en el mapa (goteo)…", "Red principal y bomba…"])
         self.assertTrue(all(not a.icon().isNull() for a in iface.menu))
         iface.menu[1].trigger()
         self.assertTrue(plugin.dialogos["subunidad"].isVisible())
