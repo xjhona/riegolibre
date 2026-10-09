@@ -173,3 +173,14 @@ def resumen_por_categoria(partidas, desperdicio=0.0) -> List[tuple]:
         resumen[p.categoria] = (subtotal + (costo or 0.0), sin_precio + (costo is None))
     return [(c, *resumen[c]) for c in ORDEN_CATEGORIAS + sorted(set(resumen) - set(ORDEN_CATEGORIAS))
             if c in resumen]
+
+
+def precios_por_metro(tuberias, articulos, elegidos: Dict[str, str], desperdicio=0.0):
+    """Precio por metro de cada tubería, con el artículo que le daría la lista de materiales.
+
+    Devuelve {nombre de la tubería: precio por metro con desperdicio}; las
+    tuberías sin artículo equivalente no aparecen.
+    """
+    partidas = [Partida("", t.nombre, 1.0, "m", f"tuberia:{t.nombre}") for t in tuberias]
+    asignar_articulos(partidas, articulos, {t.nombre: t for t in tuberias}, elegidos)
+    return {p.material: p.articulo.precio_m * (1 + desperdicio) for p in partidas if p.articulo is not None}

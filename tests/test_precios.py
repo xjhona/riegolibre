@@ -4,8 +4,8 @@ import unittest
 
 from riegolibre.nucleo import Tuberia
 from riegolibre.nucleo.materiales import (Partida, asignar_articulos, clave_articulo,
-                                          exportar_csv, exportar_excel, resumen_por_categoria,
-                                          total)
+                                          exportar_csv, exportar_excel, precios_por_metro,
+                                          resumen_por_categoria, total)
 from riegolibre.nucleo.precios import (buscar, candidatos_conector, candidatos_tuberia,
                                        cargar_lista_precios,
                                        clase_de, interpretar_tuberia, longitud_pieza,
@@ -153,6 +153,18 @@ class PruebasMateriales(unittest.TestCase):
         self.assertAlmostEqual(total(partidas), 10 * 4.87 + 500 * 0.2326 + 20 * 0.1029)
         resumen = dict((c, (s, n)) for c, s, n in resumen_por_categoria(partidas))
         self.assertEqual(resumen["Emisores"], (0.0, 1))
+
+    def test_precios_por_metro(self):
+        pvc63_75 = Tuberia("Tubería PVC 63 mm C-7.5", 59.0, material="PVC", diametro_nominal_mm=63,
+                           presion_nominal_m=75)
+        pvc90 = Tuberia("Tubería PVC 90 mm C-5", 85.6, material="PVC", diametro_nominal_mm=90,
+                        presion_nominal_m=50)
+        sp = next(a for a in self.articulos if a.codigo == "101076456")
+        precios = precios_por_metro([PVC63, pvc63_75, pvc90], self.articulos,
+                                    {f"tuberia:{pvc63_75.nombre}": clave_articulo(sp)}, 0.05)
+        self.assertAlmostEqual(precios[PVC63.nombre], 4.87 / 6 * 1.05)
+        self.assertAlmostEqual(precios[pvc63_75.nombre], 6.59 / 6 * 1.05)  # la elección manual manda
+        self.assertNotIn(pvc90.nombre, precios)  # sin artículo en la lista
 
     def test_exportar(self):
         partidas = [Partida("Red principal", PVC63.nombre, 100.0, "m", "x", self.tubo),

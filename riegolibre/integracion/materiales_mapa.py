@@ -5,7 +5,8 @@ import os
 
 from qgis.core import QgsProject, QgsSettings, QgsVectorLayer
 
-from ..nucleo.materiales import Partida, asignar_articulos, clave_articulo, ordenar
+from ..nucleo.materiales import (Partida, asignar_articulos, clave_articulo, ordenar,
+                                 precios_por_metro)
 from ..nucleo.memoria import Presupuesto
 from ..nucleo.precios import cargar_lista_precios
 from .subunidad_mapa import PROPIEDAD
@@ -139,3 +140,20 @@ def presupuesto_del_proyecto(tuberias_por_nombre, proyecto=None):
                       elecciones_del_proyecto(proyecto))
     return Presupuesto(partidas, float(ajustes.value(AJUSTE_DESPERDICIO, 5.0, type=float)) / 100,
                        ajustes.value(AJUSTE_MONEDA, "USD"), os.path.basename(ruta))
+
+
+def precios_de_tuberias(tuberias, proyecto=None):
+    """Precio por metro de las tuberías según la última lista de precios abierta.
+
+    Usa los artículos elegidos en la ventana de materiales y su desperdicio.
+    Devuelve (precios {nombre: precio por metro}, moneda, nombre de la lista) o
+    None si no hay lista de precios.
+    """
+    ajustes = QgsSettings()
+    ruta = ajustes.value(AJUSTE_LISTA, "")
+    if not ruta or not os.path.exists(ruta):
+        return None
+    desperdicio = float(ajustes.value(AJUSTE_DESPERDICIO, 5.0, type=float)) / 100
+    precios = precios_por_metro(tuberias, cargar_lista_precios(ruta), elecciones_del_proyecto(proyecto),
+                                desperdicio)
+    return precios, ajustes.value(AJUSTE_MONEDA, "USD"), os.path.basename(ruta)

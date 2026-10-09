@@ -5,10 +5,13 @@ from riegolibre.nucleo import (CriteriosDiseno, CriteriosRed, DatosBomba, cargar
                                dimensionar_red, disenar_subunidad, punto_bomba,
                                subunidad_rectangular)
 from riegolibre.nucleo.materiales import Partida, total
+from riegolibre.nucleo.economia import DatosEconomicos, optimizar_red
 from riegolibre.nucleo.memoria import (DatosMemoria, Presupuesto, graficos_memoria, memoria_html,
-                                       potencia_comercial_hp, resumen_red, resumen_subunidad)
+                                       potencia_comercial_hp, resumen_economia, resumen_red,
+                                       resumen_subunidad)
 from riegolibre.nucleo.precios import Articulo
 from riegolibre.nucleo.tuberias import clave_economica
+from tests.test_economia import precios_de
 from tests.test_red import red_en_y
 from tests.test_subunidad import COMP, laterales
 
@@ -105,6 +108,24 @@ class PruebasResumenes(unittest.TestCase):
         self.assertNotIn("Hazen-Williams:", texto)  # solo las fórmulas usadas
         self.assertNotIn("Plano general", texto)  # sin imagen del mapa
         self.assertIn("1 partidas sin precio", texto)
+
+    def test_documento_con_diametros_por_costo(self):
+        catalogo = cargar_catalogo_tuberias(uso="principal")
+        optimizacion = optimizar_red(self.red, catalogo, precios_de(catalogo), CriteriosRed(),
+                                     economicos=DatosEconomicos(precio_energia_kwh=1.0, horas_bombeo_anio=5000))
+        economia = resumen_economia(optimizacion, "USD", "precios.csv")
+        resultado = optimizacion.resultado
+        bombas = [punto_bomba(r, DatosBomba()) for r in resultado.turnos]
+        red = resumen_red(self.red, resultado, bombas, DatosBomba(), economia=economia)
+        self.assertEqual(json.loads(json.dumps(red)), red)
+        self.assertAlmostEqual(red["economia"]["optimo"]["total"], optimizacion.costos.total, places=2)
+        self.assertTrue(red["economia"]["tramos_cambiados"])
+        texto = memoria_html(self._datos(red=red))
+        for esperado in ("Elección de diámetros por costo total", "menor costo total (tubería + energía",
+                         "Factor de valor presente", "Energía de bombeo", "kWh/año",
+                         f"{optimizacion.costos.total:,.2f}"):
+            self.assertIn(esperado, texto)
+        self.assertNotIn("Elección de diámetros por costo total", memoria_html(self._datos()))
 
     def test_documento_parcial_e_imagenes(self):
         datos = self._datos(red=None, presupuesto=None, notas="")

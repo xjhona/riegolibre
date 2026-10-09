@@ -285,22 +285,28 @@ class ResultadoRed:
                 max(r.presion_max_m for r in resultados))
 
 
-def dimensionar_red(red, candidatas, criterios=CriteriosRed(), max_iteraciones=30):
+def dimensionar_red(red, candidatas, criterios=CriteriosRed(), max_iteraciones=30,
+                    candidatas_por_tramo=None):
     """Elige la tubería de cada tramo y calcula todos los turnos.
 
     Primero se dimensiona por caudal (velocidad y pérdida unitaria); luego, con las
     presiones resultantes, se sube la clase de presión donde haga falta y se repite
     hasta que ninguna tubería cambia. La presión exigida a cada tramo solo aumenta,
     de modo que el proceso termina.
+
+    candidatas_por_tramo: {tramo: tuberías} para limitar la elección de algunos
+    tramos (p. ej. a un diámetro nominal); los demás eligen entre todas.
     """
     if not candidatas:
         raise ValueError("No hay tuberías candidatas para la red principal.")
+    candidatas_por_tramo = candidatas_por_tramo or {}
     caudal_max = red.caudales_maximos()
     presion_exigida = {t.id: 0.0 for t in red.tramos}
     asignacion: Dict[str, Tuberia] = {}
     resultados = []
     for _ in range(max_iteraciones):
-        nueva = {t.id: t.tuberia or elegir_tuberia(candidatas, caudal_max[t.id], presion_exigida[t.id], criterios)
+        nueva = {t.id: t.tuberia or elegir_tuberia(candidatas_por_tramo.get(t.id, candidatas),
+                                                   caudal_max[t.id], presion_exigida[t.id], criterios)
                  for t in red.tramos}
         resultados = [red.calcular_turno(nueva, turno, criterios) for turno in red.turnos]
         cambio = nueva != asignacion

@@ -138,8 +138,29 @@ def resumen_subunidad(nombre, diseno, criterios, metodo, area_m2=0.0, longitudes
     }
 
 
-def resumen_red(red, resultado, bombas, datos_bomba, sin_dem=False):
-    """Datos de la red principal dimensionada y de la bomba para la memoria de cálculo."""
+def resumen_economia(optimizacion, moneda="", lista_precios=""):
+    """Datos de la elección de diámetros por costo total (ResultadoOptimizacion)."""
+    e = optimizacion.economicos
+
+    def costos(c):
+        return {"tuberia": _r(c.tuberia, 2), "energia_kwh_anual": _r(c.energia_kwh_anual, 1),
+                "energia_anual": _r(c.energia_anual, 2),
+                "energia_valor_presente": _r(c.energia_valor_presente, 2), "total": _r(c.total, 2)}
+    return {
+        "precio_energia_kwh": e.precio_energia_kwh, "horas_bombeo_anio": e.horas_bombeo_anio,
+        "vida_util_anios": e.vida_util_anios, "tasa_interes": e.tasa_interes,
+        "eficiencia_motor": e.eficiencia_motor, "factor_valor_presente": _r(e.factor_valor_presente, 4),
+        "moneda": moneda, "lista_precios": lista_precios,
+        "optimo": costos(optimizacion.costos), "referencia": costos(optimizacion.costos_referencia),
+        "tramos_cambiados": list(optimizacion.tramos_cambiados),
+    }
+
+
+def resumen_red(red, resultado, bombas, datos_bomba, sin_dem=False, economia=None):
+    """Datos de la red principal dimensionada y de la bomba para la memoria de cálculo.
+
+    economia: resumen_economia(), si los diámetros se eligieron por costo total.
+    """
     critica = bomba_critica(bombas)
     turno = resultado.turno(critica.turno)
     tramos = []
@@ -195,6 +216,7 @@ def resumen_red(red, resultado, bombas, datos_bomba, sin_dem=False):
         "valvulas": valvulas,
         "perfil": perfil,
         "sin_dem": sin_dem,
+        "economia": economia,
         "cumple": not resultado.motivos,
         "avisos": avisos_red(resultado, bombas, sin_dem),
     }
@@ -366,6 +388,10 @@ def _seccion_resumen(datos, num):
              + (f" · motor comercial sugerido: {b['potencia_comercial_hp']:g} HP"
                 if b.get("potencia_comercial_hp") else "")),
         ]
+        e = red.get("economia")
+        if e:
+            filas.append(("Energía de bombeo", f"{e['optimo']['energia_kwh_anual']:,.0f} kWh/año · "
+                                               f"{e['optimo']['energia_anual']:,.2f} {_e(e['moneda'])}/año"))
     if datos.presupuesto is not None:
         p = datos.presupuesto
         filas.append(("Costo estimado de materiales",
@@ -410,9 +436,18 @@ def _seccion_bases(datos, num):
         partes.append(
             "<h3>Red principal y bomba</h3>"
             "<p>La red es ramificada. En cada turno funcionan solo sus válvulas; los caudales se acumulan "
-            "desde las válvulas hacia la fuente. El diámetro de cada tramo es el menor que respeta la "
-            "velocidad máxima (y la pérdida unitaria máxima, si se fijó) con el caudal máximo de todos los "
-            "turnos; la clase de presión se eleva donde la presión máxima de trabajo lo exige. Las "
+            "desde las válvulas hacia la fuente. "
+            + ("Los diámetros se eligen por el menor costo total: costo de las tuberías más el valor "
+               "presente de la energía de bombeo durante la vida útil, VP = E<sub>anual</sub> · "
+               "(1 − (1 + i)<sup>−n</sup>) / i. La energía de cada turno es P<sub>eje</sub> / "
+               "η<sub>motor</sub> por sus horas de bombeo (las horas del año se reparten por igual entre los "
+               "turnos). La búsqueda parte del menor diámetro que cumple y prueba, tramo a tramo, el diámetro "
+               "inmediato superior e inferior hasta que ningún cambio reduce el costo. Todos los diámetros "
+               "respetan la velocidad máxima (y la pérdida unitaria máxima, si se fijó). "
+               if datos.red.get("economia") else
+               "El diámetro de cada tramo es el menor que respeta la velocidad máxima (y la pérdida unitaria "
+               "máxima, si se fijó) con el caudal máximo de todos los turnos. ")
+            + "La clase de presión se eleva donde la presión máxima de trabajo lo exige. Las "
             "pérdidas menores (codos, tes, válvulas) se toman como un porcentaje de la fricción.</p>"
             "<p>La carga necesaria en la fuente es la mayor entre la que requiere la válvula más "
             "desfavorecida (presión de la subunidad + pérdida en la válvula) y la que mantiene la presión "
@@ -518,7 +553,11 @@ def _seccion_red(red, num, imagenes):
         ("Presión mínima en la red", f"{c['presion_min_m']:g} m"),
         ("Pérdidas menores", f"{100 * c['factor_perdidas_menores']:g} % de la fricción"),
         ("Terreno", "plano (sin DEM)" if red.get("sin_dem") else "cotas del DEM"),
+        ("Elección de diámetros", "menor costo total (tubería + energía de bombeo)" if red.get("economia")
+         else "menor diámetro que cumple los criterios"),
     ]))
+    if red.get("economia"):
+        partes.append(_seccion_economia(red["economia"]))
     filas = [[_e(t["id"]), _e(t["tuberia"]), _n(t["longitud_m"], 1), _n(t["caudal_lh"] / 3600),
               _n(t["velocidad_ms"]), _n(t["j_m100"]), _n(t["presion_min_m"], 1), _n(t["presion_max_m"], 1),
               _e(t["observaciones"])] for t in red["tramos"]]
@@ -542,6 +581,36 @@ def _seccion_red(red, num, imagenes):
                           f"Terreno y línea piezométrica hasta la válvula {perfil.get('valvula', '')} "
                           f"(turno {perfil.get('turno', '')})"))
     partes.append(_avisos(red["avisos"]))
+    return "".join(partes)
+
+
+def _seccion_economia(e):
+    moneda = _e(e["moneda"])
+    partes = ["<p><b>Elección de diámetros por costo total</b></p>", _kv([
+        ("Lista de precios", _e(e["lista_precios"])),
+        ("Precio de la energía", f"{e['precio_energia_kwh']:g} {moneda}/kWh"),
+        ("Horas de bombeo al año", f"{e['horas_bombeo_anio']:,.0f} h (repartidas por igual entre los turnos)"),
+        ("Vida útil / tasa de interés", f"{e['vida_util_anios']} años / {_pc(e['tasa_interes'])}"),
+        ("Factor de valor presente", f"{e['factor_valor_presente']:.3f}"),
+        ("Eficiencia del motor", _pc(e["eficiencia_motor"], 0)),
+    ])]
+    o, r = e["optimo"], e["referencia"]
+    filas = [[nombre, _n(r[clave], decimales), _n(o[clave], decimales), _n(o[clave] - r[clave], decimales)]
+             for nombre, clave, decimales in (
+                 (f"Tuberías ({moneda})", "tuberia", 2),
+                 ("Energía anual (kWh)", "energia_kwh_anual", 0),
+                 (f"Energía anual ({moneda})", "energia_anual", 2),
+                 (f"Energía en la vida útil, valor presente ({moneda})", "energia_valor_presente", 2),
+                 (f"Costo total ({moneda})", "total", 2))]
+    partes.append(_tabla(["Concepto", "Menor diámetro que cumple", "Menor costo total (elegido)",
+                          "Diferencia"], filas, numericas=(1, 2, 3), clases={len(filas) - 1: "total"},
+                         anchos={0: 40}))
+    cambiados = e["tramos_cambiados"]
+    partes.append("<p class='nota'>" + (
+        f"{len(cambiados)} tramos llevan un diámetro mayor que el mínimo ({_e(', '.join(cambiados))}): el "
+        "ahorro de energía paga la tubería más grande." if cambiados else
+        "El menor diámetro que cumple es también el de menor costo total.")
+        + " El costo de tuberías incluye el desperdicio de la lista de materiales.</p>")
     return "".join(partes)
 
 

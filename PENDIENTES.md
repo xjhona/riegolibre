@@ -6,20 +6,22 @@ Estado al 9 de octubre de 2026. Ya están hechos:
 - el diseño en el mapa,
 - la red principal y la bomba,
 - los materiales y costos,
-- la memoria de cálculo (PDF, ODT y HTML).
+- la memoria de cálculo (PDF, ODT y HTML),
+- los diámetros de la red principal por costo total (tubería + energía de bombeo),
+- el estilo semitransparente de la capa «Bloques».
 
 ## Por desarrollar
 
-1. **Diámetros de la red principal por costo.** Comparar el costo de la tubería, según la lista de precios, con el de la energía de bombeo.
-2. **Portalateral telescópico**, con dos o más diámetros.
-3. **Riego por aspersión.**
-4. **Mejora menor:** dar un estilo semitransparente a la capa «Bloques» que crean las herramientas de dibujo. Su relleno sólido tapa el DEM en el plano de la memoria.
+1. **Portalateral telescópico**, con dos o más diámetros.
+2. **Riego por aspersión.**
 
 ## Por confirmar
 
 - Moneda de la lista de precios. Se supone USD y se puede cambiar en la ventana de materiales.
 - Criterio para sugerir el motor comercial: 10 % de margen sobre la potencia al eje (`MARGEN_MOTOR` en `riegolibre/nucleo/memoria.py`).
 - Revisar en un navegador la memoria exportada en HTML.
+- Diámetros por costo: las horas de bombeo del año se reparten por igual entre los turnos y cada turno se bombea con su propia CDT (bomba con variador o regulación). Confirmar si conviene otro criterio, por ejemplo horas distintas por turno.
+- Probar en QGIS la opción «Elegir diámetros por costo total» de la ventana de la red. Las pruebas del motor pasan, pero la ventana no se pudo abrir sin QGIS.
 - Probar el complemento con un caso real.
 
 ## Retomar en otro computador

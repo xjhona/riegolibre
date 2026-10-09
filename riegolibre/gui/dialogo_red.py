@@ -12,8 +12,9 @@ from qgis.PyQt.QtWidgets import (QAbstractItemView, QApplication, QComboBox,
 
 from ..nucleo import (CriteriosRed, DatosBomba, cargar_catalogo_tuberias,
                       dimensionar_red, punto_bomba)
+from ..nucleo.economia import DatosEconomicos, optimizar_red
 from ..nucleo.graficos import dibujar_perfil_red
-from ..nucleo.memoria import avisos_red, resumen_red
+from ..nucleo.memoria import avisos_red, resumen_economia, resumen_red
 from ..nucleo.red import bomba_critica, perfil_ruta_critica
 from .comunes import (M_POR_BAR, Figure, FigureCanvasQTAgg, html_avisos, html_estado,
                       html_tabla, spin)
@@ -62,6 +63,8 @@ class DialogoRed(QDialog):
         self.tuberias = cargar_catalogo_tuberias(uso="principal")
         self.valvulas = []  # ValvulaMapa encontradas en el proyecto
         self.resultado = None
+        self.optimizacion = None  # si los diámetros se eligieron por costo total
+        self.economia = None
 
         contenido = QWidget()
         izquierda = QVBoxLayout(contenido)
@@ -69,6 +72,7 @@ class DialogoRed(QDialog):
         izquierda.addWidget(self._grupo_valvulas())
         izquierda.addWidget(self._grupo_criterios())
         izquierda.addWidget(self._grupo_bomba())
+        izquierda.addWidget(self._grupo_costo())
         izquierda.addStretch()
         desplazable = QScrollArea()
         desplazable.setWidget(contenido)
@@ -231,6 +235,33 @@ class DialogoRed(QDialog):
         formulario.addRow("Eficiencia de la bomba:", self.spin_eficiencia)
         return grupo
 
+    def _grupo_costo(self):
+        grupo = QGroupBox("Elegir diámetros por costo total")
+        grupo.setCheckable(True)
+        grupo.setChecked(False)
+        grupo.setToolTip("Compara el costo de las tuberías (lista de precios de la ventana de materiales) "
+                         "con el de la energía de bombeo durante la vida útil. Sin marcar, cada tramo lleva "
+                         "el menor diámetro que cumple los criterios.")
+        formulario = QFormLayout(grupo)
+        self.spin_energia = spin(0, 10, 0.15, 0.01, decimales=3, sufijo="/kWh")
+        self.spin_energia.setToolTip("Precio de la energía en la moneda de la lista de precios.")
+        formulario.addRow("Precio de la energía:", self.spin_energia)
+        self.spin_horas = spin(0, 8760, 2000, 100, decimales=0, sufijo="h")
+        self.spin_horas.setToolTip("Horas de bombeo al año sumando todos los turnos; se reparten por igual "
+                                   "entre ellos.")
+        formulario.addRow("Horas de bombeo al año:", self.spin_horas)
+        self.spin_vida = QSpinBox()
+        self.spin_vida.setRange(1, 50)
+        self.spin_vida.setValue(20)
+        self.spin_vida.setSuffix(" años")
+        formulario.addRow("Vida útil:", self.spin_vida)
+        self.spin_interes = spin(0, 50, 10, 0.5, decimales=1, sufijo="%")
+        formulario.addRow("Tasa de interés anual:", self.spin_interes)
+        self.spin_motor = spin(10, 100, 90, 1, decimales=0, sufijo="%")
+        formulario.addRow("Eficiencia del motor:", self.spin_motor)
+        self.grupo_costo = grupo
+        return grupo
+
     # ---------------------------------------------------------------- válvulas
 
     def buscar_valvulas(self):
@@ -278,6 +309,29 @@ class DialogoRed(QDialog):
                           altura_succion_m=self.spin_succion.value(),
                           eficiencia=self.spin_eficiencia.value() / 100)
 
+    def economicos(self):
+        return DatosEconomicos(precio_energia_kwh=self.spin_energia.value(),
+                               horas_bombeo_anio=self.spin_horas.value(),
+                               vida_util_anios=self.spin_vida.value(),
+                               tasa_interes=self.spin_interes.value() / 100,
+                               eficiencia_motor=self.spin_motor.value() / 100)
+
+    def _optimizar(self, red):
+        """Diámetros por costo total con la última lista de precios: (optimización, resumen)."""
+        from ..integracion.materiales_mapa import precios_de_tuberias
+        datos = precios_de_tuberias(self.tuberias)
+        if datos is None:
+            raise ValueError("Para elegir los diámetros por costo hace falta una lista de precios: ábrala "
+                             "en la ventana «Lista de materiales y costos».")
+        precios, moneda, lista = datos
+        optimizacion = optimizar_red(red, self.tuberias, precios, self.criterios(), self.datos_bomba(),
+                                     self.economicos())
+        sin_precio = [t.nombre for t in self.tuberias if t.nombre not in precios]
+        if sin_precio:
+            optimizacion.resultado.avisos.append(
+                "Tuberías sin precio en la lista, que no se consideraron: " + ", ".join(sin_precio) + ".")
+        return optimizacion, resumen_economia(optimizacion, moneda, lista)
+
     def calcular(self):
         from ..integracion.perfil_terreno import MuestreadorDem, entidad_unica
         from ..integracion.memoria_mapa import guardar_resumen
@@ -301,12 +355,17 @@ class DialogoRed(QDialog):
                                      MuestreadorDem(dem, crs) if dem is not None else None,
                                      tolerancia_m=self.spin_tolerancia.value(),
                                      perdida_valvula_m=self.spin_perdida_valvula.value())
-            resultado = dimensionar_red(red_mapa.red, self.tuberias, self.criterios())
+            optimizacion, economia = None, None
+            if self.grupo_costo.isChecked():
+                optimizacion, economia = self._optimizar(red_mapa.red)
+                resultado = optimizacion.resultado
+            else:
+                resultado = dimensionar_red(red_mapa.red, self.tuberias, self.criterios())
             bombas = [punto_bomba(r, self.datos_bomba()) for r in resultado.turnos]
             critica = bomba_critica(bombas)
             capas = capas_resultado(red_mapa, resultado, critica, crs)
             guardar_resumen(capas[0], resumen_red(red_mapa.red, resultado, bombas, self.datos_bomba(),
-                                                  red_mapa.sin_dem))
+                                                  red_mapa.sin_dem, economia))
             reemplazar_grupo(NOMBRE_GRUPO, capas)
             if self.iface is not None:
                 self.iface.mapCanvas().refresh()
@@ -318,6 +377,7 @@ class DialogoRed(QDialog):
             QMessageBox.warning(self, "RiegoLibre", error)
             return
         self.red_mapa, self.resultado, self.bombas = red_mapa, resultado, bombas
+        self.optimizacion, self.economia = optimizacion, economia
         self._mostrar(red_mapa, resultado, bombas, critica)
 
     # --------------------------------------------------------------- resultados
@@ -348,6 +408,8 @@ class DialogoRed(QDialog):
             ("Red principal", f"{len(red.tramos)} tramos · {longitud:,.0f} m · {len(red.valvulas)} válvulas"),
         ]
         filas += [(f"&nbsp;&nbsp;{nombre}", f"{m:,.1f} m") for nombre, m in sorted(metros.items())]
+        if self.optimizacion is not None:
+            filas += self._filas_costo()
         self.texto.setHtml(f"<h3>Red principal — {html_estado(cumple)}</h3>"
                            + html_tabla(filas) + html_avisos(avisos))
 
@@ -373,6 +435,23 @@ class DialogoRed(QDialog):
             for v in red.valvulas])
         self._graficar(red, turno)
         self.pestanas.setCurrentIndex(0)
+
+    def _filas_costo(self):
+        o, moneda = self.optimizacion, self.economia["moneda"]
+        c, r = o.costos, o.costos_referencia
+        cambiados = (f"{len(o.tramos_cambiados)} tramos con un diámetro mayor que el mínimo"
+                     if o.tramos_cambiados else "el menor diámetro que cumple es también el más económico")
+        return [
+            ("<b>Diámetros por costo total</b>", cambiados),
+            ("&nbsp;&nbsp;Tuberías", f"{c.tuberia:,.2f} {moneda} (con el menor diámetro: {r.tuberia:,.2f})"),
+            ("&nbsp;&nbsp;Energía al año", f"{c.energia_kwh_anual:,.0f} kWh · {c.energia_anual:,.2f} {moneda} "
+                                           f"(con el menor diámetro: {r.energia_anual:,.2f})"),
+            ("&nbsp;&nbsp;Energía en la vida útil (VP)", f"{c.energia_valor_presente:,.2f} {moneda}"),
+            ("&nbsp;&nbsp;Costo total", f"<b>{c.total:,.2f} {moneda}</b> · ahorro de {o.ahorro:,.2f} "
+                                        f"{moneda} frente al menor diámetro"),
+            ("&nbsp;&nbsp;Lista de precios", f"{self.economia['lista_precios']} "
+                                             f"({o.evaluaciones} combinaciones evaluadas)"),
+        ]
 
     def _graficar(self, red, turno):
         """Perfil de la ruta hasta la válvula más desfavorecida del turno crítico."""

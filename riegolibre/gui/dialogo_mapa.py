@@ -1,6 +1,7 @@
 """Diseño de una subunidad dibujada en el mapa: bloque, portalateral y laterales reales."""
 
-from qgis.core import Qgis, QgsProject, QgsVectorLayer
+from qgis.core import (Qgis, QgsFillSymbol, QgsProject, QgsSingleSymbolRenderer,
+                       QgsVectorLayer)
 from qgis.gui import QgsMapLayerComboBox
 from qgis.PyQt.QtCore import Qt
 from qgis.PyQt.QtWidgets import (QApplication, QComboBox, QDialog,
@@ -200,6 +201,9 @@ class DialogoMapa(QDialog):
             lineas = QgsVectorLayer("LineString?field=nombre:string(50)", "Portalaterales", "memory")
             for capa in (bloques, lineas):
                 capa.setCrs(crs)
+            # Relleno semitransparente para que el bloque no tape el DEM en el mapa ni en el plano.
+            bloques.setRenderer(QgsSingleSymbolRenderer(QgsFillSymbol.createSimple(
+                {"color": "80,170,80,50", "outline_color": "40,120,40", "outline_width": "0.6"})))
             proyecto.addMapLayers([bloques, lineas])
             self.combo_bloque.setLayer(bloques)
             self.combo_portalateral.setLayer(lineas)

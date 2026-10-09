@@ -16,6 +16,7 @@ riegolibre/                 Complemento de QGIS (esta carpeta es la que se insta
 │   ├── portalateral.py     Portalateral (laterales a uno o ambos lados)
 │   ├── subunidad.py        Subunidad (entrada en extremo o centro) y selección de diámetro
 │   ├── red.py              Red principal ramificada: turnos, diámetros, clases y bomba
+│   ├── economia.py         Diámetros de la red por costo total: tubería + energía de bombeo
 │   ├── precios.py          Lectura de listas de precios e identificación de tuberías
 │   ├── materiales.py       Partidas, tubos, desperdicio, costos y exportación a Excel
 │   ├── memoria.py          Resúmenes de resultados y documento de la memoria de cálculo
@@ -76,6 +77,11 @@ Qué hace el cálculo:
 - **Diámetro de cada tramo**: el menor que cumple la velocidad máxima y, opcionalmente, la pérdida unitaria máxima.
 - **Clase de presión**: la más baja que soporta la presión máxima real del tramo, incluidos los puntos bajos del terreno.
 - **Bomba**: CDT = presión a la entrada de la red + pérdidas del cabezal + altura de succión. Potencia = ρ·g·Q·CDT / η.
+- **Diámetros por costo total** (opcional): compara el costo de las tuberías con el valor presente de la energía de bombeo.
+  - Los precios por metro salen de la última lista de precios abierta en la ventana de materiales, con sus artículos elegidos y su desperdicio. Las tuberías sin precio no se consideran.
+  - Energía de cada turno = potencia al eje / eficiencia del motor × horas de bombeo. Las horas del año se reparten por igual entre los turnos.
+  - Valor presente = energía anual × (1 − (1 + i)^−n) / i.
+  - La búsqueda parte del menor diámetro que cumple y prueba, tramo a tramo, el diámetro inmediato superior e inferior. Aplica el cambio que más baja el costo y repite hasta que ninguno lo baja. Los criterios de velocidad y presión se siguen cumpliendo.
 
 Resultados en el mapa (grupo *RiegoLibre · Red principal*):
 - tuberías por tipo, con un grosor según el diámetro,
@@ -160,5 +166,5 @@ Se exporta a **PDF**, a **ODT**, que se abre y edita en Word o LibreOffice, o a 
 - [x] Red principal, carga dinámica total y punto de diseño de la bomba
 - [x] Lista de materiales y costos con lista de precios
 - [x] Memoria de cálculo (PDF, ODT y HTML)
-- [ ] Elección de diámetros de la red por costo (tubería + energía de bombeo)
+- [x] Elección de diámetros de la red por costo (tubería + energía de bombeo)
 - [ ] Riego por aspersión
