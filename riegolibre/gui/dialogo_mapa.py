@@ -9,16 +9,13 @@ from qgis.PyQt.QtWidgets import (QApplication, QComboBox, QDialog,
                                  QLabel, QLineEdit, QMessageBox, QPushButton,
                                  QScrollArea, QSplitter, QVBoxLayout, QWidget)
 
-from ..nucleo import (Lateral, PresionInsuficiente, cargar_catalogo_emisores,
-                      cargar_catalogo_tuberias, disenar_subunidad,
-                      subunidad_desde_conexiones)
-from ..nucleo.memoria import resumen_subunidad
+from ..integracion.calculo_subunidad import ENTRADA_CENTRO, ENTRADA_FINAL, ENTRADA_INICIO
+from ..nucleo import PresionInsuficiente, cargar_catalogo_emisores, cargar_catalogo_tuberias
 from ..nucleo.tuberias import clave_economica
 from .comunes import (ComboDiametros, ComboTuberiaPortalateral, GrupoCriterios,
                       GrupoLaterales, html_tabla, spin)
 from .panel_resultados import PanelResultadosSubunidad
 
-ENTRADA_INICIO, ENTRADA_CENTRO, ENTRADA_FINAL = "inicio", "centro", "final"
 DIRECCION_PERPENDICULAR, DIRECCION_AZIMUT = "perpendicular", "azimut"
 
 
@@ -283,7 +280,7 @@ class DialogoMapa(QDialog):
 
     def calcular(self):
         from ..integracion import subunidad_mapa as mapa
-        from ..integracion.memoria_mapa import guardar_resumen
+        from ..integracion.calculo_subunidad import ConfigCalculo, calcular_subunidad
 
         def calculo():
             crs, portalateral, bloque = self._geometrias()
@@ -293,49 +290,19 @@ class DialogoMapa(QDialog):
             laterales_mapa, avisos = mapa.leer_laterales(capa_laterales, portalateral, crs)
 
             grupo = self.grupo_laterales
-            metodo = self.grupo_criterios.metodo()
-            espaciamiento, primero = grupo.spin_espaciamiento.value(), grupo.spin_primer.value()
-
-            def crear_lateral(longitud, perfil):
-                if longitud < primero:
-                    return None
-                return Lateral.desde_longitud(grupo.tuberia(), grupo.emisor(), espaciamiento, longitud,
-                                              distancia_primer_emisor_m=primero, perfil=perfil,
-                                              metodo=metodo)
-
-            modelo = mapa.construir_modelo(laterales_mapa, crear_lateral, portalateral, crs,
-                                           capa_dem=self.combo_dem.currentLayer(),
-                                           paso_perfil_m=max(espaciamiento, 1.0))
-            if modelo.descartados:
-                avisos.append(f"{len(modelo.descartados)} laterales son más cortos que la distancia "
-                              "al primer emisor y no se calcularon.")
-            if self.combo_dem.currentLayer() is None:
-                avisos.append("Sin DEM: se calculó con el terreno plano.")
-
-            entrada = {ENTRADA_INICIO: 0.0, ENTRADA_CENTRO: portalateral.length() / 2,
-                       ENTRADA_FINAL: portalateral.length()}[self.combo_entrada.currentData()]
-
-            def construir(tuberia, reducciones=()):
-                return subunidad_desde_conexiones(tuberia, modelo.conexiones, entrada,
-                                                  perfil=modelo.perfil_portalateral, metodo=metodo,
-                                                  reducciones=reducciones)
-
-            diseno = disenar_subunidad(construir, self.tuberias_portalateral,
-                                       self.grupo_criterios.criterios(),
-                                       tuberia_fija=self.combo_tuberia_porta.tuberia(),
-                                       presion_entrada_m=self.grupo_criterios.presion_conocida(),
-                                       diametros_max=self.combo_diametros.maximo())
-            area = bloque.area() if bloque is not None else 0.0
-            descartados = {id(lat) for lat in modelo.descartados}
-            longitudes = [lat.longitud_m for lat in laterales_mapa if id(lat) not in descartados]
-            capas = mapa.capas_resultado(diseno, modelo, portalateral, entrada, crs, self.nombre())
-            guardar_resumen(capas[0], resumen_subunidad(
-                self.nombre(), diseno, self.grupo_criterios.criterios(), metodo, area, longitudes,
-                self.grupo_criterios.presion_conocida(), avisos))
-            mapa.reemplazar_grupo(f"RiegoLibre · {self.nombre()}", capas)
+            config = ConfigCalculo(
+                tuberia_lateral=grupo.tuberia(), emisor=grupo.emisor(),
+                espaciamiento_m=grupo.spin_espaciamiento.value(), primer_emisor_m=grupo.spin_primer.value(),
+                metodo=self.grupo_criterios.metodo(), tuberias_portalateral=self.tuberias_portalateral,
+                criterios=self.grupo_criterios.criterios(), entrada=self.combo_entrada.currentData(),
+                capa_dem=self.combo_dem.currentLayer(), tuberia_portalateral=self.combo_tuberia_porta.tuberia(),
+                presion_conocida=self.grupo_criterios.presion_conocida(),
+                diametros_max=self.combo_diametros.maximo())
+            resultado = calcular_subunidad(self.nombre(), crs, portalateral, bloque, laterales_mapa,
+                                           config, avisos)
             if self.iface is not None:
                 self.iface.mapCanvas().refresh()
-            return diseno, bloque, area, avisos
+            return resultado.diseno, bloque, resultado.area_m2, resultado.avisos
 
         datos = self._ejecutar(calculo)
         if datos is None:

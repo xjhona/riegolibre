@@ -18,6 +18,7 @@ riegolibre/                 Complemento de QGIS (esta carpeta es la que se insta
 │   ├── red.py              Red principal ramificada: turnos, diámetros, clases y bomba
 │   ├── economia.py         Diámetros de la red por costo total: tubería + energía de bombeo
 │   ├── precios.py          Lectura de listas de precios e identificación de tuberías
+│   ├── trazado.py          Trazado automático: orientación, portalaterales y subunidades de un terreno
 │   ├── materiales.py       Partidas, tubos, desperdicio, costos y exportación a Excel
 │   ├── memoria.py          Resúmenes de resultados y documento de la memoria de cálculo
 │   ├── graficos.py         Gráficos de presiones (matplotlib)
@@ -26,10 +27,12 @@ riegolibre/                 Complemento de QGIS (esta carpeta es la que se insta
 ├── integracion/            Conexión con QGIS
 │   ├── perfil_terreno.py   Perfil del terreno desde un DEM
 │   ├── subunidad_mapa.py   Generación de laterales en el bloque y capas de resultado
+│   ├── calculo_subunidad.py Cálculo de una subunidad dibujada (lo usan el diseño manual y el automático)
+│   ├── trazado_mapa.py     Trazado automático: geometrías, pendiente del DEM, alcance de laterales y capas
 │   ├── red_mapa.py         Topología de la red principal dibujada y capas de resultado
 │   ├── materiales_mapa.py  Metrado a partir de las capas de resultado del proyecto
 │   └── memoria_mapa.py     Resúmenes guardados en las capas y plano general
-└── gui/                    Ventanas: lateral, subunidad, diseño en el mapa, red, materiales y memoria
+└── gui/                    Ventanas: lateral, subunidad, diseño en el mapa, trazado automático, red, materiales y memoria
 tests/                      Pruebas automáticas
 scripts/                    Utilidades de desarrollo
 ```
@@ -62,6 +65,23 @@ Menú **Complementos → RiegoLibre → Diseño de subunidad en el mapa**:
    - laterales coloreados por presión mínima de emisor,
    - tramos del portalateral con caudal, velocidad y presiones,
    - punto de la válvula con presión y caudal requeridos.
+
+## Trazado automático
+
+Menú **Complementos → RiegoLibre → Trazado automático de subunidades**. Sirve para terrenos de cualquier forma (con escotaduras, huecos o varias partes) y evita dibujar a mano el portalateral:
+
+1. Elija la capa con el **polígono del terreno** (si tiene varias entidades, seleccione una). Opcionalmente, un **DEM** y un punto con la **fuente de agua**.
+2. Indique la separación entre laterales, el emisor y los criterios, y pulse **Buscar trazado**. Se prueban unas veinte direcciones de laterales (rejilla de 15°, los lados más largos del contorno, el rectángulo mínimo que envuelve al terreno y, con DEM, las curvas de nivel) y se muestran las mejores en una tabla. Al elegir una fila se dibuja en el mapa.
+3. **Aplicar y calcular** crea las capas del trazado (grupo *Trazado · nombre*: bloques, portalaterales y laterales, y opcionalmente los emisores) y calcula cada subunidad con el mismo cálculo del diseño en el mapa (grupos *RiegoLibre · nombre n*). Esas subunidades alimentan después la **Red principal y bomba**.
+
+Cómo decide el trazado:
+- **Alcance de los laterales.** Calculado con la hidráulica: la mayor longitud que cumple la variación de caudal (se reserva el 55 % de la variación admisible de la subunidad para los laterales y el resto para el portalateral), con la pendiente del DEM en cada dirección. También puede fijarse a mano.
+- **Portalaterales.** Rectas perpendiculares a los laterales. Se reparte el ancho del terreno en bandas iguales según el alcance, se centra cada portalateral donde más riega y lo que no alcanza una banda (zonas cóncavas, partes tras un hueco) se cubre con portalaterales adicionales. Los laterales se recortan en el borde (menos el margen) y nunca cruzan un hueco ni se traslapan.
+- **Caudal por subunidad.** Si se indica un caudal máximo por válvula, cada portalateral se parte en trozos de caudal parecido, cada uno con su válvula.
+- **Válvula.** En el centro del portalateral o en el extremo más cercano a la fuente.
+- **Puntuación** de cada dirección, en metros equivalentes de tubería: laterales + 2 × portalaterales + 60 por válvula + 4 por metro de lateral no regado + 5 × pendiente × laterales + variación de caudales entre subunidades. Los pesos están en `PesosTrazado` (`nucleo/trazado.py`).
+
+Los laterales generados se pueden editar y recalcular con la ventana de diseño en el mapa (seleccione la subunidad con el campo `subunidad`).
 
 ## Red principal y bomba
 
@@ -170,6 +190,7 @@ Se exporta a **PDF**, a **ODT**, que se abre y edita en Word o LibreOffice, o a 
 - [x] Ventana de subunidad: portalateral y laterales, selección de diámetro
 - [x] Portalateral telescópico (dos o tres diámetros)
 - [x] Herramientas de mapa: dibujar el bloque y generar los laterales automáticamente
+- [x] Trazado automático de laterales, portalaterales y subunidades sobre un terreno de cualquier forma
 - [x] Red principal, carga dinámica total y punto de diseño de la bomba
 - [x] Lista de materiales y costos con lista de precios
 - [x] Memoria de cálculo (PDF, ODT y HTML)

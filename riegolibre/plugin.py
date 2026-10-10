@@ -19,6 +19,7 @@ class RiegoLibrePlugin:
         self._agregar_accion("icon.svg", "Calculadora de lateral (goteo)…", "lateral")
         self._agregar_accion("icon_subunidad.svg", "Subunidad de riego (goteo)…", "subunidad")
         self._agregar_accion("icon_mapa.svg", "Diseño de subunidad en el mapa (goteo)…", "mapa")
+        self._agregar_accion("icon_trazado.svg", "Trazado automático de subunidades (goteo)…", "trazado")
         self._agregar_accion("icon_red.svg", "Red principal y bomba…", "red")
         self._agregar_accion("icon_materiales.svg", "Lista de materiales y costos…", "materiales")
         self._agregar_accion("icon_memoria.svg", "Memoria de cálculo…", "memoria")
@@ -49,6 +50,8 @@ class RiegoLibrePlugin:
                 from .gui.dialogo_subunidad import DialogoSubunidad as Clase
             elif nombre == "mapa":
                 from .gui.dialogo_mapa import DialogoMapa as Clase
+            elif nombre == "trazado":
+                from .gui.dialogo_trazado import DialogoTrazado as Clase
             elif nombre == "red":
                 from .gui.dialogo_red import DialogoRed as Clase
             elif nombre == "materiales":
