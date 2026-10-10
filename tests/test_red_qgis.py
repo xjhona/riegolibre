@@ -109,6 +109,28 @@ class PruebasRedMapa(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, "Lejana.*0.5 m"):
             construir_red(self.tuberias, _p(*FUENTE), [lejana], self.tuberias.crs())
 
+    def test_trazado_automatico_conecta_y_se_calcula(self):
+        from riegolibre.gui.dialogo_red import DialogoRed
+        from riegolibre.integracion.red_mapa import NOMBRE_CAPA_AUTOMATICA
+        dialogo = DialogoRed(iface=None)
+        dialogo.combo_fuente.setLayer(self.fuente)
+        dialogo.combo_tuberias.setLayer(self.tuberias)
+        dialogo.buscar_valvulas()
+        dialogo.trazar_red_automatica()
+        capa = dialogo.combo_tuberias.currentLayer()
+        self.assertEqual(capa.name(), NOMBRE_CAPA_AUTOMATICA)
+        self.assertGreater(capa.featureCount(), 1)
+        # Repetir el trazado reutiliza la misma capa.
+        dialogo.trazar_red_automatica()
+        self.assertEqual(sum(1 for c in QgsProject.instance().mapLayers().values()
+                             if c.name() == NOMBRE_CAPA_AUTOMATICA), 1)
+        # La red trazada se calcula sin cambios y conecta las dos válvulas.
+        dialogo.calcular()
+        self.assertIsNotNone(dialogo.resultado)
+        self.assertEqual({v.id for v in dialogo.resultado.red.valvulas}, {"A", "B"})
+        self.assertEqual(dialogo.resultado.motivos, {})
+        QgsProject.instance().removeMapLayer(capa.id())
+
     def test_dialogo_calcula_y_crea_capas(self):
         from riegolibre.gui.dialogo_red import NOMBRE_GRUPO, DialogoRed
         dialogo = DialogoRed(iface=None)

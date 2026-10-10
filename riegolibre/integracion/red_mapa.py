@@ -10,11 +10,12 @@ from dataclasses import dataclass
 from typing import Dict, List
 
 from qgis.core import (Qgis, QgsCategorizedSymbolRenderer, QgsFeature, QgsGeometry,
-                       QgsMarkerSymbol, QgsProject, QgsRendererCategory,
+                       QgsMarkerSymbol, QgsPointXY, QgsProject, QgsRendererCategory,
                        QgsSingleSymbolRenderer, QgsSymbol, QgsVectorLayer)
 from qgis.PyQt.QtGui import QColor
 
 from ..nucleo import Red, TramoRed, Valvula
+from ..nucleo.trazado_red import ORTOGONAL, ParametrosRed, ValvulaDestino, trazar_red
 from .perfil_terreno import linea_simple, perfil_de_geometria
 from .subunidad_mapa import PROPIEDAD, geometria_en
 
@@ -134,6 +135,56 @@ def construir_red(capa_tuberias, punto_fuente, valvulas: List[ValvulaMapa], crs,
                              "de cada válvula y de la fuente.") from None
         raise
     return RedMapa(red, geometrias, {f"N{i}": p for i, p in enumerate(puntos)}, muestreador is None)
+
+
+# --------------------------------------------------- trazado automático
+
+PROPIEDAD_AUTOMATICA = "red_automatica"
+NOMBRE_CAPA_AUTOMATICA = "Red principal · trazado automático"
+
+
+def trazar_red_en_mapa(punto_fuente, valvulas: List[ValvulaMapa], crs, modo=ORTOGONAL, angulo_grados=None,
+                       proyecto=None):
+    """Traza la red principal de la fuente a las válvulas y la deja en una capa de líneas editable.
+
+    La capa de un trazado anterior (la que lleva la propiedad `red_automatica`) se reutiliza y
+    se vacía; si no existe se crea y se agrega al proyecto. Devuelve (capa, RedTrazada).
+    """
+    proyecto = proyecto or QgsProject.instance()
+    destinos = [ValvulaDestino(v.id, v.punto.x(), v.punto.y(), v.caudal_lh, v.turno) for v in valvulas]
+    red = trazar_red((punto_fuente.x(), punto_fuente.y()), destinos,
+                     ParametrosRed(modo=modo, angulo_grados=angulo_grados))
+
+    capa = next((c for c in proyecto.mapLayers().values()
+                 if isinstance(c, QgsVectorLayer) and c.customProperty(PROPIEDAD_AUTOMATICA) and c.crs() == crs),
+                None)
+    if capa is None:
+        capa = QgsVectorLayer("LineString?field=nombre:string(100)&field=desde:string(80)&field=hasta:string(80)"
+                              "&field=caudal_lh:double&field=longitud:double",
+                              NOMBRE_CAPA_AUTOMATICA, "memory")
+        capa.setCrs(crs)
+        capa.setCustomProperty(PROPIEDAD_AUTOMATICA, True)
+        simbolo = QgsSymbol.defaultSymbol(capa.geometryType())
+        simbolo.setColor(QColor("#1565c0"))
+        simbolo.setWidth(0.8)
+        capa.setRenderer(QgsSingleSymbolRenderer(simbolo))
+        proyecto.addMapLayer(capa)
+    else:
+        capa.dataProvider().truncate()
+
+    entidades = []
+    for t in red.tramos:
+        if t.longitud_m < 1e-6:
+            continue  # válvula justo sobre otro punto de la red: no necesita tubería
+        entidad = QgsFeature(capa.fields())
+        entidad.setGeometry(QgsGeometry.fromPolylineXY([QgsPointXY(x, y) for x, y in t.vertices]))
+        entidad.setAttributes([f"{t.desde} → {t.hasta}", t.desde, t.hasta, round(t.caudal_lh, 1),
+                               round(t.longitud_m, 2)])
+        entidades.append(entidad)
+    capa.dataProvider().addFeatures(entidades)
+    capa.updateExtents()
+    capa.triggerRepaint()
+    return capa, red
 
 
 # --------------------------------------------------------------- resultados

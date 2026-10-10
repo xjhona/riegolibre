@@ -16,6 +16,7 @@ from ..nucleo.economia import DatosEconomicos, optimizar_red
 from ..nucleo.graficos import dibujar_perfil_red
 from ..nucleo.memoria import avisos_red, resumen_economia, resumen_red
 from ..nucleo.red import bomba_critica, perfil_ruta_critica
+from ..nucleo.trazado_red import DIRECTO, ORTOGONAL
 from .comunes import (M_POR_BAR, Figure, FigureCanvasQTAgg, html_avisos, html_estado,
                       html_tabla, spin)
 
@@ -70,6 +71,7 @@ class DialogoRed(QDialog):
         izquierda = QVBoxLayout(contenido)
         izquierda.addWidget(self._grupo_red())
         izquierda.addWidget(self._grupo_valvulas())
+        izquierda.addWidget(self._grupo_trazado())
         izquierda.addWidget(self._grupo_criterios())
         izquierda.addWidget(self._grupo_bomba())
         izquierda.addWidget(self._grupo_costo())
@@ -87,11 +89,12 @@ class DialogoRed(QDialog):
             "<h3>Pasos</h3><ol>"
             "<li>Diseñe las subunidades en el mapa: cada una deja una capa <i>Válvula · nombre</i> "
             "con su caudal y presión requerida.</li>"
-            "<li>Dibuje la <b>fuente</b> (un punto donde está la bomba y el cabezal) y las "
-            "<b>tuberías</b> de la red principal hasta cada válvula. No hace falta cortar las líneas "
-            "en las uniones.</li>"
-            "<li>Pulse <b>Buscar válvulas</b>, asigne los <b>turnos</b> de riego y pulse "
-            "<b>Calcular</b>.</li></ol>")
+            "<li>Marque la <b>fuente</b> (un punto donde está la bomba y el cabezal).</li>"
+            "<li>Pulse <b>Buscar válvulas</b> y asigne los <b>turnos</b> de riego.</li>"
+            "<li>Pulse <b>Trazar la red automáticamente</b> para que RiegoLibre dibuje las tuberías "
+            "de la fuente a cada válvula, o dibújelas usted (no hace falta cortar las líneas en las "
+            "uniones).</li>"
+            "<li>Pulse <b>Calcular</b>.</li></ol>")
         resumen = QSplitter(Qt.Orientation.Vertical)
         resumen.addWidget(self.texto)
         self.figura = None
@@ -200,6 +203,34 @@ class DialogoRed(QDialog):
         capa.addLayout(formulario)
         return grupo
 
+    def _grupo_trazado(self):
+        grupo = QGroupBox("Trazado automático de la red")
+        formulario = QFormLayout(grupo)
+        self.combo_modo_trazado = QComboBox()
+        self.combo_modo_trazado.addItem("Ortogonal (tramos en ángulo recto)", ORTOGONAL)
+        self.combo_modo_trazado.addItem("Directo (líneas rectas)", DIRECTO)
+        self.combo_modo_trazado.setToolTip(
+            "Ortogonal: las tuberías siguen dos direcciones perpendiculares, como en un predio "
+            "cuadriculado. Directo: líneas rectas con uniones donde el recorrido es más corto.")
+        self.combo_modo_trazado.currentIndexChanged.connect(self._actualizar_modo_trazado)
+        formulario.addRow("Forma de las tuberías:", self.combo_modo_trazado)
+        self.spin_angulo_red = spin(-1, 89, -1, 5, decimales=0, sufijo="°")
+        self.spin_angulo_red.setSpecialValueText("automático")
+        self.spin_angulo_red.setToolTip(
+            "Dirección de los ejes del trazado ortogonal (antihoraria desde el este). En automático "
+            "se prueban varias y se elige la de menor costo.")
+        formulario.addRow("Ángulo de los ejes:", self.spin_angulo_red)
+        self.boton_trazar = QPushButton("Trazar la red automáticamente")
+        self.boton_trazar.setToolTip(
+            "Dibuja en una capa editable las tuberías de la fuente a todas las válvulas, juntando "
+            "las que van hacia el mismo lado para compartir tubería. Después puede editarla y calcular.")
+        self.boton_trazar.clicked.connect(self.trazar_red_automatica)
+        formulario.addRow(self.boton_trazar)
+        return grupo
+
+    def _actualizar_modo_trazado(self):
+        self.spin_angulo_red.setEnabled(self.combo_modo_trazado.currentData() == ORTOGONAL)
+
     def _grupo_criterios(self):
         grupo = QGroupBox("Criterios de diseño de la red")
         formulario = QFormLayout(grupo)
@@ -292,6 +323,66 @@ class DialogoRed(QDialog):
     def _turnos_de_tabla(self):
         for fila, v in enumerate(self.valvulas):
             v.turno = self.tabla_valvulas.cellWidget(fila, 3).value()
+
+    # --------------------------------------------------------- trazado automático
+
+    def trazar_red_automatica(self):
+        from ..integracion.perfil_terreno import entidad_unica
+        from ..integracion.red_mapa import trazar_red_en_mapa
+        from ..integracion.subunidad_mapa import geometria_en, verificar_crs_metrico
+        error = None
+        QApplication.setOverrideCursor(Qt.CursorShape.WaitCursor)
+        try:
+            capa_fuente = self.combo_fuente.currentLayer()
+            if capa_fuente is None:
+                raise ValueError("Elija la capa de la fuente y marque en ella el punto de la bomba.")
+            if not self.valvulas:
+                raise ValueError("Pulse «Buscar válvulas en el proyecto» antes de trazar la red.")
+            crs = capa_fuente.crs()
+            verificar_crs_metrico(crs, capa_fuente.name())
+            self._turnos_de_tabla()
+            fuente = geometria_en(capa_fuente, entidad_unica(capa_fuente), crs).asPoint()
+            valvulas = self._valvulas_en(crs)
+            angulo = self.spin_angulo_red.value()
+            capa, red = trazar_red_en_mapa(fuente, valvulas, crs, self.combo_modo_trazado.currentData(),
+                                           angulo if angulo >= 0 else None)
+            self.combo_tuberias.setLayer(capa)
+            if self.iface is not None:
+                self.iface.mapCanvas().refresh()
+        except ValueError as e:
+            error = str(e)
+        finally:
+            QApplication.restoreOverrideCursor()
+        if error:
+            QMessageBox.warning(self, "RiegoLibre", error)
+            return
+        self._mostrar_trazado(red)
+
+    def _valvulas_en(self, crs):
+        """Las válvulas encontradas (con sus turnos actuales), con sus puntos en el SRC dado."""
+        from ..integracion.red_mapa import capas_de_valvulas, leer_valvulas
+        turnos = {v.id: v.turno for v in self.valvulas}
+        valvulas = leer_valvulas(capas_de_valvulas(), crs)
+        for v in valvulas:
+            v.turno = turnos.get(v.id, 1)
+        return valvulas
+
+    def _mostrar_trazado(self, red):
+        forma = ("ortogonal, ejes a " + f"{red.angulo_grados:.0f}°") if red.modo == ORTOGONAL else "directo"
+        filas = [
+            ("Forma", forma),
+            ("Tuberías", f"{len(red.tramos)} tramos · <b>{red.longitud_m:,.0f} m</b>"),
+            ("Uniones en T", str(len(red.uniones))),
+            ("Válvulas conectadas", str(sum(1 for t in red.tramos if not t.hasta.startswith("Unión")))),
+        ]
+        self.texto.setHtml(
+            "<h3>Red principal trazada</h3>" + html_tabla(filas)
+            + "<p>Las tuberías están en la capa temporal <b>Red principal · trazado automático</b>, que ya "
+              "quedó elegida como capa de tuberías. Puede editarla (mover vértices, borrar o dibujar "
+              "tramos) y luego pulsar <b>Calcular</b>.</p>"
+              "<p><i>El trazado busca la red de menor costo suponiendo que una tubería más gruesa sale más "
+              "barata por litro que dos delgadas; los diámetros se eligen al calcular.</i></p>")
+        self.pestanas.setCurrentIndex(0)
 
     # ---------------------------------------------------------------- cálculo
 
