@@ -16,6 +16,7 @@ from qgis.core import (Qgis, QgsClassificationEqualInterval, QgsCoordinateTransf
 from qgis.PyQt.QtGui import QColor
 
 from ..nucleo import ConexionLateral
+from ..nucleo.hidraulica import interpolar_perfil
 from .perfil_terreno import MuestreadorDem, linea_simple, perfil_de_geometria
 
 LADO_A, LADO_B = "A", "B"  # A: a la izquierda del portalateral (según su sentido de dibujo)
@@ -260,12 +261,14 @@ def capas_resultado(diseno, modelo, portalateral, distancia_entrada_m, crs, nomb
         "&field=longitud:double&field=emisores:integer&field=p_entrada:double&field=caudal_lh:double"
         "&field=p_min:double&field=p_max:double&field=q_min:double&field=q_max:double"
         "&field=var_caudal:double&field=fuera_rango:integer&field=tuberia:string(80)"
-        "&field=emisor:string(80)",
+        "&field=emisor:string(80)&field=p_final:double&field=perdida_m:double"
+        "&field=desnivel_m:double&field=velocidad:double",
         f"Laterales · {nombre}", crs)
     tramos = _capa(
         "LineString",
         "field=rama:string(20)&field=desde_m:double&field=hasta_m:double&field=caudal_lh:double"
-        "&field=velocidad:double&field=p_inicio:double&field=p_fin:double&field=tuberia:string(80)",
+        "&field=velocidad:double&field=p_inicio:double&field=p_fin:double&field=tuberia:string(80)"
+        "&field=perdida_m:double&field=desnivel_m:double&field=caudal_sale_lh:double",
         f"Portalateral · {nombre}", crs)
     valvula = _capa(
         "Point",
@@ -288,7 +291,9 @@ def capas_resultado(diseno, modelo, portalateral, distancia_entrada_m, crs, nomb
                     res.numero_emisores, round(res.presion_entrada_m, 3), round(res.caudal_total_lh, 2),
                     round(res.presion_min_m, 3), round(res.presion_max_m, 3), round(res.caudal_min_lh, 4),
                     round(res.caudal_max_lh, 4), round(100 * res.variacion_caudal, 2),
-                    res.emisores_fuera_de_rango, lateral.tuberia.nombre, lateral.emisor.nombre])
+                    res.emisores_fuera_de_rango, lateral.tuberia.nombre, lateral.emisor.nombre,
+                    round(res.presiones_m[-1], 3), round(res.perdida_friccion_m, 3),
+                    round(res.cotas_m[-1], 3), round(res.velocidad_entrada_ms, 3)])
                 entidades_lat.append(entidad)
 
             actual = rama_r.distancias_m[j]
@@ -300,13 +305,19 @@ def capas_resultado(diseno, modelo, portalateral, distancia_entrada_m, crs, nomb
                     continue
                 presion_a, presion_b = (presion_anterior + (rama_r.presiones_m[j] - presion_anterior)
                                         * (x - anterior) / (actual - anterior) for x in (a, b))
+                desnivel = _cota_en(modelo, hasta) - _cota_en(modelo, desde)
+                caudal_sale = caudal_aguas_abajo - (rama_r.caudales_lh[j] if b >= actual - 1e-9 else 0.0)
+                geometria = QgsGeometry(portalateral.constGet().curveSubstring(min(desde, hasta),
+                                                                              max(desde, hasta)))
+                if hasta < desde:  # que la línea vaya en el sentido del flujo: de P1 a P2
+                    geometria = QgsGeometry.fromPolylineXY(list(reversed(geometria.asPolyline())))
                 tramo = QgsFeature(tramos.fields())
-                tramo.setGeometry(QgsGeometry(portalateral.constGet().curveSubstring(min(desde, hasta),
-                                                                                    max(desde, hasta))))
+                tramo.setGeometry(geometria)
                 tramo.setAttributes([
                     nombre_rama, round(desde, 2), round(hasta, 2), round(caudal_aguas_abajo, 1),
                     round(tuberia_pieza.velocidad(caudal_aguas_abajo / 3.6e6), 3), round(presion_a, 3),
-                    round(presion_b, 3), tuberia_pieza.nombre])
+                    round(presion_b, 3), tuberia_pieza.nombre, round(presion_a - presion_b - desnivel, 3),
+                    round(desnivel, 3), round(caudal_sale, 1)])
                 entidades_tramo.append(tramo)
             caudal_aguas_abajo -= rama_r.caudales_lh[j]
             anterior, presion_anterior = actual, rama_r.presiones_m[j]
@@ -325,6 +336,13 @@ def capas_resultado(diseno, modelo, portalateral, distancia_entrada_m, crs, nomb
     valvula.setRenderer(QgsSingleSymbolRenderer(QgsMarkerSymbol.createSimple(
         {"name": "circle", "color": "#c62828", "size": "4", "outline_color": "#ffffff"})))
     return [valvula, tramos, laterales]
+
+
+def _cota_en(modelo, distancia_m):
+    """Cota del terreno en un punto del portalateral (0 si no hay DEM)."""
+    if not modelo.perfil_portalateral:
+        return 0.0
+    return interpolar_perfil(modelo.perfil_portalateral, distancia_m)
 
 
 def _estilo_graduado(capa, campo, ancho, clases=5):

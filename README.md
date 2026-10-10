@@ -18,6 +18,7 @@ riegolibre/                 Complemento de QGIS (esta carpeta es la que se insta
 │   ├── red.py              Red principal ramificada: turnos, diámetros, clases y bomba
 │   ├── economia.py         Diámetros de la red por costo total: tubería + energía de bombeo
 │   ├── precios.py          Lectura de listas de precios e identificación de tuberías
+│   ├── ficha.py            Fichas de información de un objeto (formato «Object Info»)
 │   ├── trazado.py          Trazado automático: orientación, portalaterales y subunidades de un terreno
 │   ├── materiales.py       Partidas, tubos, desperdicio, costos y exportación a Excel
 │   ├── memoria.py          Resúmenes de resultados y documento de la memoria de cálculo
@@ -28,11 +29,13 @@ riegolibre/                 Complemento de QGIS (esta carpeta es la que se insta
 │   ├── perfil_terreno.py   Perfil del terreno desde un DEM
 │   ├── subunidad_mapa.py   Generación de laterales en el bloque y capas de resultado
 │   ├── calculo_subunidad.py Cálculo de una subunidad dibujada (lo usan el diseño manual y el automático)
+│   ├── info_objeto.py      Busca el objeto calculado bajo el cursor y arma su ficha
 │   ├── trazado_mapa.py     Trazado automático: geometrías, pendiente del DEM, alcance de laterales y capas
 │   ├── red_mapa.py         Topología de la red principal dibujada y capas de resultado
 │   ├── materiales_mapa.py  Metrado a partir de las capas de resultado del proyecto
 │   └── memoria_mapa.py     Resúmenes guardados en las capas y plano general
-└── gui/                    Ventanas: lateral, subunidad, diseño en el mapa, trazado automático, red, materiales y memoria
+└── gui/                    Ventanas: lateral, subunidad, diseño en el mapa, trazado automático, red, materiales, memoria
+│                           y la herramienta «Información del objeto»
 tests/                      Pruebas automáticas
 scripts/                    Utilidades de desarrollo
 ```
@@ -82,6 +85,22 @@ Cómo decide el trazado:
 - **Puntuación** de cada dirección, en metros equivalentes de tubería: laterales + 2 × portalaterales + 60 por válvula + 4 por metro de lateral no regado + 5 × pendiente × laterales + variación de caudales entre subunidades. Los pesos están en `PesosTrazado` (`nucleo/trazado.py`).
 
 Los laterales generados se pueden editar y recalcular con la ventana de diseño en el mapa (seleccione la subunidad con el campo `subunidad`).
+
+## Información del objeto
+
+El botón **Información del objeto** (menú y barra de RiegoLibre) activa una herramienta de mapa parecida al *Object Info* de IRRICAD: al hacer clic sobre un objeto calculado se abre su ficha (se puede copiar) y el objeto se resalta. Solo se consultan las capas de resultado visibles.
+
+| Objeto | Datos de la ficha |
+|---|---|
+| Lateral | P1 y P2 (coordenadas), longitud, ángulo, subunidad y posición en el portalateral, tubería, emisor, caudal por cada 100 m, presión en P1 y P2 (último emisor), pérdida, desnivel, caudal de entrada, velocidad, y presiones y caudales de sus emisores |
+| Tramo de portalateral | Coordenadas, longitud, ángulo, rama, tubería, presiones en P1 y P2, pérdida, desnivel, caudal de entrada y de salida, velocidad |
+| Tubería de la red | Lo mismo, con una fila por turno de riego |
+| Válvula | Cota, datos de su subunidad (presión necesaria, caudal, área, uniformidad) y, si ya se calculó la red principal, una fila por turno con la presión aguas arriba, la requerida, la pérdida de la válvula y el caudal |
+| Bomba | Cota y punto de diseño |
+
+Al consultar un **lateral**, la ventana dibuja también su perfil: presión en cada emisor y terreno (arriba) y caudal de cada emisor (abajo). El perfil se reconstruye con la configuración guardada en la capa y el DEM con que se calculó, con la misma presión de entrada.
+
+Las líneas se orientan en el sentido del flujo (P1 aguas arriba, P2 aguas abajo) y siempre se cumple *presión P1 − presión P2 = pérdida + desnivel*. Los resultados calculados con una versión anterior no tienen todos los campos: se muestran con «—» hasta que se vuelva a calcular. Las presiones por turno de una válvula aparecen cuando se asignan los turnos y se calcula la **Red principal y bomba**.
 
 ## Red principal y bomba
 

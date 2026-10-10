@@ -143,13 +143,18 @@ class PruebasIntegracionQgis(unittest.TestCase):
         self.assertIn("✔ Cumple", dialogo.panel.texto.toPlainText())
 
     def test_registro_en_qgis(self):
+        from qgis.gui import QgsMapCanvas
         from qgis.PyQt.QtWidgets import QMainWindow
         from riegolibre import classFactory
 
         class IfaceFalsa:
             def __init__(self):
                 self.ventana = QMainWindow()
+                self.lienzo = QgsMapCanvas()
                 self.menu, self.barra = [], []
+
+            def mapCanvas(self):  # noqa: N802
+                return self.lienzo
 
             def mainWindow(self):  # noqa: N802
                 return self.ventana
@@ -173,7 +178,8 @@ class PruebasIntegracionQgis(unittest.TestCase):
                          ["Calculadora de lateral (goteo)…", "Subunidad de riego (goteo)…",
                           "Diseño de subunidad en el mapa (goteo)…",
                           "Trazado automático de subunidades (goteo)…", "Red principal y bomba…",
-                          "Lista de materiales y costos…", "Memoria de cálculo…"])
+                          "Lista de materiales y costos…", "Memoria de cálculo…",
+                          "Información del objeto (clic en un lateral, tubería o válvula)"])
         self.assertTrue(all(not a.icon().isNull() for a in iface.menu))
         iface.menu[1].trigger()
         self.assertTrue(plugin.dialogos["subunidad"].isVisible())
@@ -181,6 +187,11 @@ class PruebasIntegracionQgis(unittest.TestCase):
         self.assertTrue(plugin.dialogos["trazado"].isVisible())
         iface.menu[6].trigger()  # sin resultados en el proyecto: la memoria lo indica
         self.assertIn("No hay resultados", plugin.dialogos["memoria"].etiqueta_estado.text())
+        # La herramienta «Información del objeto» se activa y se desactiva desde su botón.
+        iface.menu[7].setChecked(True)
+        self.assertIs(iface.mapCanvas().mapTool(), plugin.herramienta_info)
+        iface.mapCanvas().unsetMapTool(plugin.herramienta_info)
+        self.assertFalse(iface.menu[7].isChecked())
         plugin.unload()
         self.assertEqual(iface.menu, [])
 

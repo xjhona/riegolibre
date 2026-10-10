@@ -4,7 +4,8 @@ Lo usan la ventana de diseño en el mapa (una subunidad dibujada a mano) y la de
 automático (todas las subunidades de un terreno).
 """
 
-from dataclasses import dataclass
+import json
+from dataclasses import asdict, dataclass
 from typing import Optional, Sequence
 
 from ..nucleo import (CriteriosDiseno, Lateral, disenar_subunidad,
@@ -14,6 +15,7 @@ from . import subunidad_mapa as mapa
 from .memoria_mapa import guardar_resumen
 
 ENTRADA_INICIO, ENTRADA_CENTRO, ENTRADA_FINAL = "inicio", "centro", "final"
+PROPIEDAD_LATERAL = "riegolibre/laterales"  # configuración con la que se calcularon los laterales de la capa
 
 
 @dataclass
@@ -38,6 +40,15 @@ class ResultadoCalculo:
     capas: list  # [válvula, tramos del portalateral, laterales]
     area_m2: float
     avisos: list
+
+
+def guardar_configuracion_laterales(capa, config):
+    """Guarda en la capa de laterales con qué se calcularon, para poder reconstruir uno al consultarlo."""
+    capa.setCustomProperty(PROPIEDAD_LATERAL, json.dumps({
+        "tuberia": asdict(config.tuberia_lateral), "emisor": asdict(config.emisor),
+        "espaciamiento_m": config.espaciamiento_m, "primer_emisor_m": config.primer_emisor_m,
+        "metodo": config.metodo, "dem": config.capa_dem.id() if config.capa_dem is not None else None,
+        "paso_perfil_m": max(config.espaciamiento_m, 1.0)}, ensure_ascii=False))
 
 
 def distancia_entrada(entrada, portalateral):
@@ -86,6 +97,7 @@ def calcular_subunidad(nombre, crs, portalateral, bloque, laterales_mapa, config
     descartados = {id(lat) for lat in modelo.descartados}
     longitudes = [lat.longitud_m for lat in laterales_mapa if id(lat) not in descartados]
     capas = mapa.capas_resultado(diseno, modelo, portalateral, entrada, crs, nombre)
+    guardar_configuracion_laterales(capas[2], config)
     guardar_resumen(capas[0], resumen_subunidad(
         nombre, diseno, config.criterios, metodo, area, longitudes, config.presion_conocida, avisos))
     if agregar_al_mapa:

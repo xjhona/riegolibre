@@ -52,6 +52,34 @@ def dibujar_perfil_subunidad(figura, puntos, presion_entrada_m, referencia_m, et
     ejes.legend(lineas[0] + lineas_t[0], lineas[1] + lineas_t[1], loc="best", fontsize=8)
 
 
+def dibujar_perfil_lateral(figura, resultado, referencia_m, etiqueta_referencia, titulo=None):
+    """Presión y caudal emisor por emisor a lo largo de un lateral (ResultadoLateral).
+
+    Arriba: presión en cada emisor y terreno (cota relativa a la entrada). Abajo: caudal de cada emisor.
+    """
+    x = [0.0] + list(resultado.posiciones_m)
+    figura.clear()
+    ejes, ejes_q = figura.subplots(2, 1, sharex=True, height_ratios=[2, 1])
+    ejes.plot([0.0], [resultado.presion_entrada_m], "o", color="#c62828", label="Entrada (P1)")
+    ejes.plot(x, [resultado.presion_entrada_m] + list(resultado.presiones_m), color="#1e88e5",
+              label="Presión")
+    ejes.axhline(referencia_m, color="#43a047", linestyle=":", label=etiqueta_referencia)
+    ejes.set_ylabel("Presión (m.c.a.)")
+    ejes.grid(True, alpha=0.3)
+    terreno = ejes.twinx()
+    terreno.plot(x, [0.0] + list(resultado.cotas_m), color="#6d4c41", linewidth=1, label="Terreno (relativo)")
+    terreno.set_ylabel("Cota relativa (m)")
+    lineas, lineas_t = ejes.get_legend_handles_labels(), terreno.get_legend_handles_labels()
+    ejes.legend(lineas[0] + lineas_t[0], lineas[1] + lineas_t[1], loc="best", fontsize=8)
+    if titulo:
+        ejes.set_title(titulo, fontsize=10)
+
+    ejes_q.plot(resultado.posiciones_m, resultado.caudales_lh, color="#43a047")
+    ejes_q.set_ylabel("Caudal emisor (L/h)")
+    ejes_q.set_xlabel("Distancia desde el portalateral (m)")
+    ejes_q.grid(True, alpha=0.3)
+
+
 def dibujar_perfil_red(figura, perfil):
     """Terreno y línea piezométrica de la ruta crítica (perfil: PerfilRuta o su dict)."""
     p = perfil if isinstance(perfil, dict) else vars(perfil)

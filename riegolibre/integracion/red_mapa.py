@@ -5,6 +5,7 @@ los extremos de cada línea, la fuente y las válvulas se convierten en nodos, y
 cada línea se divide en tramos allí donde la toca un nodo (uniones en T).
 """
 
+import json
 from dataclasses import dataclass
 from typing import Dict, List
 
@@ -152,7 +153,8 @@ def capas_resultado(red_mapa, resultado, bomba, crs):
         "LineString",
         "field=tramo:string(20)&field=tuberia:string(80)&field=dn_mm:double&field=pn_m:double"
         "&field=longitud:double&field=caudal_lh:double&field=velocidad:double&field=j_m100:double"
-        "&field=p_min:double&field=p_max:double&field=observ:string(200)",
+        "&field=p_min:double&field=p_max:double&field=observ:string(200)"
+        "&field=desnivel_m:double&field=turnos:string(4000)",
         "Red principal · tuberías", crs)
     entidades = []
     for t in red.tramos:
@@ -160,12 +162,16 @@ def capas_resultado(red_mapa, resultado, bomba, crs):
         q, p_min, p_max = resultado.peor_tramo(t.id)
         peores = [r.tramos[t.id] for r in resultado.turnos]
         entidad = QgsFeature(tramos.fields())
-        entidad.setGeometry(red_mapa.geometrias[t.id])
+        entidad.setGeometry(_en_sentido_del_flujo(red_mapa.geometrias[t.id], red_mapa.puntos[t.desde]))
+        por_turno = [[r.turno, round(r.tramos[t.id].presion_inicio_m, 2), round(r.tramos[t.id].presion_fin_m, 2),
+                      round(r.tramos[t.id].perdida_m, 3), round(r.tramos[t.id].caudal_lh, 1),
+                      round(r.tramos[t.id].velocidad_ms, 3)] for r in resultado.turnos]
         entidad.setAttributes([
             t.id, tuberia.nombre, tuberia.diametro_nominal_mm, tuberia.presion_nominal_m,
             round(t.longitud_m, 2), round(q, 1), round(max(r.velocidad_ms for r in peores), 3),
             round(max(r.perdida_unitaria_m100 for r in peores), 3), round(p_min, 2), round(p_max, 2),
-            resultado.observaciones(t.id)])
+            resultado.observaciones(t.id), round(red.cotas[t.hasta] - red.cotas[t.desde], 3),
+            json.dumps(por_turno, separators=(",", ":"))])
         entidades.append(entidad)
     tramos.dataProvider().addFeatures(entidades)
     _estilo_por_tuberia(tramos, resultado)
@@ -173,15 +179,23 @@ def capas_resultado(red_mapa, resultado, bomba, crs):
     valvulas = _capa(
         "Point",
         "field=valvula:string(80)&field=turno:integer&field=caudal_lh:double&field=p_requerida:double"
-        "&field=p_disponible:double&field=exceso:double",
+        "&field=p_disponible:double&field=exceso:double&field=cota_m:double&field=perdida_valvula_m:double"
+        "&field=turnos:string(4000)",
         "Red principal · válvulas", crs)
     entidades = []
     for v in red.valvulas:
         r = resultado.turno(v.turno)
         entidad = QgsFeature(valvulas.fields())
         entidad.setGeometry(QgsGeometry.fromPointXY(red_mapa.puntos[v.nodo]))
+        # Por cada turno: presión aguas arriba de la válvula, la requerida, su pérdida y su caudal.
+        por_turno = [[t.turno, round(t.presiones[v.nodo], 2),
+                      round(v.presion_requerida_m, 2) if t.turno == v.turno else 0.0,
+                      round(v.perdida_m, 2) if t.turno == v.turno else 0.0,
+                      round(v.caudal_lh, 1) if t.turno == v.turno else 0.0] for t in resultado.turnos]
         entidad.setAttributes([v.id, v.turno, round(v.caudal_lh, 1), round(v.presion_requerida_m, 2),
-                               round(r.presion_disponible[v.id], 2), round(r.exceso(v), 2)])
+                               round(r.presion_disponible[v.id], 2), round(r.exceso(v), 2),
+                               round(red.cotas[v.nodo], 2), round(v.perdida_m, 2),
+                               json.dumps(por_turno, separators=(",", ":"))])
         entidades.append(entidad)
     valvulas.dataProvider().addFeatures(entidades)
     valvulas.setRenderer(QgsSingleSymbolRenderer(QgsMarkerSymbol.createSimple(
@@ -190,12 +204,13 @@ def capas_resultado(red_mapa, resultado, bomba, crs):
     capa_bomba = _capa(
         "Point",
         "field=turno:integer&field=caudal_ls:double&field=cdt_m:double&field=potencia_kw:double"
-        "&field=potencia_hp:double",
+        "&field=potencia_hp:double&field=cota_m:double",
         "Red principal · bomba", crs)
     entidad = QgsFeature(capa_bomba.fields())
     entidad.setGeometry(QgsGeometry.fromPointXY(red_mapa.puntos[red.fuente]))
     entidad.setAttributes([bomba.turno, round(bomba.caudal_ls, 3), round(bomba.carga_dinamica_total_m, 2),
-                           round(bomba.potencia_kw, 2), round(bomba.potencia_hp, 2)])
+                           round(bomba.potencia_kw, 2), round(bomba.potencia_hp, 2),
+                           round(red.cotas[red.fuente], 2)])
     capa_bomba.dataProvider().addFeatures([entidad])
     capa_bomba.setRenderer(QgsSingleSymbolRenderer(QgsMarkerSymbol.createSimple(
         {"name": "square", "color": "#1565c0", "size": "5", "outline_color": "#ffffff"})))
@@ -203,6 +218,14 @@ def capas_resultado(red_mapa, resultado, bomba, crs):
     for capa in (tramos, valvulas, capa_bomba):
         capa.updateExtents()
     return [capa_bomba, valvulas, tramos]
+
+
+def _en_sentido_del_flujo(geometria, punto_inicial):
+    """La línea orientada de modo que empiece en el nodo de aguas arriba (P1) del tramo."""
+    vertices = geometria.asPolyline()
+    if vertices[0].distance(punto_inicial) <= vertices[-1].distance(punto_inicial):
+        return geometria
+    return QgsGeometry.fromPolylineXY(list(reversed(vertices)))
 
 
 PALETA = ["#1565c0", "#2e7d32", "#ef6c00", "#6a1b9a", "#00838f", "#ad1457", "#558b2f", "#4e342e"]

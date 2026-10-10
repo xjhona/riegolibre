@@ -10,7 +10,8 @@ Estado al 9 de octubre de 2026. Ya están hechos:
 - los diámetros de la red principal por costo total (tubería + energía de bombeo),
 - el estilo semitransparente de la capa «Bloques»,
 - el portalateral telescópico (hasta tres diámetros),
-- el trazado automático de laterales, portalaterales y subunidades sobre un terreno de cualquier forma.
+- el trazado automático de laterales, portalaterales y subunidades sobre un terreno de cualquier forma,
+- la herramienta «Información del objeto» (ficha de laterales, portalaterales, tuberías, válvulas y bomba).
 
 ## Por desarrollar
 
@@ -28,6 +29,7 @@ Estado al 9 de octubre de 2026. Ya están hechos:
 - Portalateral telescópico: el costo se compara con longitud × diámetro². Confirmar si conviene usar los precios de la lista, como en la red principal, y si se deben permitir cambios de material (por ejemplo, de PVC a PE).
 - Trazado automático: confirmar los pesos de la puntuación (60 m por válvula, 2 × portalateral, 4 por metro sin regar, 5 × pendiente) y la regla de 55 % de la variación de caudal para los laterales.
 - Probar en QGIS la ventana «Trazado automático» con un terreno real (las pruebas pasan, pero no se pudo ver el texto de la ventana en modo sin pantalla).
+- Información del objeto: probar el clic en QGIS (las pruebas cubren la búsqueda y la ficha, pero no el clic real con el ratón) y confirmar si falta algún dato de la ficha de IRRICAD (conexiones entre objetos y flujo de purga no existen en RiegoLibre).
 - Probar el complemento con un caso real.
 
 ## Retomar en otro computador
