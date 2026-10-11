@@ -8,6 +8,7 @@ algunos servicios devuelven teselas de relleno («Map data not yet available») 
 
 import json
 import math
+import os
 from dataclasses import dataclass
 from typing import Callable, Optional
 from urllib.parse import quote
@@ -236,11 +237,114 @@ def configurar_terreno_3d(capa_dem: QgsRasterLayer, exageracion: float = 1.0):
     return terreno
 
 
+CELDAS_RELLENO = 500  # lado aproximado de la cuadrícula gruesa con la que se rellenan los huecos
+NOMBRE_DEM_3D = "DEM para 3D (bordes rellenos)"
+
+
+def _relajar(z, vacias, iteraciones):
+    """Cada celda vacía toma el promedio de sus cuatro vecinas (Laplace): superficie sin quiebres."""
+    for _ in range(iteraciones):
+        borde = numpy.pad(z, 1, mode="edge")
+        promedio = (borde[:-2, 1:-1] + borde[2:, 1:-1] + borde[1:-1, :-2] + borde[1:-1, 2:]) / 4.0
+        z = numpy.where(vacias, promedio, z)
+    return z
+
+
+def rellenar_suave(z, vacias, iteraciones=20):
+    """Rellena las celdas vacías como una membrana tendida entre las que tienen dato.
+
+    Pirámide de promedios: se rellena una versión de la mitad de resolución (recursivamente), se
+    amplía para dar el primer valor a los huecos y se suaviza con unas iteraciones de relajación. No
+    deja rayas ni escalones como el relleno por búsqueda en direcciones.
+    """
+    z = numpy.where(vacias, 0.0, z).astype(float)
+    if not vacias.any() or vacias.all():
+        return z
+    filas, columnas = z.shape
+    if min(filas, columnas) <= 2:
+        return numpy.where(vacias, z[~vacias].mean(), z)
+    f2, c2 = filas + filas % 2, columnas + columnas % 2
+    suma = numpy.zeros((f2, c2))
+    peso = numpy.zeros((f2, c2))
+    suma[:filas, :columnas] = z
+    peso[:filas, :columnas] = ~vacias
+    suma = suma.reshape(f2 // 2, 2, c2 // 2, 2).sum(axis=(1, 3))
+    peso = peso.reshape(f2 // 2, 2, c2 // 2, 2).sum(axis=(1, 3))
+    gruesa = rellenar_suave(numpy.divide(suma, peso, out=numpy.zeros_like(suma), where=peso > 0), peso == 0,
+                            iteraciones)
+    ampliada = numpy.kron(gruesa, numpy.ones((2, 2)))[:filas, :columnas]
+    return _relajar(numpy.where(vacias, ampliada, z), vacias, iteraciones)
+
+
+@_con_excepciones
+def dem_para_3d(ruta_dem: str, ruta_salida: str):
+    """Copia del DEM sin celdas vacías, para que la vista 3D no muestre bordes dentados.
+
+    Las celdas con dato se conservan tal cual. Los huecos se rellenan con `rellenar_suave` sobre una
+    cuadrícula gruesa, que es rápida, y se vuelven a la resolución original con interpolación
+    bilineal. Ese relleno es solo para la vista: no debe usarse para diseñar.
+    """
+    origen = gdal.Open(ruta_dem)
+    banda = origen.GetRasterBand(1)
+    vacio = banda.GetNoDataValue()
+    columnas, filas = origen.RasterXSize, origen.RasterYSize
+    gt = origen.GetGeoTransform()
+    limites = (gt[0], gt[3] + gt[5] * filas, gt[0] + gt[1] * columnas, gt[3])
+    cotas = banda.ReadAsArray().astype(numpy.float32)
+    salida = gdal.GetDriverByName("GTiff").Create(ruta_salida, columnas, filas, 1, gdal.GDT_Float32,
+                                                  ["COMPRESS=DEFLATE", "TILED=YES", "PREDICTOR=3"])
+    salida.SetGeoTransform(gt)
+    salida.SetProjection(origen.GetProjection())
+    huecos = numpy.zeros(cotas.shape, bool) if vacio is None else cotas == vacio
+    if huecos.any():
+        factor = max(1, math.ceil(max(columnas, filas) / CELDAS_RELLENO))
+        gruesa = gdal.Warp("", origen, format="MEM", outputBounds=limites, width=math.ceil(columnas / factor),
+                           height=math.ceil(filas / factor), resampleAlg="average", outputType=gdal.GDT_Float32)
+        banda_gruesa = gruesa.GetRasterBand(1)
+        z = banda_gruesa.ReadAsArray().astype(float)
+        vacias = numpy.isnan(z) if vacio is None else (z == banda_gruesa.GetNoDataValue()) | numpy.isnan(z)
+        banda_gruesa.WriteArray(rellenar_suave(z, vacias))
+        relleno = gdal.Warp("", gruesa, format="MEM", outputBounds=limites, width=columnas, height=filas,
+                            resampleAlg="bilinear", outputType=gdal.GDT_Float32)
+        cotas = numpy.where(huecos, relleno.GetRasterBand(1).ReadAsArray(), cotas)
+    salida.GetRasterBand(1).WriteArray(cotas)
+    salida.GetRasterBand(1).ComputeStatistics(False)
+    salida = None
+
+
+def capa_dem_3d(capa_dem: QgsRasterLayer) -> QgsRasterLayer:
+    """DEM con los bordes rellenos, en el proyecto (apagado, junto al DEM). Se rehace si el DEM cambió."""
+    from .topografia_cad import capas_que_usan
+    ruta_dem = capa_dem.source()
+    ruta = f"{os.path.splitext(ruta_dem)[0]}_3d.tif"
+    proyecto = QgsProject.instance()
+    existentes = capas_que_usan([ruta])
+    vigente = os.path.exists(ruta) and os.path.getmtime(ruta) >= os.path.getmtime(ruta_dem)
+    if existentes and vigente:
+        return existentes[0]
+    for capa in existentes:
+        proyecto.removeMapLayer(capa.id())
+    if not vigente:
+        dem_para_3d(ruta_dem, ruta)
+    capa = QgsRasterLayer(ruta, NOMBRE_DEM_3D)
+    if not capa.isValid():
+        raise ValueError(f"No se pudo abrir el DEM para 3D:\n{ruta}")
+    proyecto.addMapLayer(capa, False)
+    nodo_dem = proyecto.layerTreeRoot().findLayer(capa_dem.id())
+    grupo = nodo_dem.parent() if nodo_dem is not None else proyecto.layerTreeRoot()
+    posicion = grupo.children().index(nodo_dem) + 1 if nodo_dem is not None else len(grupo.children())
+    nodo = grupo.insertLayer(posicion, capa)
+    nodo.setItemVisibilityChecked(False)  # solo da el relieve a la vista 3D; no se dibuja en el mapa
+    return capa
+
+
 ACCION_VISTA_3D = "mActionNew3DMapCanvas"  # Ver → Nueva vista de mapa 3D
 
 
-def abrir_vista_3d(iface, capa_dem: QgsRasterLayer, exageracion: float = 1.0):
+def abrir_vista_3d(iface, capa_dem: QgsRasterLayer, exageracion: float = 1.0, rellenar_bordes: bool = False):
     """Configura el terreno y abre una vista 3D con las capas visibles del mapa sobre él.
+
+    Con `rellenar_bordes`, el terreno es una copia del DEM sin huecos (ver `capa_dem_3d`).
 
     Se dispara la acción del menú de QGIS en lugar de `iface.createNewMapCanvas3D`: esa función
     devuelve el lienzo 3D a Python y en QGIS 3.44 (Windows) cierra QGIS con una violación de acceso.
@@ -256,5 +360,5 @@ def abrir_vista_3d(iface, capa_dem: QgsRasterLayer, exageracion: float = 1.0):
     if accion is None or not accion.isEnabled():
         raise ValueError("No se encontró la vista 3D de QGIS. Ábrala en Ver → Nueva vista de mapa 3D "
                          "(el DEM ya quedó como terreno del proyecto).")
-    configurar_terreno_3d(capa_dem, exageracion)
+    configurar_terreno_3d(capa_dem_3d(capa_dem) if rellenar_bordes else capa_dem, exageracion)
     accion.trigger()

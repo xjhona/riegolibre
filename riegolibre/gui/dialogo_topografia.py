@@ -196,6 +196,13 @@ class DialogoTopografia(QDialog):
         self.spin_exageracion.setToolTip("Multiplica las cotas en la vista 3D para que el relieve se note "
                                          "mejor en terrenos suaves.")
         formulario.addRow("Exageración vertical:", self.spin_exageracion)
+        self.check_rellenar = QCheckBox("Rellenar los bordes sin curvas (solo para la vista)")
+        self.check_rellenar.setChecked(True)
+        self.check_rellenar.setToolTip(
+            "La vista 3D dibuja en sierra el borde donde el DEM no tiene dato. Con esta opción se usa una "
+            "copia del DEM con los huecos rellenos por interpolación («DEM para 3D», apagada en el mapa). "
+            "El DEM de diseño no cambia.")
+        formulario.addRow(self.check_rellenar)
         boton = QPushButton("Abrir vista 3D")
         boton.clicked.connect(self.abrir_3d)
         formulario.addRow(boton)
@@ -203,7 +210,9 @@ class DialogoTopografia(QDialog):
             "El DEM se usa como terreno del proyecto y las capas visibles del mapa (imagen satelital, curvas, "
             "lindero, bloques, tuberías) se ven sobre él. En la vista 3D: arrastre con el botón izquierdo "
             "para desplazar, con el derecho o la rueda para acercar y con Mayús + arrastre para girar. La "
-            "llave de herramientas de la vista permite cambiar la exageración y la iluminación."))
+            "llave de herramientas de la vista permite cambiar la exageración y la iluminación; en Terreno, "
+            "una «resolución de tesela» de 64 o 128 da más detalle. Con los bordes rellenos, descargue la "
+            "imagen satelital sin recortar para que cubra también el relleno."))
         return pagina
 
     # ------------------------------------------------------------- lectura del DXF
@@ -469,7 +478,11 @@ class DialogoTopografia(QDialog):
         dem = self._dem_elegido(self.combo_dem_3d)
         if dem is None:
             return
+        QApplication.setOverrideCursor(Qt.CursorShape.WaitCursor)
         try:
-            abrir_vista_3d(self.iface, dem, self.spin_exageracion.value())
-        except ValueError as error:
+            abrir_vista_3d(self.iface, dem, self.spin_exageracion.value(), self.check_rellenar.isChecked())
+        except (ValueError, RuntimeError) as error:
+            QApplication.restoreOverrideCursor()
             QMessageBox.warning(self, "RiegoLibre", str(error))
+            return
+        QApplication.restoreOverrideCursor()

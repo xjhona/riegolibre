@@ -86,6 +86,8 @@ class PruebasTopografiaCad(unittest.TestCase):
 
     @classmethod
     def tearDownClass(cls):
+        from qgis.core import QgsFlatTerrainProvider
+        QgsProject.instance().elevationProperties().setTerrainProvider(QgsFlatTerrainProvider())
         QgsProject.instance().removeAllMapLayers()
         cls.carpeta.cleanup()
 
@@ -216,6 +218,24 @@ class PruebasTopografiaCad(unittest.TestCase):
         abrir_vista_3d(Iface(), dem, 3.0)
         self.assertEqual(disparos, [True])
         self.assertEqual(proyecto.elevationProperties().terrainProvider().scale(), 3.0)
+
+        # Con los bordes rellenos el terreno es una copia del DEM sin huecos, apagada en el mapa.
+        from riegolibre.integracion.imagen_satelital import NOMBRE_DEM_3D
+        abrir_vista_3d(Iface(), dem, 1.0, rellenar_bordes=True)
+        terreno = proyecto.elevationProperties().terrainProvider().layer()
+        self.assertEqual(terreno.name(), NOMBRE_DEM_3D)
+        self.assertFalse(proyecto.layerTreeRoot().findLayer(terreno.id()).itemVisibilityChecked())
+        ds_relleno = gdal.Open(terreno.source())
+        relleno = ds_relleno.GetRasterBand(1).ReadAsArray()
+        ds_relleno = None
+        self.assertFalse((relleno == -9999).any())
+        self.assertAlmostEqual(_cota(terreno.source(), 110.5, 50.5), _cota(r.ruta_dem, 110.5, 50.5), places=4)
+        hueco = _cota(terreno.source(), 400.5, 50.5)  # sin dato en el DEM de diseño
+        self.assertIsNone(_cota(r.ruta_dem, 400.5, 50.5))
+        self.assertTrue(104 < hueco < 112, hueco)
+        abrir_vista_3d(Iface(), dem, 1.0, rellenar_bordes=True)  # se reutiliza la misma capa
+        self.assertIs(proyecto.elevationProperties().terrainProvider().layer(), terreno)
+        self.assertEqual(disparos, [True, True, True])
 
     def test_ventana_importa_y_agrega_capas(self):
         from qgis.gui import QgsMapCanvas
