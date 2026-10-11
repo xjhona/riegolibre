@@ -78,6 +78,10 @@ class PesosTrazado:
     sin_cubrir: float = 4.0  # por metro de lateral que habría regado el terreno que queda sin regar
     pendiente: float = 5.0  # por metro de lateral y por m/m de pendiente a lo largo de los laterales
     desbalance: float = 30.0  # por unidad de coeficiente de variación de los caudales de las subunidades
+    # Solo para elegir en qué extremo del portalateral va la válvula, si se conoce la cota de los
+    # extremos: metros de tubería de la red principal que vale cada metro que el agua sube por el
+    # portalateral (cuesta energía de bombeo; si baja, la válvula queda arriba y el agua gana presión).
+    subida: float = 5.0
 
 
 @dataclass
@@ -96,6 +100,8 @@ class SubunidadTrazada:
     portalateral: Tuple[Punto, Punto]  # del inicio (válvula) al final
     laterales: List[LateralTrazado]
     caudal: float  # según `ParametrosTrazado.caudal`
+    # Cota del final menos cota de la válvula: positivo si el portalateral sube. None sin cotas.
+    desnivel_m: Optional[float] = None
 
     @property
     def longitud_portalateral_m(self):
@@ -433,18 +439,36 @@ class _Disposicion:
                 break
             self._aplicar(xp, trozos)
 
-    def subunidades(self, fuente=None):
+    def subunidades(self, fuente=None, cota=None):
+        """Subunidades con la válvula en un extremo del portalateral.
+
+        El extremo se elige por el costo de llevar el agua hasta él: la distancia a la fuente (si
+        se conoce) más lo que sube el agua por el portalateral (si hay una función `cota(x, y)`
+        que da la cota del terreno o None donde no hay dato).
+        """
         piezas = sorted(self.piezas, key=lambda p: (p[0], p[1][0][0]))
         resultado = []
         for numero, (xp, trozo) in enumerate(piezas, 1):
             media = self.separacion / 2
             y_bajo, y_alto = self.ys[trozo[0][0]] - media, self.ys[trozo[-1][0]] + media
             desde_abajo = True
-            if fuente is not None:
-                f = fuente
-                d_bajo = math.dist(f, self.al_terreno((xp, y_bajo)))
-                d_alto = math.dist(f, self.al_terreno((xp, y_alto)))
-                desde_abajo = d_bajo <= d_alto
+            p_bajo, p_alto = self.al_terreno((xp, y_bajo)), self.al_terreno((xp, y_alto))
+            z_bajo = z_alto = None
+            if cota is not None:
+                z_bajo, z_alto = cota(*p_bajo), cota(*p_alto)
+                if z_bajo is None or z_alto is None:
+                    z_bajo = z_alto = None
+            if fuente is not None or z_bajo is not None:
+                costo_bajo = costo_alto = 0.0
+                if fuente is not None:
+                    costo_bajo, costo_alto = math.dist(fuente, p_bajo), math.dist(fuente, p_alto)
+                if z_bajo is not None:  # entrando por un extremo, el agua sube hasta el otro
+                    costo_bajo += self.pesos.subida * max(0.0, z_alto - z_bajo)
+                    costo_alto += self.pesos.subida * max(0.0, z_bajo - z_alto)
+                desde_abajo = costo_bajo <= costo_alto
+            desnivel = None
+            if z_bajo is not None:
+                desnivel = (z_alto - z_bajo) if desde_abajo else (z_bajo - z_alto)
             y_inicio, y_fin = (y_bajo, y_alto) if desde_abajo else (y_alto, y_bajo)
             ordenadas = trozo if desde_abajo else list(reversed(trozo))
             laterales = []
@@ -461,7 +485,7 @@ class _Disposicion:
                         "B" if a_la_derecha else "A", conexion, distancia, largo))
             resultado.append(SubunidadTrazada(
                 numero, (self.al_terreno((xp, y_inicio)), self.al_terreno((xp, y_fin))), laterales,
-                sum(t[3] for t in trozo)))
+                sum(t[3] for t in trozo), desnivel))
         return resultado
 
 
@@ -482,26 +506,28 @@ def _puntuar(trazado, pesos):
             + p.pendiente * trazado.orientacion.pendiente * lat + p.desbalance * desbalance)
 
 
-def _trazar(anillos, params, orientacion, pesos, fuente, separacion, area):
+def _trazar(anillos, params, orientacion, pesos, fuente, separacion, area, cota=None):
     disposicion = _Disposicion(anillos, orientacion, params, pesos, separacion)
     disposicion.construir()
-    trazado = Trazado(orientacion, separacion, disposicion.subunidades(fuente), area,
+    trazado = Trazado(orientacion, separacion, disposicion.subunidades(fuente, cota), area,
                       area_alcanzable_m2=disposicion.area_alcanzable)
     trazado.puntuacion = _puntuar(trazado, pesos)
     return trazado
 
 
 def trazar(anillos: Sequence[Anillo], params: ParametrosTrazado, orientacion: Orientacion,
-           pesos: PesosTrazado = PesosTrazado(), fuente: Optional[Punto] = None) -> Trazado:
+           pesos: PesosTrazado = PesosTrazado(), fuente: Optional[Punto] = None,
+           cota: Optional[Callable[[float, float], Optional[float]]] = None) -> Trazado:
     """Traza laterales y portalaterales para una dirección de laterales dada."""
     _verificar(anillos)
-    return _trazar(anillos, params, orientacion, pesos, fuente, params.separacion_m, area_anillos(anillos))
+    return _trazar(anillos, params, orientacion, pesos, fuente, params.separacion_m, area_anillos(anillos),
+                   cota)
 
 
 def buscar_trazados(anillos: Sequence[Anillo], params: ParametrosTrazado,
                     orientaciones: Sequence[Orientacion], pesos: PesosTrazado = PesosTrazado(),
-                    fuente: Optional[Punto] = None, cantidad=5,
-                    separacion_minima_deg=8.0) -> List[Trazado]:
+                    fuente: Optional[Punto] = None, cantidad=5, separacion_minima_deg=8.0,
+                    cota: Optional[Callable[[float, float], Optional[float]]] = None) -> List[Trazado]:
     """Prueba cada orientación y devuelve los mejores trazados, el primero es el mejor.
 
     Primero se descartan orientaciones con una pasada rápida (laterales más separados si
@@ -517,7 +543,7 @@ def buscar_trazados(anillos: Sequence[Anillo], params: ParametrosTrazado,
                     max(p[1] for p in puntos) - min(p[1] for p in puntos))
     separacion_rapida = max(params.separacion_m, extension / 50)
 
-    rapidos = [_trazar(anillos, params, o, pesos, fuente, separacion_rapida, area) for o in orientaciones]
+    rapidos = [_trazar(anillos, params, o, pesos, fuente, separacion_rapida, area, cota) for o in orientaciones]
     rapidos.sort(key=lambda t: t.puntuacion)
     elegidos = []
     for t in rapidos:
@@ -530,7 +556,7 @@ def buscar_trazados(anillos: Sequence[Anillo], params: ParametrosTrazado,
     if separacion_rapida == params.separacion_m:
         finales = elegidos
     else:
-        finales = [_trazar(anillos, params, t.orientacion, pesos, fuente, params.separacion_m, area)
+        finales = [_trazar(anillos, params, t.orientacion, pesos, fuente, params.separacion_m, area, cota)
                    for t in elegidos]
     finales.sort(key=lambda t: t.puntuacion)
     return finales

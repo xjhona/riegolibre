@@ -98,6 +98,22 @@ class PruebasUtilidades(unittest.TestCase):
         with self.assertRaises(ValueError):
             construir_orientaciones(anillos, None, lambda p: 0.0)
 
+    def test_funcion_cota_lee_el_dem_y_la_valvula_va_arriba(self):
+        from riegolibre.integracion.trazado_mapa import capas_trazado, funcion_cota
+        from riegolibre.nucleo.trazado import Orientacion, ParametrosTrazado, trazar
+        cota = funcion_cota(self.dem, self.dem.crs())
+        self.assertAlmostEqual(cota(X0 + 50.0, Y0 - 10.0), 100 + PENDIENTE_ESTE * 50.5, delta=0.05)
+        self.assertIsNone(cota(X0 + 5000.0, Y0))
+        # Laterales a nivel (norte-sur) y portalaterales de este a oeste... el DEM sube hacia el este:
+        # con laterales verticales los portalaterales son horizontales, y la válvula queda al este.
+        anillo = [(X0 + x, Y0 + y) for x, y in RECTANGULO]
+        trazado = trazar([anillo], ParametrosTrazado(2.0, margen_m=0.0), Orientacion(90, 40), cota=cota)
+        for subunidad in trazado.subunidades:
+            self.assertGreater(subunidad.portalateral[0][0], subunidad.portalateral[1][0])  # inicia al este
+            self.assertLess(subunidad.desnivel_m, 0)  # el agua baja por el portalateral
+        portalaterales = capas_trazado(trazado, self.dem.crs(), "t")[1]
+        self.assertLess(next(portalaterales.getFeatures())["desnivel_m"], 0)
+
     def test_funcion_caudal_cuenta_emisores(self):
         from riegolibre.integracion.trazado_mapa import funcion_caudal
         from riegolibre.nucleo import cargar_catalogo_emisores

@@ -99,6 +99,12 @@ def pendiente_a_lo_largo(gradiente, angulo_deg):
     return abs(gradiente[0] * math.cos(a) + gradiente[1] * math.sin(a))
 
 
+def funcion_cota(capa_dem, crs) -> Callable[[float, float], Optional[float]]:
+    """Función (x, y) → cota del DEM en el SRC dado (None donde el DEM no tiene dato)."""
+    muestreador = MuestreadorDem(capa_dem, crs)
+    return lambda x, y: muestreador.cota(QgsPointXY(x, y))
+
+
 def alcance_hidraulico(tuberia, emisor, espaciamiento_m, primer_emisor_m, variacion_caudal_max, metodo="darcy",
                        presion_entrada_max_m=None) -> Callable[[float], float]:
     """Función pendiente → longitud máxima de un lateral que cumple la variación de caudal.
@@ -190,7 +196,7 @@ def capas_trazado(trazado, crs, nombre, con_bloques=True):
         "&field=dist_porta:double&field=longitud:double&index=yes", f"Laterales · {nombre}", crs)
     portalaterales = _capa(
         "LineString", "field=subunidad:integer&field=longitud:double&field=laterales:integer"
-        "&field=caudal_lh:double", f"Portalaterales · {nombre}", crs)
+        "&field=caudal_lh:double&field=desnivel_m:double", f"Portalaterales · {nombre}", crs)
     bloques = _capa("Polygon", "field=subunidad:integer&field=area_m2:double&field=laterales:integer",
                     f"Bloques · {nombre}", crs) if con_bloques else None
 
@@ -210,7 +216,8 @@ def capas_trazado(trazado, crs, nombre, con_bloques=True):
         entidad = QgsFeature(portalaterales.fields())
         entidad.setGeometry(geometria)
         entidad.setAttributes([s.numero, round(s.longitud_portalateral_m, 2), len(s.laterales),
-                               round(s.caudal, 1)])
+                               round(s.caudal, 1),
+                               None if s.desnivel_m is None else round(s.desnivel_m, 2)])
         entidades_porta.append(entidad)
         if bloques is not None:
             bloque = bloque_de_subunidad(s, trazado.separacion_m)

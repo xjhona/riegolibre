@@ -84,7 +84,7 @@ Cómo decide el trazado:
 - **Alcance de los laterales.** Calculado con la hidráulica: la mayor longitud que cumple la variación de caudal (se reserva el 55 % de la variación admisible de la subunidad para los laterales y el resto para el portalateral), con la pendiente del DEM en cada dirección. También puede fijarse a mano.
 - **Portalaterales.** Rectas perpendiculares a los laterales. Se reparte el ancho del terreno en bandas iguales según el alcance, se centra cada portalateral donde más riega y lo que no alcanza una banda (zonas cóncavas, partes tras un hueco) se cubre con portalaterales adicionales. Los laterales se recortan en el borde (menos el margen) y nunca cruzan un hueco ni se traslapan.
 - **Caudal por subunidad.** Si se indica un caudal máximo por válvula, cada portalateral se parte en trozos de caudal parecido, cada uno con su válvula.
-- **Válvula.** En el centro del portalateral o en el extremo más cercano a la fuente.
+- **Válvula.** En el centro del portalateral o en un extremo. En un extremo, se elige el que sale más barato llevar el agua hasta él: la distancia a la fuente más 5 m de tubería por cada metro que el agua sube por el portalateral (con un DEM, usando la cota real de los extremos). Así, con pendiente, la válvula queda arriba y el agua baja por el portalateral.
 - **Puntuación** de cada dirección, en metros equivalentes de tubería: laterales + 2 × portalaterales + 60 por válvula + 4 por metro de lateral no regado + 5 × pendiente × laterales + variación de caudales entre subunidades. Los pesos están en `PesosTrazado` (`nucleo/trazado.py`).
 
 Los laterales generados se pueden editar y recalcular con la ventana de diseño en el mapa (seleccione la subunidad con el campo `subunidad`).

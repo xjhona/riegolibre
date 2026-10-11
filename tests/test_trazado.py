@@ -144,6 +144,37 @@ class PruebasTrazadoRectangular(unittest.TestCase):
         self.assertAlmostEqual(min(lat.distancia_m for lat in arriba.laterales), 1.0)
         self.assertEqual(min(lat.conexion for lat in arriba.laterales), 0)
 
+    def test_la_valvula_va_en_el_extremo_alto_si_no_hay_fuente(self):
+        terreno, params = [rectangulo(100, 60)], ParametrosTrazado(2.0, margen_m=0.0)
+        for pendiente, abajo in ((0.05, False), (-0.05, True)):  # el terreno sube (o baja) hacia el norte
+            s = trazar(terreno, params, Orientacion(0, 60), cota=lambda x, y: pendiente * y).subunidades[0]
+            self.assertEqual(s.portalateral[0][1] < s.portalateral[1][1], abajo)
+            self.assertAlmostEqual(s.desnivel_m, -abs(pendiente) * 60, places=6)  # el agua baja por el portalateral
+
+    def test_sin_cotas_el_desnivel_no_se_conoce(self):
+        s = trazar([rectangulo(100, 60)], ParametrosTrazado(2.0, margen_m=0.0), Orientacion(0, 60)).subunidades[0]
+        self.assertIsNone(s.desnivel_m)
+        sin_dato = trazar([rectangulo(100, 60)], ParametrosTrazado(2.0, margen_m=0.0), Orientacion(0, 60),
+                          cota=lambda x, y: None).subunidades[0]
+        self.assertIsNone(sin_dato.desnivel_m)
+
+    def test_la_distancia_a_la_fuente_pesa_contra_la_subida(self):
+        terreno, params = [rectangulo(100, 60)], ParametrosTrazado(2.0, margen_m=0.0)
+        fuente = (50.0, -30.0)  # al sur: el extremo sur está a 30 m y el norte a 90 m
+        poca_subida = trazar(terreno, params, Orientacion(0, 60), fuente=fuente,
+                             cota=lambda x, y: 0.05 * y).subunidades[0]  # sube 3 m hacia el norte
+        # Entrar por el sur cuesta 30 + 5·3 = 45 m equivalentes; por el norte, 90: gana el sur.
+        self.assertLess(poca_subida.portalateral[0][1], poca_subida.portalateral[1][1])
+        mucha_subida = trazar(terreno, params, Orientacion(0, 60), fuente=fuente,
+                              cota=lambda x, y: 2.0 * y).subunidades[0]  # sube 120 m hacia el norte
+        # Entrar por el sur costaría 30 + 5·120 = 630 m: es mejor entrar por el norte (90 m).
+        self.assertGreater(mucha_subida.portalateral[0][1], mucha_subida.portalateral[1][1])
+
+    def test_buscar_trazados_acepta_cotas(self):
+        trazados = buscar_trazados([rectangulo(100, 60)], ParametrosTrazado(2.0, margen_m=0.0),
+                                   [Orientacion(0, 60), Orientacion(90, 100)], cota=lambda x, y: 0.02 * x)
+        self.assertTrue(all(s.desnivel_m is not None for t in trazados for s in t.subunidades))
+
     def test_terreno_pequeno_sin_laterales_suficientes(self):
         t = trazar([rectangulo(10, 3)], ParametrosTrazado(1.5, margen_m=0.5), Orientacion(0, 30))
         self.assertEqual(t.numero_subunidades, 0)

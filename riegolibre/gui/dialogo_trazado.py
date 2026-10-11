@@ -138,7 +138,8 @@ class DialogoTrazado(QDialog):
         formulario.addRow("DEM:", self.combo_dem)
         self.combo_fuente = _combo_capas(Qgis.LayerFilter.PointLayer, "Sin fuente")
         self.combo_fuente.setToolTip("Punto de la fuente de agua o del cabezal: la válvula de cada "
-                                     "subunidad se coloca en el extremo del portalateral más cercano a él.")
+                                     "subunidad se coloca en el extremo del portalateral más cercano a él "
+                                     "(con un DEM, también se cuenta lo que sube el agua hasta el otro extremo).")
         self.combo_fuente.layerChanged.connect(self._fuente_cambiada)
         formulario.addRow("Fuente de agua (opcional):", self.combo_fuente)
         return grupo
@@ -183,7 +184,7 @@ class DialogoTrazado(QDialog):
         formulario.addRow("Laterales mínimos por subunidad:", self.spin_laterales_min)
         self.combo_entrada = QComboBox()
         self.combo_entrada.addItem("En el centro del portalateral", ENTRADA_CENTRO)
-        self.combo_entrada.addItem("Al inicio (extremo más cercano a la fuente)", ENTRADA_INICIO)
+        self.combo_entrada.addItem("Al inicio (extremo conveniente según la fuente y el DEM)", ENTRADA_INICIO)
         formulario.addRow("Entrada (válvula):", self.combo_entrada)
         self.check_curvas = QCheckBox("Probar también laterales siguiendo las curvas de nivel")
         self.check_curvas.setChecked(True)
@@ -297,7 +298,10 @@ class DialogoTrazado(QDialog):
             avisos.append("Sin fuente elegida, el inicio de cada portalateral queda en el extremo sur "
                           "de su recta, según la dirección de los laterales.")
 
-        trazados = buscar_trazados(anillos, params, orientaciones, fuente=fuente)
+        cota = None
+        if dem is not None and self.combo_entrada.currentData() == ENTRADA_INICIO:
+            cota = tm.funcion_cota(dem, crs)  # la válvula entra por el extremo que conviene según el relieve
+        trazados = buscar_trazados(anillos, params, orientaciones, fuente=fuente, cota=cota)
         return trazados, {"crs": crs, "geometria": geometria, "params": params, "avisos": avisos,
                           "gradiente": gradiente, "fuente": fuente}
 
@@ -334,12 +338,23 @@ class DialogoTrazado(QDialog):
             ("Subunidades", f"<b>{t.numero_subunidades}</b>"),
             ("Laterales", f"{sum(len(s.laterales) for s in t.subunidades):,} · {t.longitud_laterales_m:,.0f} m"),
             ("Emisores (aprox.)", f"{emisores:,}"),
-            ("Portalaterales", f"{t.longitud_portalaterales_m:,.0f} m"),
+            ("Portalaterales", f"{t.longitud_portalaterales_m:,.0f} m{self._texto_desnivel(t)}"),
             ("Caudal por subunidad", f"{min(caudales):.2f} – {max(caudales):.2f} L/s" if caudales else "—"),
             ("Terreno sin regar", f"{t.fraccion_sin_cubrir:.1%}"),
         ]
         self.texto.setHtml("<h3>Trazado propuesto</h3>" + html_tabla(filas) + html_avisos(avisos)
                            + "<p>Pulse <b>Aplicar y calcular</b> para crear las capas y calcular cada subunidad.</p>")
+
+    @staticmethod
+    def _texto_desnivel(t):
+        """Cuántos portalaterales bajan desde la válvula y el mayor desnivel que sube el agua."""
+        desniveles = [s.desnivel_m for s in t.subunidades if s.desnivel_m is not None]
+        if not desniveles:
+            return ""
+        bajan = sum(1 for d in desniveles if d <= 0)
+        texto = f" · {bajan} de {len(desniveles)} bajan desde la válvula"
+        mayor = max(desniveles)
+        return texto + (f" · el que más sube, {mayor:.1f} m" if mayor > 0.05 else "")
 
     def aplicar(self):
         fila = self._fila()
