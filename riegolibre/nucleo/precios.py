@@ -17,6 +17,8 @@ import statistics
 from dataclasses import dataclass
 from typing import List, Optional
 
+from .base_datos import MATERIAL_CINTA
+
 LARGO_MAXIMO_PIEZA_M = 12.0
 # Palabras que indican un accesorio (no una tubería) en descripciones de PE.
 ACCESORIO = re.compile(
@@ -125,7 +127,7 @@ def _material_buscado(tuberia):
         return "PVC"
     if "manguera" in nombre:
         return "MANGUERA"
-    if "cinta" in nombre:
+    if "cinta" in nombre or tuberia.material == MATERIAL_CINTA:
         return None  # las cintas llevan los emisores incorporados: se eligen a mano
     return "PE"
 

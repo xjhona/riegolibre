@@ -179,7 +179,7 @@ class PruebasIntegracionQgis(unittest.TestCase):
                           "Calculadora de lateral (goteo)…", "Subunidad de riego (goteo)…",
                           "Diseño de subunidad en el mapa (goteo)…",
                           "Trazado automático de subunidades (goteo)…", "Red principal y bomba…",
-                          "Lista de materiales y costos…", "Memoria de cálculo…",
+                          "Base de datos de materiales…", "Lista de materiales y costos…", "Memoria de cálculo…",
                           "Información del objeto (clic en un lateral, tubería o válvula)"])
         self.assertTrue(all(not a.icon().isNull() for a in iface.menu))
         iface.menu[0].trigger()
@@ -188,13 +188,27 @@ class PruebasIntegracionQgis(unittest.TestCase):
         self.assertTrue(plugin.dialogos["subunidad"].isVisible())
         iface.menu[4].trigger()
         self.assertTrue(plugin.dialogos["trazado"].isVisible())
-        iface.menu[7].trigger()  # sin resultados en el proyecto: la memoria lo indica
+        iface.menu[8].trigger()  # sin resultados en el proyecto: la memoria lo indica
         self.assertIn("No hay resultados", plugin.dialogos["memoria"].etiqueta_estado.text())
         # La herramienta «Información del objeto» se activa y se desactiva desde su botón.
-        iface.menu[8].setChecked(True)
+        iface.menu[9].setChecked(True)
         self.assertIs(iface.mapCanvas().mapTool(), plugin.herramienta_info)
         iface.mapCanvas().unsetMapTool(plugin.herramienta_info)
-        self.assertFalse(iface.menu[8].isChecked())
+        self.assertFalse(iface.menu[9].isChecked())
+        # Al cambiar la base de datos, las ventanas se rehacen para leer los catálogos nuevos:
+        # las cerradas de inmediato y las abiertas cuando se vuelven a abrir.
+        iface.menu[6].trigger()
+        base = plugin.dialogos["base_datos"]
+        plugin.dialogos["topografia"].hide()
+        subunidad = plugin.dialogos["subunidad"]
+        base.base_cambiada.emit()
+        self.assertNotIn("topografia", plugin.dialogos)
+        plugin.abrir("subunidad")
+        self.assertIs(plugin.dialogos["subunidad"], subunidad)  # sigue abierta
+        subunidad.hide()
+        plugin.abrir("subunidad")
+        self.assertIsNot(plugin.dialogos["subunidad"], subunidad)
+        self.assertIs(plugin.dialogos["base_datos"], base)
         plugin.unload()
         self.assertEqual(iface.menu, [])
 

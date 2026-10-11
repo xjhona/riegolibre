@@ -75,7 +75,25 @@ def clave_economica(tuberia):
             tuberia.presion_nominal_m or 0.0, -tuberia.diametro_interior_mm)
 
 
-def cargar_catalogo_tuberias(ruta=RUTA_CATALOGO, uso=None):
+def cargar_catalogo_tuberias(ruta=None, uso=None):
+    """Catálogo de tuberías, todas o las de un uso (lateral, portalateral, principal).
+
+    Sin ruta se usa la base de datos del usuario (ver `base_datos`), si existe y tiene
+    tuberías para ese uso; si no, el catálogo genérico. Pedidas todas (uso=None), se añaden
+    las genéricas que no estén en la base, para reconocer los proyectos hechos con ellas.
+    """
+    if ruta is None:
+        from .base_datos import base_activa
+        base = base_activa()
+        if base is not None:
+            tuberias = base.tuberias_motor(uso)
+            if uso is None:
+                nombres = {t.nombre for t in tuberias}
+                return tuberias + [t for t in cargar_catalogo_tuberias(RUTA_CATALOGO)
+                                   if t.nombre not in nombres]
+            if tuberias:
+                return tuberias
+        ruta = RUTA_CATALOGO
     with open(ruta, encoding="utf-8") as archivo:
         datos = json.load(archivo)
     tuberias = [Tuberia(**item) for item in datos["tuberias"]]

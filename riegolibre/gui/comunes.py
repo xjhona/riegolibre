@@ -4,6 +4,7 @@ from qgis.PyQt.QtWidgets import (QComboBox, QDoubleSpinBox, QFormLayout, QGroupB
                                  QHBoxLayout, QLabel, QRadioButton)
 
 from ..nucleo import CriteriosDiseno
+from ..nucleo.base_datos import cintas_activas
 
 try:
     from matplotlib.backends.backend_qtagg import FigureCanvasQTAgg
@@ -62,6 +63,37 @@ def html_avisos(avisos):
     return "<p style='color:#c62828'>" + "<br>".join("⚠ " + a for a in avisos) + "</p>"
 
 
+def enlazar_cintas(combo_tuberia, tuberias, combo_emisor, emisores, spin_espaciamiento):
+    """Laterales con gotero integrado de la base de datos (cintas, mangueras con gotero).
+
+    Al elegir uno como tubería quedan fijados su emisor y su espaciamiento, como en IRRICAD.
+    Sus emisores no se ofrecen para las tuberías sin gotero.
+    """
+    cintas = cintas_activas()
+    if not cintas:
+        return
+    indice_emisor = {e.nombre: i for i, e in enumerate(emisores)}
+    de_cinta = {i for i, e in enumerate(emisores) if e.nombre in cintas}
+    sueltos = [i for i in range(len(emisores)) if i not in de_cinta]
+    modelo = combo_emisor.model()
+    for i in de_cinta:
+        combo_emisor.view().setRowHidden(i, True)
+        modelo.item(i).setEnabled(False)
+
+    def al_cambiar_tuberia(indice):
+        cinta = cintas.get(tuberias[indice].nombre) if 0 <= indice < len(tuberias) else None
+        integrado = cinta is not None and cinta.nombre in indice_emisor
+        combo_emisor.setEnabled(not integrado)
+        if integrado:
+            combo_emisor.setCurrentIndex(indice_emisor[cinta.nombre])
+            spin_espaciamiento.setValue(cinta.espaciamiento_m)
+        elif combo_emisor.currentIndex() in de_cinta and sueltos:
+            combo_emisor.setCurrentIndex(sueltos[0])
+
+    combo_tuberia.currentIndexChanged.connect(al_cambiar_tuberia)
+    al_cambiar_tuberia(combo_tuberia.currentIndex())
+
+
 class GrupoLaterales(QGroupBox):
     """Tubería, emisor y espaciamiento de los laterales.
 
@@ -91,6 +123,7 @@ class GrupoLaterales(QGroupBox):
         self.spin_primer = spin(0.0, 10, 0.30, 0.05, sufijo="m")
         self.formulario.addRow("Distancia al primer emisor:", self.spin_primer)
         self._actualizar_emisor()
+        enlazar_cintas(self.combo_tuberia, tuberias, self.combo_emisor, emisores, self.spin_espaciamiento)
 
     def _actualizar_emisor(self):
         self.etiqueta_emisor.setText(descripcion_emisor(self.emisor()))

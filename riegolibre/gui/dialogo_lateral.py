@@ -12,7 +12,7 @@ from qgis.PyQt.QtWidgets import (QApplication, QCheckBox, QComboBox, QDialog,
 from ..nucleo import (Lateral, PresionInsuficiente, cargar_catalogo_emisores,
                       cargar_catalogo_tuberias, longitud_maxima)
 from .comunes import (M_POR_BAR, Figure, FigureCanvasQTAgg, descripcion_emisor,
-                      html_avisos, html_estado, html_tabla)
+                      enlazar_cintas, html_avisos, html_estado, html_tabla)
 from .comunes import spin as _spin
 
 
@@ -96,6 +96,8 @@ class DialogoLateral(QDialog):
 
         self.spin_espaciamiento = _spin(0.05, 10, 0.30, 0.05, sufijo="m")
         formulario.addRow("Espaciamiento entre emisores:", self.spin_espaciamiento)
+        enlazar_cintas(self.combo_tuberia, self.tuberias, self.combo_emisor, self.emisores,
+                       self.spin_espaciamiento)
         self.spin_primer = _spin(0.0, 10, 0.30, 0.05, sufijo="m")
         formulario.addRow("Distancia al primer emisor:", self.spin_primer)
         self.spin_longitud = _spin(1, 2000, 100, 5, decimales=1, sufijo="m")

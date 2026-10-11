@@ -18,6 +18,9 @@ riegolibre/                 Complemento de QGIS (esta carpeta es la que se insta
 │   ├── red.py              Red principal ramificada: turnos, diámetros, clases y bomba
 │   ├── economia.py         Diámetros de la red por costo total: tubería + energía de bombeo
 │   ├── precios.py          Lectura de listas de precios e identificación de tuberías
+│   ├── base_datos.py       Base de datos de materiales: tuberías, laterales con gotero, válvulas, otros
+│   ├── importar_irricad.py Importación de una base de datos de IRRICAD (.mdb)
+│   ├── mdb.py              Lector de bases de Access (.mdb, Jet 3 y Jet 4) en Python puro
 │   ├── ficha.py            Fichas de información de un objeto (formato «Object Info»)
 │   ├── trazado.py          Trazado automático: orientación, portalaterales y subunidades de un terreno
 │   ├── trazado_red.py      Red principal automática: árbol de la fuente a las válvulas (ortogonal o directo)
@@ -37,7 +40,8 @@ riegolibre/                 Complemento de QGIS (esta carpeta es la que se insta
 │   ├── red_mapa.py         Topología de la red principal dibujada y capas de resultado
 │   ├── materiales_mapa.py  Metrado a partir de las capas de resultado del proyecto
 │   └── memoria_mapa.py     Resúmenes guardados en las capas y plano general
-└── gui/                    Ventanas: lateral, subunidad, diseño en el mapa, trazado automático, red, materiales, memoria
+└── gui/                    Ventanas: lateral, subunidad, diseño en el mapa, trazado automático, red, base de datos,
+│                           materiales, memoria
 │                           y la herramienta «Información del objeto»
 tests/                      Pruebas automáticas
 scripts/                    Utilidades de desarrollo
@@ -148,6 +152,17 @@ El botón **Trazar la red automáticamente** dibuja las tuberías de la fuente a
 - Con restricciones, el recorrido se busca sobre una cuadrícula con el método de camino de menor costo (A*) y después se endereza. El tamaño de la celda es automático (unas 100 celdas por el lado mayor del predio) y se puede cambiar: una celda más pequeña sigue mejor los detalles, pero tarda más. Las válvulas y la fuente siempre se pueden alcanzar aunque estén en el borde de una zona prohibida.
 - Con restricciones, el resultado indica cuántos metros de la red pasan por zonas que encarecen o por barreras, y cuántos van sobre caminos.
 
+## Base de datos de materiales
+
+Menú **Complementos → RiegoLibre → Base de datos de materiales**. Es una sola base para todos los proyectos, como la de IRRICAD:
+
+- **Importar base de IRRICAD (.mdb)** lee el archivo directamente, sin instalar Microsoft Access ni drivers (lector propio en Python, para Access 97 y 2000-2003). Se importan las pestañas *Pipes*, *Tapes*, *Valves* y *Other Hydraulics*. Las bombas, los aspersores y las boquillas se dejan para más adelante.
+- La base se guarda en `%APPDATA%\RiegoLibre\base_datos.json`. Al importar otra vez o al volver al catálogo genérico, la anterior queda como copia de respaldo (`.bak`). La variable de entorno `RIEGOLIBRE_BASE` permite usar otro archivo.
+- Las ventanas de diseño ofrecen las tuberías según su uso en IRRICAD: *L* para laterales, *Z* para portalaterales y *M* para la red principal. Las tuberías sin uso quedan en la base, pero no se ofrecen. Si la base no tiene tuberías para un uso, se usan las del catálogo genérico.
+- Los laterales con gotero (*Tapes*) aparecen como tuberías de lateral. Al elegir uno, su emisor y su espaciamiento quedan fijados. El emisor sigue q = k·hˣ (L/h y m). Con x = 0 es autocompensado desde la *Minimum PC Pressure* (o, si no hay, desde la presión mínima) hasta la presión máxima. El *barb factor* se usa como longitud equivalente de cada emisor.
+- Las válvulas y los otros elementos hidráulicos guardan su pérdida H = K·Qⁿ + C (H en m, Q en m³/h) y su rango de caudal. Todavía no entran en el cálculo.
+- La ventana muestra la base en pestañas, con un buscador. La edición de registros es la fase 2.
+
 ## Lista de materiales y costos
 
 Menú **Complementos → RiegoLibre → Lista de materiales y costos**:
@@ -229,6 +244,8 @@ Se exporta a **PDF**, a **ODT**, que se abre y edita en Word o LibreOffice, o a 
 - [x] Trazado automático de laterales, portalaterales y subunidades sobre un terreno de cualquier forma
 - [x] Red principal, carga dinámica total y punto de diseño de la bomba
 - [x] Lista de materiales y costos con lista de precios
+- [x] Base de datos de materiales: importación desde IRRICAD (fase 1)
+- [ ] Base de datos: edición de registros (fase 2) y válvulas y filtros en el cálculo (fase 3)
 - [x] Memoria de cálculo (PDF, ODT y HTML)
 - [x] Elección de diámetros de la red por costo (tubería + energía de bombeo)
 - [ ] Riego por aspersión

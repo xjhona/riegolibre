@@ -14,6 +14,7 @@ class RiegoLibrePlugin:
         self.iface = iface
         self.acciones = []
         self.dialogos = {}
+        self.desactualizados = set()  # ventanas abiertas cuando cambió la base de datos
         self.accion_info = None
         self.herramienta_info = None
         self.dialogo_info = None
@@ -25,6 +26,7 @@ class RiegoLibrePlugin:
         self._agregar_accion("icon_mapa.svg", "Diseño de subunidad en el mapa (goteo)…", "mapa")
         self._agregar_accion("icon_trazado.svg", "Trazado automático de subunidades (goteo)…", "trazado")
         self._agregar_accion("icon_red.svg", "Red principal y bomba…", "red")
+        self._agregar_accion("icon_base_datos.svg", "Base de datos de materiales…", "base_datos")
         self._agregar_accion("icon_materiales.svg", "Lista de materiales y costos…", "materiales")
         self._agregar_accion("icon_memoria.svg", "Memoria de cálculo…", "memoria")
         self._agregar_herramienta_info()
@@ -75,9 +77,25 @@ class RiegoLibrePlugin:
             dialogo.deleteLater()
         self.dialogos = {}
 
+    def _base_cambiada(self):
+        """Las ventanas leen los catálogos al crearse: las cerradas se descartan y las abiertas
+        se rehacen la próxima vez que se abran."""
+        for nombre, dialogo in list(self.dialogos.items()):
+            if nombre == "base_datos":
+                continue
+            if dialogo.isVisible():
+                self.desactualizados.add(nombre)
+            else:
+                dialogo.deleteLater()
+                del self.dialogos[nombre]
+
     def abrir(self, nombre):
         dialogo = self.dialogos.get(nombre)
+        if dialogo is not None and nombre in self.desactualizados and not dialogo.isVisible():
+            self.dialogos.pop(nombre).deleteLater()
+            dialogo = None
         if dialogo is None:
+            self.desactualizados.discard(nombre)
             if nombre == "lateral":
                 from .gui.dialogo_lateral import DialogoLateral as Clase
             elif nombre == "subunidad":
@@ -92,9 +110,13 @@ class RiegoLibrePlugin:
                 from .gui.dialogo_topografia import DialogoTopografia as Clase
             elif nombre == "materiales":
                 from .gui.dialogo_materiales import DialogoMateriales as Clase
+            elif nombre == "base_datos":
+                from .gui.dialogo_base_datos import DialogoBaseDatos as Clase
             else:
                 from .gui.dialogo_memoria import DialogoMemoria as Clase
             dialogo = self.dialogos[nombre] = Clase(self.iface, self.iface.mainWindow())
+            if nombre == "base_datos":
+                dialogo.base_cambiada.connect(self._base_cambiada)
         dialogo.show()
         dialogo.raise_()
         dialogo.activateWindow()

@@ -57,7 +57,18 @@ class Emisor:
         return self.presion_max_m is not None and presion_m > self.presion_max_m + tolerancia
 
 
-def cargar_catalogo_emisores(ruta=RUTA_CATALOGO):
+def cargar_catalogo_emisores(ruta=None):
+    """Catálogo de emisores.
+
+    Sin ruta se usa la base de datos del usuario (ver `base_datos`), si existe: sus emisores
+    sueltos (o los genéricos) y los de sus laterales con gotero integrado.
+    """
+    if ruta is None:
+        from .base_datos import base_activa
+        base = base_activa()
+        if base is not None:
+            return base.emisores_motor(cargar_catalogo_emisores(RUTA_CATALOGO))
+        ruta = RUTA_CATALOGO
     with open(ruta, encoding="utf-8") as archivo:
         datos = json.load(archivo)
     return [Emisor(**item) for item in datos["emisores"]]
