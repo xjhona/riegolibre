@@ -175,7 +175,7 @@ class PruebasIntegracionQgis(unittest.TestCase):
         plugin = classFactory(iface)
         plugin.initGui()
         self.assertEqual([a.text() for a in iface.menu],
-                         ["Importar topografía de CAD (DXF)…",
+                         ["Topografía: curvas de CAD, imagen satelital y 3D…",
                           "Calculadora de lateral (goteo)…", "Subunidad de riego (goteo)…",
                           "Diseño de subunidad en el mapa (goteo)…",
                           "Trazado automático de subunidades (goteo)…", "Red principal y bomba…",

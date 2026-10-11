@@ -7,8 +7,9 @@ import unittest
 from tests.test_integracion_qgis import HAY_QGIS, X0, Y0, _iniciar_qgis
 
 if HAY_QGIS:
+    import numpy
     from osgeo import gdal, ogr, osr
-    from qgis.core import QgsCoordinateReferenceSystem, QgsProject
+    from qgis.core import QgsCoordinateReferenceSystem, QgsProject, QgsRasterLayer, QgsSettings
 
 PENDIENTE = 0.02  # el plano de las curvas sube 2 cm por metro hacia el este
 X_CURVAS = list(range(0, 201, 25)) + [600]  # entre 200 y 600 m no hay curvas
@@ -44,6 +45,28 @@ def _cota(ruta_dem, x, y):
     banda = ds.GetRasterBand(1)
     valor = float(banda.ReadAsArray(columna, fila, 1, 1)[0, 0])
     return None if valor == banda.GetNoDataValue() else valor
+
+
+def _crear_ortofoto(ruta):
+    """Imagen RGB de 1 m que cubre el plano: roja en x < 300 m y azul en el resto."""
+    ds = gdal.GetDriverByName("GTiff").Create(ruta, 700, 140, 3, gdal.GDT_Byte)
+    ds.SetGeoTransform((X0 - 50, 1.0, 0, Y0 + 120, 0, -1.0))
+    ds.SetProjection(_wkt_utm())
+    roja = numpy.zeros((140, 700), numpy.uint8)
+    roja[:, :350] = 255
+    ds.GetRasterBand(1).WriteArray(roja)
+    ds.GetRasterBand(2).WriteArray(numpy.zeros((140, 700), numpy.uint8))
+    ds.GetRasterBand(3).WriteArray(255 - roja)
+    ds = None
+
+
+def _pixel(ruta, x, y):
+    """(r, g, b, máscara) de la imagen en el punto (x, y) relativo al origen."""
+    ds = gdal.Open(ruta)
+    gt = ds.GetGeoTransform()
+    columna, fila = int((X0 + x - gt[0]) / gt[1]), int((Y0 + y - gt[3]) / gt[5])
+    valores = [int(ds.GetRasterBand(b).ReadAsArray(columna, fila, 1, 1)[0, 0]) for b in (1, 2, 3)]
+    return (*valores, int(ds.GetRasterBand(1).GetMaskBand().ReadAsArray(columna, fila, 1, 1)[0, 0]))
 
 
 def _wkt_utm():
@@ -128,10 +151,55 @@ class PruebasTopografiaCad(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, "No se encuentra"):
             leer_dxf(self._salida("no_existe.dxf"))
 
+    def test_teselas(self):
+        from riegolibre.integracion.imagen_satelital import metros_por_pixel, tesela
+        self.assertEqual(tesela(0.0001, -0.0001, 1), (1, 1))
+        # Mismos índices que da el servicio de Esri para el centro del plano de Fruveg.
+        self.assertEqual(tesela(-78.47872, -8.880654, 17), (36962, 68782))
+        self.assertAlmostEqual(metros_por_pixel(0, 0), 156543.03, places=1)
+
+    def test_imagen_de_una_capa_recortada_al_dem(self):
+        from riegolibre.integracion.imagen_satelital import imagen_para_dem
+        from riegolibre.integracion.topografia_cad import generar_topografia
+        r = generar_topografia(self.dxf, ["C-TOPO"], _wkt_utm(), self._salida("imagen"), paso_m=1.0)
+        dem = QgsRasterLayer(r.ruta_dem, "dem")
+        ruta_orto = self._salida("orto.tif")
+        _crear_ortofoto(ruta_orto)
+        ruta = self._salida("imagen/plano_satelite.tif")
+        resultado = imagen_para_dem(QgsRasterLayer(ruta_orto, "orto"), dem, ruta, resolucion_m=0.5)
+        self.assertIsNone(resultado.zoom)
+        self.assertEqual((resultado.columnas, resultado.filas), (1202, 202))  # DEM de 601 × 101 m
+        rojo, _, _, mascara = _pixel(ruta, 100.2, 50.2)
+        self.assertGreater(rojo, 200)
+        self.assertEqual(mascara, 255)
+        self.assertGreater(_pixel(ruta, 590.2, 50.2)[2], 200)  # azul, junto a la curva de 600 m
+        self.assertEqual(_pixel(ruta, 400.2, 50.2)[3], 0)  # fuera del DEM: transparente
+        sin_recorte = self._salida("imagen/sin_recorte.tif")
+        imagen_para_dem(QgsRasterLayer(ruta_orto, "orto"), dem, sin_recorte, 0.5, recortar_al_dem=False)
+        self.assertEqual(_pixel(sin_recorte, 400.2, 50.2)[3], 255)
+
+    def test_terreno_3d(self):
+        from riegolibre.integracion.imagen_satelital import abrir_vista_3d, configurar_terreno_3d
+        from riegolibre.integracion.topografia_cad import generar_topografia
+        r = generar_topografia(self.dxf, ["C-TOPO"], _wkt_utm(), self._salida("3d"), paso_m=2.0)
+        dem = QgsRasterLayer(r.ruta_dem, "dem")
+        configurar_terreno_3d(dem, 2.0)
+        terreno = QgsProject.instance().elevationProperties().terrainProvider()
+        self.assertEqual(terreno.type(), "raster")
+        self.assertIs(terreno.layer(), dem)
+        self.assertEqual(terreno.scale(), 2.0)
+        with self.assertRaisesRegex(ValueError, "Nueva vista de mapa 3D"):
+            abrir_vista_3d(object(), dem)  # sin la interfaz de QGIS
+
     def test_ventana_importa_y_agrega_capas(self):
         from qgis.gui import QgsMapCanvas
 
-        from riegolibre.gui.dialogo_topografia import USO_CURVAS, USO_LINDERO, DialogoTopografia
+        from riegolibre.gui.dialogo_topografia import (AJUSTE_CRS, FUENTE_CAPA, USO_CURVAS, USO_LINDERO,
+                                                       DialogoTopografia)
+        ajustes = QgsSettings()
+        crs_guardado = ajustes.value(AJUSTE_CRS)  # la prueba no debe cambiar el ajuste del usuario
+        self.addCleanup(lambda: ajustes.setValue(AJUSTE_CRS, crs_guardado) if crs_guardado
+                        else ajustes.remove(AJUSTE_CRS))
 
         class Iface:
             lienzo = QgsMapCanvas()
@@ -140,6 +208,7 @@ class PruebasTopografiaCad(unittest.TestCase):
                 return self.lienzo
 
         dialogo = DialogoTopografia(Iface())
+        dialogo.selector_crs.setCrs(QgsCoordinateReferenceSystem())
         dialogo.edit_dxf.setText(self.dxf)
         dialogo.edit_carpeta.setText(self._salida("ventana"))
         dialogo._leer()
@@ -150,6 +219,7 @@ class PruebasTopografiaCad(unittest.TestCase):
         self.assertFalse(dialogo.boton_importar.isEnabled())  # falta el sistema de coordenadas
         dialogo.selector_crs.setCrs(QgsCoordinateReferenceSystem("EPSG:32718"))
         self.assertTrue(dialogo.boton_importar.isEnabled())
+        self.assertIn("Centro del plano", dialogo.etiqueta_contenido.text())
 
         dialogo.importar()
         proyecto = QgsProject.instance()
@@ -161,3 +231,19 @@ class PruebasTopografiaCad(unittest.TestCase):
         dem = proyecto.mapLayersByName("DEM (curvas del CAD)")[0]
         self.assertTrue(dem.isValid())
         self.assertEqual(dem.crs().authid(), "EPSG:32718")
+        self.assertIs(dialogo.combo_dem_imagen.currentLayer(), dem)
+        self.assertEqual(QgsSettings().value(AJUSTE_CRS), "EPSG:32718")
+
+        # Imagen tomada de una capa del proyecto: queda en el grupo, justo encima del DEM.
+        ruta_orto = self._salida("orto_ventana.tif")
+        _crear_ortofoto(ruta_orto)
+        orto = QgsRasterLayer(ruta_orto, "orto")
+        proyecto.addMapLayer(orto)
+        dialogo.combo_fuente.setCurrentIndex(dialogo.combo_fuente.findText(FUENTE_CAPA))
+        dialogo.combo_capa_fuente.setLayer(orto)
+        dialogo.spin_resolucion.setValue(1.0)
+        dialogo.descargar_imagen()
+        self.assertIn("Imagen satelital descargada", dialogo.etiqueta_resultado.text())
+        nombres = [n.layer().name() for n in grupo.findLayers()]
+        self.assertEqual(nombres.index("Imagen satelital (orto)") + 1, nombres.index("DEM (curvas del CAD)"))
+        self.assertTrue(os.path.exists(self._salida("ventana/plano prueba_satelite.tif")))

@@ -14,7 +14,7 @@ Estado al 11 de octubre de 2026. Ya están hechos:
 - la herramienta «Información del objeto» (ficha de laterales, portalaterales, tuberías, válvulas y bomba),
 - la red principal automática (botón «Trazar la red automáticamente» en la ventana de la red; motor en `nucleo/trazado_red.py`),
 - la red automática con restricciones: evita zonas (polígonos), sigue caminos, cruza barreras (canales, vías) donde cuesta menos y esquiva el relieve del DEM (`nucleo/terreno.py`, `nucleo/trazado_rejilla.py`, `RestriccionesTrazado` en `integracion/red_mapa.py`).
-- la importación de topografía de CAD: botón «Importar topografía de CAD (DXF)…». Las curvas de nivel (polilíneas con elevación) se convierten en un DEM por TIN, recortado a 30 m de la curva más cercana, y la polilínea cerrada del lindero se convierte en polígono (`integracion/topografia_cad.py`, `gui/dialogo_topografia.py`). Se probó con el plano real de Fruveg (793 curvas, 2 × 1.4 km, DEM de 1 m en unos 10 s), también en QGIS.
+- la topografía del proyecto: botón «Topografía: curvas de CAD, imagen satelital y 3D…». Las curvas de nivel de un DXF (polilíneas con elevación) se convierten en un DEM por TIN, recortado a 30 m de la curva más cercana, y la polilínea cerrada del lindero en polígono; se descarga la imagen satelital (Google o Esri, con el mayor zoom que tenga imagen en la zona, o una capa ráster del proyecto) recortada al DEM; y se abre una vista 3D con el DEM como terreno (`integracion/topografia_cad.py`, `integracion/imagen_satelital.py`, `gui/dialogo_topografia.py`). La importación se probó en QGIS con el plano de Fruveg (793 curvas, 2 × 1.4 km, DEM de 1 m en unos 10 s); la imagen de Google de esa zona, a 0.5 m, se descarga en unos segundos.
 
 ## Por desarrollar
 
@@ -35,7 +35,7 @@ Estado al 11 de octubre de 2026. Ya están hechos:
 - Red principal automática: el costo por metro usado para elegir el recorrido es `0.2 + (q/Q)^0.7` (constantes `COSTO_FIJO` y `EXPONENTE_COSTO` en `riegolibre/nucleo/trazado_red.py`); confirmar si representa bien los precios reales de las tuberías, o si conviene usar la lista de precios.
 - Red principal automática: probar en QGIS el botón con las subunidades de un terreno real. Las pruebas pasan, pero no se vio el resultado en pantalla.
 - Red automática con restricciones: las pruebas con QGIS pasan (226), pero falta probar la ventana a mano con un terreno real. Confirmar los valores por defecto: zonas ×5, camino al 50 %, cruce de barrera = 50 m de tubería, subida = 5 m de tubería por metro, pendiente que duplica el costo = 25 %.
-- Importar topografía de CAD: ya se probó en QGIS con el plano de Fruveg (EPSG:32717). Confirmar con otros planos los valores por defecto (celda de 1 m y distancia máxima de 30 m a una curva). Mejora posible: leer la cota de los textos cuando las curvas vienen con elevación 0.
+- Topografía: la zona UTM se elige en cada plano (17 S, 18 S…); la ventana recuerda la última usada y muestra el centro del plano en grados para comprobarla. Probar en QGIS la descarga de la imagen satelital y el botón «Abrir vista 3D» (sin la interfaz de QGIS no se pueden probar). Confirmar con otros planos los valores por defecto (celda de 1 m y distancia máxima de 30 m a una curva). Mejora posible: leer la cota de los textos cuando las curvas vienen con elevación 0.
 - Probar el complemento con un caso real.
 
 ## Retomar en otro computador
