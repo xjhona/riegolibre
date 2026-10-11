@@ -3,3 +3,4 @@ __pycache__/
 .pytest_cache/
 *.zip
 salidas_demo/
+muestras/

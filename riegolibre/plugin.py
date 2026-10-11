@@ -19,6 +19,7 @@ class RiegoLibrePlugin:
         self.dialogo_info = None
 
     def initGui(self):  # noqa: N802 (nombre exigido por QGIS)
+        self._agregar_accion("icon_topografia.svg", "Importar topografía de CAD (DXF)…", "topografia")
         self._agregar_accion("icon.svg", "Calculadora de lateral (goteo)…", "lateral")
         self._agregar_accion("icon_subunidad.svg", "Subunidad de riego (goteo)…", "subunidad")
         self._agregar_accion("icon_mapa.svg", "Diseño de subunidad en el mapa (goteo)…", "mapa")
@@ -87,6 +88,8 @@ class RiegoLibrePlugin:
                 from .gui.dialogo_trazado import DialogoTrazado as Clase
             elif nombre == "red":
                 from .gui.dialogo_red import DialogoRed as Clase
+            elif nombre == "topografia":
+                from .gui.dialogo_topografia import DialogoTopografia as Clase
             elif nombre == "materiales":
                 from .gui.dialogo_materiales import DialogoMateriales as Clase
             else:

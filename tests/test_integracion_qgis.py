@@ -175,23 +175,26 @@ class PruebasIntegracionQgis(unittest.TestCase):
         plugin = classFactory(iface)
         plugin.initGui()
         self.assertEqual([a.text() for a in iface.menu],
-                         ["Calculadora de lateral (goteo)…", "Subunidad de riego (goteo)…",
+                         ["Importar topografía de CAD (DXF)…",
+                          "Calculadora de lateral (goteo)…", "Subunidad de riego (goteo)…",
                           "Diseño de subunidad en el mapa (goteo)…",
                           "Trazado automático de subunidades (goteo)…", "Red principal y bomba…",
                           "Lista de materiales y costos…", "Memoria de cálculo…",
                           "Información del objeto (clic en un lateral, tubería o válvula)"])
         self.assertTrue(all(not a.icon().isNull() for a in iface.menu))
-        iface.menu[1].trigger()
+        iface.menu[0].trigger()
+        self.assertTrue(plugin.dialogos["topografia"].isVisible())
+        iface.menu[2].trigger()
         self.assertTrue(plugin.dialogos["subunidad"].isVisible())
-        iface.menu[3].trigger()
+        iface.menu[4].trigger()
         self.assertTrue(plugin.dialogos["trazado"].isVisible())
-        iface.menu[6].trigger()  # sin resultados en el proyecto: la memoria lo indica
+        iface.menu[7].trigger()  # sin resultados en el proyecto: la memoria lo indica
         self.assertIn("No hay resultados", plugin.dialogos["memoria"].etiqueta_estado.text())
         # La herramienta «Información del objeto» se activa y se desactiva desde su botón.
-        iface.menu[7].setChecked(True)
+        iface.menu[8].setChecked(True)
         self.assertIs(iface.mapCanvas().mapTool(), plugin.herramienta_info)
         iface.mapCanvas().unsetMapTool(plugin.herramienta_info)
-        self.assertFalse(iface.menu[7].isChecked())
+        self.assertFalse(iface.menu[8].isChecked())
         plugin.unload()
         self.assertEqual(iface.menu, [])
 
