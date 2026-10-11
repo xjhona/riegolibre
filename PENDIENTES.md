@@ -1,6 +1,6 @@
 # Pendientes de RiegoLibre
 
-Estado al 9 de octubre de 2026. Ya están hechos:
+Estado al 11 de octubre de 2026. Ya están hechos:
 - la calculadora de lateral,
 - la subunidad,
 - el diseño en el mapa,
@@ -12,17 +12,17 @@ Estado al 9 de octubre de 2026. Ya están hechos:
 - el portalateral telescópico (hasta tres diámetros),
 - el trazado automático de laterales, portalaterales y subunidades sobre un terreno de cualquier forma,
 - la herramienta «Información del objeto» (ficha de laterales, portalaterales, tuberías, válvulas y bomba),
-- la red principal automática (botón «Trazar la red automáticamente» en la ventana de la red; motor en `nucleo/trazado_red.py`).
+- la red principal automática (botón «Trazar la red automáticamente» en la ventana de la red; motor en `nucleo/trazado_red.py`),
+- la red automática con restricciones: evita zonas (polígonos), sigue caminos, cruza barreras (canales, vías) donde cuesta menos y esquiva el relieve del DEM (`nucleo/terreno.py`, `nucleo/trazado_rejilla.py`, `RestriccionesTrazado` en `integracion/red_mapa.py`).
 
 ## Por desarrollar
 
 1. **Riego por aspersión.**
 2. Trazado automático de subunidades: elegir también la posición de la válvula por pendiente y usar la elevación real de cada portalateral.
-3. Red principal automática, mejoras posibles: evitar zonas (bloques, canales, caminos) o seguir caminos existentes, y tener en cuenta el relieve del DEM al elegir el recorrido.
+3. Red principal automática con restricciones, mejoras posibles: evitar automáticamente la capa «Bloques» del diseño (hoy se elige a mano como zona a evitar); distinguir varias capas de zonas con factores distintos; ajustar el costo de la tubería a la lista de precios.
 
 ## Por confirmar
 
-- Moneda de la lista de precios. Se supone USD y se puede cambiar en la ventana de materiales.
 - Criterio para sugerir el motor comercial: 10 % de margen sobre la potencia al eje (`MARGEN_MOTOR` en `riegolibre/nucleo/memoria.py`).
 - Revisar en un navegador la memoria exportada en HTML.
 - Diámetros por costo: las horas de bombeo del año se reparten por igual entre los turnos y cada turno se bombea con su propia CDT (bomba con variador o regulación). Confirmar si conviene otro criterio, por ejemplo horas distintas por turno.
@@ -32,7 +32,8 @@ Estado al 9 de octubre de 2026. Ya están hechos:
 - Probar en QGIS la ventana «Trazado automático» con un terreno real (las pruebas pasan, pero no se pudo ver el texto de la ventana en modo sin pantalla).
 - Información del objeto: probar el clic en QGIS (las pruebas cubren la búsqueda y la ficha, pero no el clic real con el ratón) y confirmar si falta algún dato de la ficha de IRRICAD (conexiones entre objetos y flujo de purga no existen en RiegoLibre).
 - Red principal automática: el costo por metro usado para elegir el recorrido es `0.2 + (q/Q)^0.7` (constantes `COSTO_FIJO` y `EXPONENTE_COSTO` en `riegolibre/nucleo/trazado_red.py`); confirmar si representa bien los precios reales de las tuberías, o si conviene usar la lista de precios.
-- Red principal automática: probar en QGIS el botón con las subunidades de un terreno real. Las pruebas pasan, pero no se vio el resultado en pantalla. Por ahora la red cruza los bloques en línea recta o en ángulo recto, sin evitar nada.
+- Red principal automática: probar en QGIS el botón con las subunidades de un terreno real. Las pruebas pasan, pero no se vio el resultado en pantalla.
+- Red automática con restricciones: todo el código de QGIS (lectura de las capas de zonas, caminos y barreras, el DEM por bloque, la ventana) se escribió en un computador sin QGIS y no se ha ejecutado; corra `tests/test_red_qgis.py` y pruebe la ventana con un terreno real. Confirmar los valores por defecto: zonas ×5, camino al 50 %, cruce de barrera = 50 m de tubería, subida = 5 m de tubería por metro, pendiente que duplica el costo = 25 %.
 - Probar el complemento con un caso real.
 
 ## Retomar en otro computador

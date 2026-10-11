@@ -131,6 +131,89 @@ class PruebasRedMapa(unittest.TestCase):
         self.assertEqual(dialogo.resultado.motivos, {})
         QgsProject.instance().removeMapLayer(capa.id())
 
+    # ------------------------------------------- trazado con restricciones
+
+    @staticmethod
+    def _capa_zona(x0, y0, x1, y1):
+        capa = QgsVectorLayer("Polygon?crs=EPSG:32718", "zona", "memory")
+        entidad = QgsFeature()
+        entidad.setGeometry(QgsGeometry.fromPolygonXY(
+            [[_p(x0, y0), _p(x1, y0), _p(x1, y1), _p(x0, y1), _p(x0, y0)]]))
+        capa.dataProvider().addFeatures([entidad])
+        return capa
+
+    def _trazar_con(self, restricciones, modo):
+        from riegolibre.integracion.red_mapa import (capas_de_valvulas, leer_valvulas,
+                                                     trazar_red_en_mapa)
+        crs = self.tuberias.crs()
+        valvulas = leer_valvulas(capas_de_valvulas(), crs)
+        capa, red = trazar_red_en_mapa(_p(*FUENTE), valvulas, crs, modo, restricciones=restricciones)
+        self.addCleanup(QgsProject.instance().removeMapLayer, capa.id())
+        return capa, red
+
+    def test_trazado_rodea_una_zona_prohibida(self):
+        from riegolibre.integracion.red_mapa import RestriccionesTrazado
+        from riegolibre.nucleo.trazado_red import DIRECTO, ORTOGONAL
+        zona = self._capa_zona(40, -60, 100, -30)  # tapa el paso a lo largo de la fuente
+        poligono = next(zona.getFeatures()).geometry()
+        libre, _ = self._trazar_con(None, DIRECTO)
+        largo_libre = sum(f.geometry().length() for f in libre.getFeatures())
+        for modo in (DIRECTO, ORTOGONAL):
+            capa, red = self._trazar_con(RestriccionesTrazado(capa_zonas=zona, factor_zonas=None), modo)
+            self.assertGreater(capa.featureCount(), 1)
+            for entidad in capa.getFeatures():
+                self.assertLess(entidad.geometry().intersection(poligono).length(), 0.5)
+            self.assertLess(red.m_penalizados, red.celda_m)  # solo el redondeo de la cuadrícula
+            self.assertIsNotNone(red.celda_m)
+        self.assertGreater(sum(f.geometry().length() for f in capa.getFeatures()), largo_libre)
+
+    def test_trazado_con_relieve_lee_el_dem(self):
+        from riegolibre.integracion.red_mapa import RestriccionesTrazado, construir_terreno
+        from riegolibre.nucleo.trazado_red import DIRECTO
+        crs = self.tuberias.crs()
+        puntos = [(X0 + 5, Y0 - 45), (X0 + 150, Y0 - 10)]
+        terreno = construir_terreno(puntos, crs, RestriccionesTrazado(capa_dem=self.dem))
+        # El DEM sube 2 cm por metro hacia el este (y vale 100 m en el origen).
+        self.assertAlmostEqual(terreno.cota_en(X0 + 50.4, Y0 - 25.4), 100 + 0.02 * 50.5, delta=0.1)
+        self.assertAlmostEqual(terreno.cota_en(X0 + 150.4, Y0 - 25.4), 100 + 0.02 * 150.5, delta=0.1)
+        capa, red = self._trazar_con(RestriccionesTrazado(capa_dem=self.dem), DIRECTO)
+        self.assertGreater(capa.featureCount(), 1)
+
+    def test_dialogo_traza_con_zona_y_relieve(self):
+        from riegolibre.gui.dialogo_red import DialogoRed
+        zona = self._capa_zona(40, -60, 100, -30)
+        QgsProject.instance().addMapLayer(zona)
+        try:
+            dialogo = DialogoRed(iface=None)
+            dialogo.combo_fuente.setLayer(self.fuente)
+            dialogo.combo_tuberias.setLayer(self.tuberias)
+            dialogo.combo_zonas.setLayer(zona)
+            dialogo.check_zonas_prohibidas.setChecked(True)
+            dialogo.combo_dem.setLayer(self.dem)
+            dialogo.check_relieve.setChecked(True)
+            dialogo.buscar_valvulas()
+            dialogo.trazar_red_automatica()
+            capa = dialogo.combo_tuberias.currentLayer()
+            poligono = next(zona.getFeatures()).geometry()
+            for entidad in capa.getFeatures():
+                self.assertLess(entidad.geometry().intersection(poligono).length(), 0.5)
+            self.assertIn("Mapa de costos", dialogo.texto.toPlainText())
+            dialogo.calcular()
+            self.assertIsNotNone(dialogo.resultado)
+            QgsProject.instance().removeMapLayer(capa.id())
+        finally:
+            QgsProject.instance().removeMapLayer(zona.id())
+
+    def test_dialogo_sin_capas_no_hay_restricciones(self):
+        from riegolibre.gui.dialogo_red import DialogoRed
+        dialogo = DialogoRed(iface=None)
+        dialogo.combo_dem.setLayer(None)
+        self.assertIsNone(dialogo.restricciones_de_trazado())
+        dialogo.check_relieve.setChecked(True)
+        self.assertIsNone(dialogo.restricciones_de_trazado())  # sin DEM elegido no hay nada que aplicar
+        dialogo.combo_dem.setLayer(self.dem)
+        self.assertIsNotNone(dialogo.restricciones_de_trazado())
+
     def test_dialogo_calcula_y_crea_capas(self):
         from riegolibre.gui.dialogo_red import NOMBRE_GRUPO, DialogoRed
         dialogo = DialogoRed(iface=None)

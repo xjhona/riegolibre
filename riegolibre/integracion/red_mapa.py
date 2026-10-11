@@ -6,17 +6,19 @@ cada línea se divide en tramos allí donde la toca un nodo (uniones en T).
 """
 
 import json
+import math
 from dataclasses import dataclass
-from typing import Dict, List
+from typing import Dict, List, Optional
 
 from qgis.core import (Qgis, QgsCategorizedSymbolRenderer, QgsFeature, QgsGeometry,
-                       QgsMarkerSymbol, QgsPointXY, QgsProject, QgsRendererCategory,
-                       QgsSingleSymbolRenderer, QgsSymbol, QgsVectorLayer)
+                       QgsMarkerSymbol, QgsPointXY, QgsProject, QgsRectangle,
+                       QgsRendererCategory, QgsSingleSymbolRenderer, QgsSymbol, QgsVectorLayer)
 from qgis.PyQt.QtGui import QColor
 
 from ..nucleo import Red, TramoRed, Valvula
+from ..nucleo.terreno import Terreno, celda_automatica
 from ..nucleo.trazado_red import ORTOGONAL, ParametrosRed, ValvulaDestino, trazar_red
-from .perfil_terreno import linea_simple, perfil_de_geometria
+from .perfil_terreno import MuestreadorDem, linea_simple, perfil_de_geometria
 from .subunidad_mapa import PROPIEDAD, geometria_en
 
 CAMPOS_VALVULA = ("presion", "caudal_lh")
@@ -143,17 +145,106 @@ PROPIEDAD_AUTOMATICA = "red_automatica"
 NOMBRE_CAPA_AUTOMATICA = "Red principal · trazado automático"
 
 
+@dataclass
+class RestriccionesTrazado:
+    """Capas del proyecto que condicionan el trazado automático de la red."""
+    capa_zonas: Optional[QgsVectorLayer] = None  # polígonos que conviene evitar
+    factor_zonas: Optional[float] = 5.0  # cuántas veces cuesta más tender en ellas; None = no se cruzan
+    capa_caminos: Optional[QgsVectorLayer] = None  # líneas a seguir: caminos, zanjas existentes
+    factor_caminos: float = 0.5  # fracción del costo normal sobre ellas
+    capa_barreras: Optional[QgsVectorLayer] = None  # líneas que cuesta cruzar: canales, cercos
+    costo_cruce_m: Optional[float] = 50.0  # metros de tubería que equivale a cruzarlas; None = no se cruzan
+    capa_dem: Optional[object] = None  # DEM para evitar subidas y pendientes fuertes
+    costo_subida: float = 5.0
+    pendiente_duplica: Optional[float] = 0.25
+    celda_m: Optional[float] = None  # tamaño de la celda de trabajo; None = automático
+
+    @property
+    def activa(self):
+        return any(c is not None for c in (self.capa_zonas, self.capa_caminos, self.capa_barreras,
+                                           self.capa_dem))
+
+
+def _poligonos(geometria):
+    """Polígonos de una geometría como listas de anillos de tuplas (x, y)."""
+    if geometria.isEmpty():
+        return []
+    partes = geometria.asMultiPolygon() if geometria.isMultipart() else [geometria.asPolygon()]
+    return [[[(p.x(), p.y()) for p in anillo] for anillo in poligono] for poligono in partes if poligono]
+
+
+def _lineas(geometria):
+    """Líneas de una geometría como listas de tuplas (x, y)."""
+    if geometria.isEmpty():
+        return []
+    partes = geometria.asMultiPolyline() if geometria.isMultipart() else [geometria.asPolyline()]
+    return [[(p.x(), p.y()) for p in linea] for linea in partes if len(linea) > 1]
+
+
+def _cargar_cotas(terreno: Terreno, capa_dem, crs):
+    """Pone en el terreno la cota del DEM en el centro de cada celda."""
+    cotas = None
+    if capa_dem.crs() == crs:  # un solo pedido al DEM, remuestreado a la cuadrícula del terreno
+        nx, ny, paso = terreno.nx, terreno.ny, terreno.paso
+        extension = QgsRectangle(terreno.x0, terreno.y0, terreno.x0 + nx * paso, terreno.y0 + ny * paso)
+        bloque = capa_dem.dataProvider().block(1, extension, nx, ny)
+        if bloque is not None and bloque.isValid():
+            cotas = [math.nan] * (nx * ny)
+            for fila in range(ny):
+                base = (ny - 1 - fila) * nx  # la fila 0 del bloque es la del norte
+                for columna in range(nx):
+                    if not bloque.isNoData(fila, columna):
+                        cotas[base + columna] = bloque.value(fila, columna)
+    if cotas is None:
+        muestreador = MuestreadorDem(capa_dem, crs)
+        terreno.cargar_cotas(lambda x, y: muestreador.cota(QgsPointXY(x, y)))
+    else:
+        terreno.poner_cotas(cotas)
+    if all(c != c for c in terreno.cotas):
+        raise ValueError(f"El DEM «{capa_dem.name()}» no cubre el predio.")
+
+
+def construir_terreno(puntos, crs, restricciones: Optional[RestriccionesTrazado]) -> Optional[Terreno]:
+    """Mapa de costos del terreno alrededor de los puntos dados (fuente y válvulas); None sin restricciones."""
+    if restricciones is None or not restricciones.activa:
+        return None
+    r = restricciones
+    terreno = Terreno.cubriendo(puntos, r.celda_m or celda_automatica(puntos))
+    if r.capa_zonas is not None:
+        for entidad in r.capa_zonas.getFeatures():
+            for poligono in _poligonos(geometria_en(r.capa_zonas, entidad, crs)):
+                terreno.penalizar_poligono(poligono, r.factor_zonas)
+    if r.capa_barreras is not None:
+        for entidad in r.capa_barreras.getFeatures():
+            for linea in _lineas(geometria_en(r.capa_barreras, entidad, crs)):
+                terreno.barrera_linea(linea, r.costo_cruce_m)
+    if r.capa_caminos is not None:  # al final: abarata sin quitar lo que prohíben las capas anteriores
+        for entidad in r.capa_caminos.getFeatures():
+            for linea in _lineas(geometria_en(r.capa_caminos, entidad, crs)):
+                terreno.descontar_linea(linea, r.factor_caminos)
+    if r.capa_dem is not None:
+        _cargar_cotas(terreno, r.capa_dem, crs)
+    return terreno
+
+
 def trazar_red_en_mapa(punto_fuente, valvulas: List[ValvulaMapa], crs, modo=ORTOGONAL, angulo_grados=None,
-                       proyecto=None):
+                       proyecto=None, restricciones: Optional[RestriccionesTrazado] = None):
     """Traza la red principal de la fuente a las válvulas y la deja en una capa de líneas editable.
 
     La capa de un trazado anterior (la que lleva la propiedad `red_automatica`) se reutiliza y
-    se vacía; si no existe se crea y se agrega al proyecto. Devuelve (capa, RedTrazada).
+    se vacía; si no existe se crea y se agrega al proyecto. Con `restricciones`, el trazado evita
+    las zonas, sigue los caminos, cruza las barreras donde cuesta menos y esquiva el relieve.
+    Devuelve (capa, RedTrazada).
     """
     proyecto = proyecto or QgsProject.instance()
     destinos = [ValvulaDestino(v.id, v.punto.x(), v.punto.y(), v.caudal_lh, v.turno) for v in valvulas]
-    red = trazar_red((punto_fuente.x(), punto_fuente.y()), destinos,
-                     ParametrosRed(modo=modo, angulo_grados=angulo_grados))
+    fuente = (punto_fuente.x(), punto_fuente.y())
+    terreno = construir_terreno([fuente] + [(d.x, d.y) for d in destinos], crs, restricciones)
+    parametros = ParametrosRed(modo=modo, angulo_grados=angulo_grados)
+    if restricciones is not None:
+        parametros.costo_subida = restricciones.costo_subida
+        parametros.pendiente_duplica = restricciones.pendiente_duplica
+    red = trazar_red(fuente, destinos, parametros, terreno)
 
     capa = next((c for c in proyecto.mapLayers().values()
                  if isinstance(c, QgsVectorLayer) and c.customProperty(PROPIEDAD_AUTOMATICA) and c.crs() == crs),

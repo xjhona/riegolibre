@@ -47,6 +47,9 @@ class ParametrosRed:
     paso_angulo_grados: float = 15.0
     exponente: float = EXPONENTE_COSTO
     costo_fijo: float = COSTO_FIJO
+    # Solo con un mapa de costos del terreno (ver trazado_rejilla.py):
+    costo_subida: float = 5.0  # metros de tubería equivalentes por cada metro que el agua sube
+    pendiente_duplica: Optional[float] = 0.25  # pendiente (m/m) que duplica el costo por metro; None = ignorarla
 
     def __post_init__(self):
         if self.modo not in (ORTOGONAL, DIRECTO):
@@ -57,6 +60,10 @@ class ParametrosRed:
             raise ValueError("El costo fijo no puede ser negativo.")
         if self.paso_angulo_grados <= 0:
             raise ValueError("El paso del ángulo debe ser positivo.")
+        if self.costo_subida < 0:
+            raise ValueError("El costo de la subida no puede ser negativo.")
+        if self.pendiente_duplica is not None and self.pendiente_duplica <= 0:
+            raise ValueError("La pendiente que duplica el costo debe ser positiva.")
 
 
 @dataclass
@@ -83,6 +90,9 @@ class RedTrazada:
     modo: str
     angulo_grados: Optional[float]  # ortogonal: el ángulo usado
     costo: float  # costo relativo del trazado (para comparar alternativas)
+    m_penalizados: float = 0.0  # metros de tubería en zonas que encarecen el tendido (con mapa de costos)
+    m_descontados: float = 0.0  # metros de tubería sobre caminos o zanjas existentes
+    celda_m: Optional[float] = None  # tamaño de la celda de trabajo (con mapa de costos)
 
     @property
     def longitud_m(self):
@@ -439,13 +449,21 @@ def _ordenes(fuente, valvulas):
     return [por_distancia, por_distancia[::-1]]
 
 
-def trazar_red(fuente: Punto, valvulas: Sequence[ValvulaDestino], params: ParametrosRed = ParametrosRed()) -> RedTrazada:
-    """Traza la red principal de la fuente a todas las válvulas."""
+def trazar_red(fuente: Punto, valvulas: Sequence[ValvulaDestino], params: ParametrosRed = ParametrosRed(),
+               terreno=None) -> RedTrazada:
+    """Traza la red principal de la fuente a todas las válvulas.
+
+    Con un `Terreno` que tenga zonas, caminos, barreras o cotas, la red se busca sobre su mapa
+    de costos (ver trazado_rejilla.py); sin él, en el plano libre.
+    """
     if not valvulas:
         raise ValueError("No hay válvulas que conectar a la fuente.")
     sin_caudal = [v.id for v in valvulas if v.caudal_lh <= 0]
     if sin_caudal:
         raise ValueError("Estas válvulas no tienen caudal: " + ", ".join(sin_caudal) + ".")
+    if terreno is not None and terreno.tiene_efecto:
+        from .trazado_rejilla import trazar_en_rejilla
+        return trazar_en_rejilla(fuente, valvulas, params, terreno)
     if params.modo == DIRECTO:
         mejor = None
         for orden in _ordenes(fuente, valvulas):
