@@ -188,8 +188,34 @@ class PruebasTopografiaCad(unittest.TestCase):
         self.assertEqual(terreno.type(), "raster")
         self.assertIs(terreno.layer(), dem)
         self.assertEqual(terreno.scale(), 2.0)
+
+        # La vista se abre con la acción del menú de QGIS (no con createNewMapCanvas3D, que cierra QGIS).
+        from qgis.PyQt.QtWidgets import QAction, QMainWindow
+
+        from riegolibre.integracion.imagen_satelital import ACCION_VISTA_3D
+        proyecto = QgsProject.instance()
+        crs_anterior = proyecto.crs()
+        self.addCleanup(proyecto.setCrs, crs_anterior)
+        proyecto.setCrs(QgsCoordinateReferenceSystem("EPSG:4326"))
+        with self.assertRaisesRegex(ValueError, "en metros"):
+            abrir_vista_3d(object(), dem)
+        proyecto.setCrs(QgsCoordinateReferenceSystem("EPSG:32718"))
         with self.assertRaisesRegex(ValueError, "Nueva vista de mapa 3D"):
             abrir_vista_3d(object(), dem)  # sin la interfaz de QGIS
+
+        class Iface:
+            ventana = QMainWindow()
+            accion = QAction("Nueva vista de mapa 3D", ventana)
+            accion.setObjectName(ACCION_VISTA_3D)
+
+            def mainWindow(self):  # noqa: N802
+                return self.ventana
+
+        disparos = []
+        Iface.accion.triggered.connect(lambda *_: disparos.append(True))
+        abrir_vista_3d(Iface(), dem, 3.0)
+        self.assertEqual(disparos, [True])
+        self.assertEqual(proyecto.elevationProperties().terrainProvider().scale(), 3.0)
 
     def test_ventana_importa_y_agrega_capas(self):
         from qgis.gui import QgsMapCanvas

@@ -236,18 +236,25 @@ def configurar_terreno_3d(capa_dem: QgsRasterLayer, exageracion: float = 1.0):
     return terreno
 
 
+ACCION_VISTA_3D = "mActionNew3DMapCanvas"  # Ver → Nueva vista de mapa 3D
+
+
 def abrir_vista_3d(iface, capa_dem: QgsRasterLayer, exageracion: float = 1.0):
-    """Configura el terreno y abre una vista 3D con las capas visibles del mapa sobre él."""
+    """Configura el terreno y abre una vista 3D con las capas visibles del mapa sobre él.
+
+    Se dispara la acción del menú de QGIS en lugar de `iface.createNewMapCanvas3D`: esa función
+    devuelve el lienzo 3D a Python y en QGIS 3.44 (Windows) cierra QGIS con una violación de acceso.
+    """
+    from qgis.PyQt.QtWidgets import QAction
+    crs = QgsProject.instance().crs()
+    if not crs.isValid() or crs.isGeographic():
+        raise ValueError(f"La vista 3D necesita un proyecto en metros. Cambie el sistema de coordenadas del "
+                         f"proyecto a {capa_dem.crs().authid() or 'el del DEM'} (esquina inferior derecha "
+                         "de QGIS) y vuelva a intentarlo.")
+    ventana = iface.mainWindow() if hasattr(iface, "mainWindow") else None
+    accion = ventana.findChild(QAction, ACCION_VISTA_3D) if ventana is not None else None
+    if accion is None or not accion.isEnabled():
+        raise ValueError("No se encontró la vista 3D de QGIS. Ábrala en Ver → Nueva vista de mapa 3D "
+                         "(el DEM ya quedó como terreno del proyecto).")
     configurar_terreno_3d(capa_dem, exageracion)
-    if not hasattr(iface, "createNewMapCanvas3D"):
-        raise ValueError("Esta versión de QGIS no permite abrir la vista 3D desde un complemento. "
-                         "Ábrala en Ver → Nueva vista de mapa 3D.")
-    existentes = {lienzo.objectName() for lienzo in iface.mapCanvases3D()}
-    nombre, n = "RiegoLibre 3D", 1
-    while nombre in existentes:
-        n += 1
-        nombre = f"RiegoLibre 3D ({n})"
-    lienzo = iface.createNewMapCanvas3D(nombre)
-    if lienzo is None:
-        raise ValueError("QGIS no pudo abrir la vista 3D (revise que el complemento 3D esté disponible).")
-    return lienzo
+    accion.trigger()
