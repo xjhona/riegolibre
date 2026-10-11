@@ -33,7 +33,7 @@ Estado al 11 de octubre de 2026. Ya están hechos:
 - Información del objeto: probar el clic en QGIS (las pruebas cubren la búsqueda y la ficha, pero no el clic real con el ratón) y confirmar si falta algún dato de la ficha de IRRICAD (conexiones entre objetos y flujo de purga no existen en RiegoLibre).
 - Red principal automática: el costo por metro usado para elegir el recorrido es `0.2 + (q/Q)^0.7` (constantes `COSTO_FIJO` y `EXPONENTE_COSTO` en `riegolibre/nucleo/trazado_red.py`); confirmar si representa bien los precios reales de las tuberías, o si conviene usar la lista de precios.
 - Red principal automática: probar en QGIS el botón con las subunidades de un terreno real. Las pruebas pasan, pero no se vio el resultado en pantalla.
-- Red automática con restricciones: todo el código de QGIS (lectura de las capas de zonas, caminos y barreras, el DEM por bloque, la ventana) se escribió en un computador sin QGIS y no se ha ejecutado; corra `tests/test_red_qgis.py` y pruebe la ventana con un terreno real. Confirmar los valores por defecto: zonas ×5, camino al 50 %, cruce de barrera = 50 m de tubería, subida = 5 m de tubería por metro, pendiente que duplica el costo = 25 %.
+- Red automática con restricciones: las pruebas con QGIS pasan (226), pero falta probar la ventana a mano con un terreno real. Confirmar los valores por defecto: zonas ×5, camino al 50 %, cruce de barrera = 50 m de tubería, subida = 5 m de tubería por metro, pendiente que duplica el costo = 25 %.
 - Probar el complemento con un caso real.
 
 ## Retomar en otro computador
