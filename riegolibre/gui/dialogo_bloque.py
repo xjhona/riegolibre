@@ -32,7 +32,7 @@ from ..integracion.bloque_mapa import DIMENSIONADO_COSTO, DIMENSIONADO_VELOCIDAD
 from ..nucleo.diametros_velocidad import serie_por_defecto, series_de_tuberias
 from ..nucleo.memoria import descripcion_telescopico
 from .comunes import (ComboDiametros, ComboTuberiaPortalateral, GrupoCriterios, GrupoLaterales, html_avisos,
-                      html_estado, html_tabla, spin)
+                      html_estado, html_tabla, spin, spin_diametros_por_rama)
 
 AJUSTE_ULTIMOS = "RiegoLibre/bloque_ultimos"  # últimos parámetros usados, para un lote nuevo
 DIRECCION_AUTO, DIRECCION_USUARIO = "auto", "usuario"
@@ -265,10 +265,7 @@ class DialogoBloque(QDialog):
             self.combo_serie.setCurrentIndex(self.combo_serie.findData(serie_por_defecto(series).clave))
         self.combo_serie.setToolTip("Material y clase de las tuberías entre las que se elige cada diámetro.")
         formulario_porta.addRow("Serie:", self.combo_serie)
-        self.spin_diametros_vel = QSpinBox()
-        self.spin_diametros_vel.setRange(1, 6)
-        self.spin_diametros_vel.setValue(3)
-        self.spin_diametros_vel.setToolTip("Tuberías distintas como máximo en cada rama del portalateral.")
+        self.spin_diametros_vel = spin_diametros_por_rama()
         formulario_porta.addRow("Diámetros por rama, máximo:", self.spin_diametros_vel)
         self.spin_tramo_min = spin(0, 100, 6, 1, decimales=1, sufijo="m")
         self.spin_tramo_min.setToolTip("Largo mínimo de cada diámetro (por ejemplo, el de un tubo).")
@@ -428,7 +425,7 @@ class DialogoBloque(QDialog):
             _elegir_por_dato(self.combo_dimensionado, v["dimensionado"])
         if v.get("serie"):
             _elegir_por_dato(self.combo_serie, v["serie"])
-        if v.get("diametros_velocidad"):
+        if v.get("diametros_velocidad") is not None:
             self.spin_diametros_vel.setValue(int(v["diametros_velocidad"]))
         if v.get("tramo_min_m") is not None:
             self.spin_tramo_min.setValue(float(v["tramo_min_m"]))

@@ -357,7 +357,7 @@ def parametros_de(v: dict, emisor) -> ParametrosBloque:
 
 
 def serie_elegida(v: dict, tuberias_portalateral):
-    """Serie de tuberías del dimensionado por velocidad (la guardada, o la de menor presión nominal)."""
+    """Serie de tuberías del dimensionado por velocidad (la guardada, o la de PVC con todas sus clases)."""
     from ..nucleo.diametros_velocidad import serie_por_defecto, series_de_tuberias
     series = series_de_tuberias(tuberias_portalateral)
     if not series:
@@ -378,7 +378,7 @@ def config_de(v: dict, tuberias_lateral, emisores, tuberias_portalateral, capa_d
         presion_entrada_max_m=float(v.get("presion_entrada_max_m") or 0) or None)
     velocidad, tubos, fija = None, tuberias_portalateral, None
     if v.get("dimensionado") == DIMENSIONADO_VELOCIDAD:
-        velocidad = CriterioVelocidad(criterios.velocidad_max_ms, int(v.get("diametros_velocidad", 3)),
+        velocidad = CriterioVelocidad(criterios.velocidad_max_ms, int(v.get("diametros_velocidad", 0)),
                                       float(v.get("tramo_min_m", 6.0)), bool(v.get("ajustar_variacion", True)))
         tubos = serie_elegida(v, tuberias_portalateral).tuberias
     elif v.get("tuberia_portalateral"):

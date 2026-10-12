@@ -6,7 +6,7 @@ import unittest
 from riegolibre.nucleo import (ConexionLateral, CriteriosDiseno, Emisor, Lateral, Tuberia,
                                subunidad_desde_conexiones)
 from riegolibre.nucleo.diametros_velocidad import (CriterioVelocidad, dimensionar_rama, disenar_por_velocidad,
-                                                   ramas_de, series_de_tuberias)
+                                                   ramas_de, serie_por_defecto, series_de_tuberias)
 from riegolibre.nucleo.memoria import descripcion_telescopico
 
 SERIE = [Tuberia(f"PVC {d} C-5", di, material="PVC", usos=["portalateral"], diametro_nominal_mm=d,
@@ -77,6 +77,31 @@ class PruebasRama(unittest.TestCase):
         self.assertEqual([s.clave for s in series], ["PE|40", "PVC|50"])
         self.assertEqual(len(series[1].tuberias), 6)
         self.assertIn("PVC PN 50 m", series[1].nombre)
+
+    def test_serie_con_todas_las_clases(self):
+        # Como la base del usuario: PVC C-5 de 63 a 110 mm y el 1½" solo en C-7.5 (y un 63 C-7.5 que sobra)
+        c5 = [t for t in SERIE if t.diametro_nominal_mm >= 63]
+        c75 = [Tuberia(f"PVC {d} C-7.5", di, material="PVC", usos=["portalateral"], diametro_nominal_mm=d,
+                       c_hazen=150, presion_nominal_m=73) for d, di in ((48, 43.4), (63, 57.0))]
+        series = series_de_tuberias(c5 + c75)
+        self.assertEqual([s.clave for s in series], ["PVC|*", "PVC|50", "PVC|73"])
+        todas = series[0]
+        self.assertEqual([t.nombre for t in todas.tuberias],
+                         ["PVC 48 C-7.5", "PVC 63 C-5", "PVC 75 C-5", "PVC 90 C-5", "PVC 110 C-5"])
+        self.assertIn("la clase más baja", todas.nombre)
+        self.assertIs(serie_por_defecto(series), todas)
+
+    def test_diametros_consecutivos_desde_la_entrada(self):
+        # La entrada (10 L/s a 1.5 m/s) pide 110 mm y el final (1 L/s) 40 mm
+        sin_limite = dimensionar_rama(self.distancias, self.caudales, SERIE,
+                                      CriterioVelocidad(1.5, diametros_max=0, tramo_min_m=0))
+        usadas = [sin_limite.tuberia] + [t for _, t in sin_limite.reducciones]
+        self.assertEqual(usadas[0].diametro_nominal_mm, 110)
+        self.assertEqual(usadas[-1].diametro_nominal_mm, 40)  # baja hasta el menor de la serie
+        tres = dimensionar_rama(self.distancias, self.caudales, SERIE, CriterioVelocidad(1.5, 3, 0))
+        usadas = [tres.tuberia] + [t for _, t in tres.reducciones]
+        self.assertEqual([t.diametro_nominal_mm for t in usadas], [110, 90, 75])  # no salta a 63, 50 o 40 mm
+        self.comprobar_velocidades(tres, 1.5)
 
 
 class PruebasSubunidad(unittest.TestCase):

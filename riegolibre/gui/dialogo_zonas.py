@@ -22,7 +22,7 @@ from ..integracion.lotes import CAMPO_NOMBRE, capas_de_lotes, guardar_parametros
 from ..nucleo import PresionInsuficiente, cargar_catalogo_emisores, cargar_catalogo_tuberias
 from ..nucleo.subunidad import limites_presion_emisor
 from ..nucleo.tuberias import clave_economica
-from .comunes import html_avisos
+from .comunes import html_avisos, spin_diametros_por_rama
 
 # Columnas
 (C_ZONA, C_PROCESAR, C_CAUDAL, C_VALVULA_DESEADA, C_VALVULA_REAL, C_EMISORES, C_PERMITIDA_MIN, C_PERMITIDA_MAX,
@@ -41,7 +41,7 @@ ENCABEZADOS = {
     C_PERMITIDA_MAX: ("Máxima\npermitida (m)", "Presión máxima permitida en los emisores. Vacía: la de la "
                       "base de datos (fin del rango de compensación), en gris."),
     C_DIAMETROS: ("Diámetros\nportalateral", "Tuberías distintas en el portalateral, como máximo (por rama "
-                  "si se dimensiona por velocidad)."),
+                  "si se dimensiona por velocidad; «Todos» baja hasta el menor diámetro de la serie)."),
     C_VARIACION: ("Variación\nde caudal", "Variación de caudal de los emisores en el último cálculo."),
     C_VELOCIDAD: ("Velocidad\nmáx. (m/s)", "Velocidad máxima en el portalateral en el último cálculo."),
     C_RESULTADO: ("Resultado", "Si la zona cumple los criterios de diseño (pase el ratón para ver por qué no)."),
@@ -228,13 +228,13 @@ class DialogoZonas(QDialog):
                 item.setText(_texto(base))
                 item.setForeground(QBrush(GRIS))
                 item.setData(CLAVE_ID, ("base", item.text()))
-        diametros = QSpinBox()
-        diametros.setRange(1, 6)
-        por_velocidad = v.get("dimensionado") == DIMENSIONADO_VELOCIDAD
-        diametros.setValue(int(v.get("diametros_velocidad" if por_velocidad else "diametros_max",
-                                     3 if por_velocidad else 1)))
-        diametros.setToolTip("Por rama, con diámetros por velocidad" if por_velocidad
-                             else "En todo el portalateral (telescópico si es más de 1)")
+        if v.get("dimensionado") == DIMENSIONADO_VELOCIDAD:  # como el «Number of Submain Sizes» de IRRICAD
+            diametros = spin_diametros_por_rama(int(v.get("diametros_velocidad", 0)))
+        else:
+            diametros = QSpinBox()
+            diametros.setRange(1, 6)
+            diametros.setValue(int(v.get("diametros_max", 1)))
+            diametros.setToolTip("En todo el portalateral (telescópico si es más de 1)")
         self._item(fila, C_DIAMETROS)
         self.tabla.setCellWidget(fila, C_DIAMETROS, diametros)
         self._poner_resultado(fila, v.get(RESULTADO))

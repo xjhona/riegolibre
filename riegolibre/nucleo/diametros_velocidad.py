@@ -3,8 +3,10 @@
 Con el portalateral y la válvula ya ubicados, cada rama (de la válvula hacia un extremo) se parte en
 tramos entre conexiones de laterales. El caudal de un tramo es el de todos los laterales que quedan
 aguas abajo, así que disminuye hacia el final. A cada tramo le corresponde la tubería más pequeña de la
-serie elegida cuya velocidad no pasa de la máxima. Luego los tramos se agrupan en secciones de un mismo
-diámetro, con un número máximo de diámetros por rama y un largo mínimo por sección (un tubo), eligiendo
+serie elegida cuya velocidad no pasa de la máxima, hasta el menor diámetro de la serie. Con un número
+máximo de diámetros por rama (el «Number of Submain Sizes» de IRRICAD) se usan los diámetros consecutivos
+de la serie desde el de la entrada: con 90 mm en la válvula y 3 diámetros, 90, 75 y 63 mm. Luego los
+tramos se agrupan en secciones de un mismo diámetro, con un largo mínimo por sección (un tubo), eligiendo
 la agrupación de menor costo (programación dinámica). Cada sección lleva la tubería que exige su primer
 tramo, así que en ningún tramo se pasa la velocidad máxima.
 
@@ -26,15 +28,15 @@ VELOCIDAD_MINIMA_AJUSTE_MS = 0.3
 @dataclass(frozen=True)
 class CriterioVelocidad:
     velocidad_max_ms: float = 1.5
-    diametros_max: int = 3  # tuberías distintas por rama
+    diametros_max: int = 3  # tuberías distintas por rama, consecutivas en la serie; 0 = sin límite
     tramo_min_m: float = 6.0  # largo mínimo de una sección de un mismo diámetro
     ajustar_variacion: bool = True  # bajar la velocidad hasta cumplir los criterios de la subunidad
 
     def __post_init__(self):
         if self.velocidad_max_ms <= 0:
             raise ValueError("La velocidad máxima debe ser mayor que cero.")
-        if self.diametros_max < 1:
-            raise ValueError("El portalateral necesita al menos un diámetro.")
+        if self.diametros_max < 0:
+            raise ValueError("El número de diámetros no puede ser negativo (0 = sin límite).")
         if self.tramo_min_m < 0:
             raise ValueError("El largo mínimo de una sección no puede ser negativo.")
 
@@ -57,35 +59,56 @@ class Serie:
     tuberias: List[Tuberia] = field(default_factory=list)  # de menor a mayor diámetro
 
 
+TODAS_LAS_CLASES = "*"
+
+
 def clave_serie(tuberia: Tuberia) -> str:
     return f"{tuberia.material}|{tuberia.presion_nominal_m or 0:g}"
+
+
+def _orden_serie(clave):
+    material, pn = clave.split("|")
+    return material, -1.0 if pn == TODAS_LAS_CLASES else float(pn)
+
+
+def _nombre_serie(material, pn, lista):
+    diametros = [t.diametro_nominal_mm or t.diametro_interior_mm for t in lista]
+    rango = f"{len(lista)} diámetros ({min(diametros):g}–{max(diametros):g} mm)"
+    if pn == TODAS_LAS_CLASES:
+        return f"{material} · {rango} · la clase más baja de cada uno"
+    return f"{material}" + (f" PN {float(pn):g} m" if float(pn) else "") + f" · {rango}"
 
 
 def series_de_tuberias(tuberias: Sequence[Tuberia]) -> List[Serie]:
     """Tuberías agrupadas por material y presión nominal (p. ej. PVC C-5), de menor a mayor diámetro.
 
     Dentro de una serie, si hay dos con el mismo diámetro nominal se queda la de mayor diámetro interior.
+    Si un material tiene varias clases se añade además la serie de todas ellas (clave «PVC|*»): cada
+    diámetro de la base de datos con su clase más baja. Así, como en IRRICAD, el portalateral baja hasta el
+    menor diámetro marcado para ese uso aunque sea de otra clase (p. ej. PVC 63–110 mm C-5 y 1½" C-7.5).
     """
     grupos: Dict[str, Dict[float, Tuberia]] = {}
     for t in tuberias:
-        por_diametro = grupos.setdefault(clave_serie(t), {})
         d = t.diametro_nominal_mm or t.diametro_interior_mm
+        por_diametro = grupos.setdefault(clave_serie(t), {})
         if d not in por_diametro or t.diametro_interior_mm > por_diametro[d].diametro_interior_mm:
             por_diametro[d] = t
+        todas = grupos.setdefault(f"{t.material}|{TODAS_LAS_CLASES}", {})
+        if d not in todas or clave_economica(t) < clave_economica(todas[d]):
+            todas[d] = t
     series = []
     for clave, por_diametro in grupos.items():
-        lista = sorted(por_diametro.values(), key=lambda t: t.diametro_interior_mm)
         material, pn = clave.split("|")
-        diametros = [t.diametro_nominal_mm or t.diametro_interior_mm for t in lista]
-        nombre = (f"{material}" + (f" PN {float(pn):g} m" if float(pn) else "")
-                  + f" · {len(lista)} diámetros ({min(diametros):g}–{max(diametros):g} mm)")
-        series.append(Serie(clave, nombre, lista))
-    series.sort(key=lambda s: (s.clave.split("|")[0], float(s.clave.split("|")[1])))
+        if pn == TODAS_LAS_CLASES and len({clave_serie(t) for t in tuberias if t.material == material}) < 2:
+            continue  # una sola clase: sería la misma serie
+        lista = sorted(por_diametro.values(), key=lambda t: t.diametro_interior_mm)
+        series.append(Serie(clave, _nombre_serie(material, pn, lista), lista))
+    series.sort(key=lambda s: _orden_serie(s.clave))
     return series
 
 
 def serie_por_defecto(series: Sequence[Serie]) -> Optional[Serie]:
-    """La de PVC de menor presión nominal (lo usual en portalaterales) o, si no hay PVC, la primera."""
+    """La de PVC con todas sus clases (o la única clase de PVC) o, si no hay PVC, la primera."""
     return next((s for s in series if s.clave.upper().startswith("PVC|")), series[0] if series else None)
 
 
@@ -121,7 +144,10 @@ def dimensionar_rama(distancias_m: Sequence[float], caudales_lh: Sequence[float]
         suficiente = suficiente and ok
 
     minimo = criterio.tramo_min_m  # una rama más corta queda de una sola tubería (la sección completa vale)
-    secciones_max = criterio.diametros_max
+    secciones_max = criterio.diametros_max or len(tuberias)
+    # Diámetros consecutivos desde el de la entrada: con 3 y 90 mm en la válvula no se baja de 63 mm.
+    menor = max(0, max(requeridos) - secciones_max + 1)
+    requeridos = [max(i, menor) for i in requeridos]
     infinito = math.inf
     # mejor[j][s]: costo de cubrir los tramos 0..j-1 con s secciones; desde[j][s]: inicio de la última
     mejor = [[infinito] * (secciones_max + 1) for _ in range(n + 1)]

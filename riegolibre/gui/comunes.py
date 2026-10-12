@@ -1,7 +1,7 @@
 """Elementos de interfaz compartidos por las ventanas de RiegoLibre."""
 
 from qgis.PyQt.QtWidgets import (QComboBox, QDoubleSpinBox, QFormLayout, QGroupBox,
-                                 QHBoxLayout, QLabel, QRadioButton)
+                                 QHBoxLayout, QLabel, QRadioButton, QSpinBox)
 
 from ..nucleo import CriteriosDiseno
 from ..nucleo.base_datos import cintas_activas
@@ -24,6 +24,19 @@ def spin(minimo, maximo, valor, paso, decimales=2, sufijo=""):
     control.setValue(valor)
     if sufijo:
         control.setSuffix(f" {sufijo}")
+    return control
+
+
+def spin_diametros_por_rama(valor=0):
+    """Número de diámetros del portalateral por velocidad (el «Number of Submain Sizes» de IRRICAD)."""
+    control = QSpinBox()
+    control.setRange(0, 8)
+    control.setSpecialValueText("Todos")
+    control.setValue(valor)
+    control.setToolTip(
+        "Diámetros distintos como máximo en cada rama del portalateral, consecutivos en la serie desde el de la "
+        "válvula: con 90 mm en la entrada y 3 diámetros, 90, 75 y 63 mm. «Todos» baja hasta el menor diámetro "
+        "de la serie (p. ej. 1½\").")
     return control
 
 

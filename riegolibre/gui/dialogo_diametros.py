@@ -21,7 +21,7 @@ from ..nucleo.diametros_velocidad import serie_por_defecto, series_de_tuberias
 from ..nucleo.memoria import descripcion_telescopico
 from ..nucleo.subunidad import incumplimientos
 from ..nucleo.tuberias import clave_economica
-from .comunes import html_avisos, html_estado, html_tabla, spin
+from .comunes import html_avisos, html_estado, html_tabla, spin, spin_diametros_por_rama
 
 
 class DialogoDiametros(QDialog):
@@ -56,9 +56,7 @@ class DialogoDiametros(QDialog):
         self.spin_velocidad = spin(0.3, 5, 1.5, 0.1, sufijo="m/s")
         self.spin_velocidad.setToolTip("Velocidad máxima del agua en cualquier tramo del portalateral.")
         formulario_c.addRow("Velocidad máxima:", self.spin_velocidad)
-        self.spin_diametros = QSpinBox()
-        self.spin_diametros.setRange(1, 6)
-        self.spin_diametros.setValue(3)
+        self.spin_diametros = spin_diametros_por_rama()
         formulario_c.addRow("Diámetros por rama, máximo:", self.spin_diametros)
         self.spin_tramo = spin(0, 100, 6, 1, decimales=1, sufijo="m")
         self.spin_tramo.setToolTip("Largo mínimo de cada diámetro (por ejemplo, el de un tubo).")
@@ -203,8 +201,10 @@ class DialogoDiametros(QDialog):
         cumplen = sum(1 for *_, m in filas if not m)
         resumen = html_tabla([
             ("Lotes calculados", f"{len(filas)} · cumplen {cumplen}"),
-            ("Criterio", f"velocidad ≤ {opciones['velocidad_max_ms']:g} m/s · hasta {opciones['diametros_velocidad']} "
-                         f"diámetros por rama · {opciones['tramo_min_m']:g} m como mínimo cada uno"),
+            ("Criterio", f"velocidad ≤ {opciones['velocidad_max_ms']:g} m/s · "
+                         + (f"hasta {opciones['diametros_velocidad']} diámetros por rama"
+                            if opciones["diametros_velocidad"] else "hasta el menor diámetro de la serie")
+                         + f" · {opciones['tramo_min_m']:g} m como mínimo cada uno"),
         ])
         orden = sorted(metros.items(), key=lambda kv: next(
             (clave_economica(t) for t in self.tuberias_portalateral if t.nombre == kv[0]), (0,)))
