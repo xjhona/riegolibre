@@ -18,8 +18,9 @@ from qgis.PyQt.QtGui import QColor
 from ..nucleo import Red, TramoRed, Valvula
 from ..nucleo.terreno import Terreno, celda_automatica
 from ..nucleo.trazado_red import ORTOGONAL, ParametrosRed, ValvulaDestino, trazar_red
+from ..nucleo.tuberias import rotulo_corto
 from .perfil_terreno import MuestreadorDem, linea_simple, perfil_de_geometria
-from .subunidad_mapa import PROPIEDAD, geometria_en
+from .subunidad_mapa import PROPIEDAD, geometria_en, rotular_tuberia
 
 CAMPOS_VALVULA = ("presion", "caudal_lh")
 PREFIJO_VALVULA = "Válvula · "
@@ -298,7 +299,7 @@ def capas_resultado(red_mapa, resultado, bomba, crs):
         "field=tramo:string(20)&field=tuberia:string(80)&field=dn_mm:double&field=pn_m:double"
         "&field=longitud:double&field=caudal_lh:double&field=velocidad:double&field=j_m100:double"
         "&field=p_min:double&field=p_max:double&field=observ:string(200)"
-        "&field=desnivel_m:double&field=turnos:string(4000)",
+        "&field=desnivel_m:double&field=turnos:string(4000)&field=rotulo:string(80)",
         "Red principal · tuberías", crs)
     entidades = []
     for t in red.tramos:
@@ -315,10 +316,13 @@ def capas_resultado(red_mapa, resultado, bomba, crs):
             round(t.longitud_m, 2), round(q, 1), round(max(r.velocidad_ms for r in peores), 3),
             round(max(r.perdida_unitaria_m100 for r in peores), 3), round(p_min, 2), round(p_max, 2),
             resultado.observaciones(t.id), round(red.cotas[t.hasta] - red.cotas[t.desde], 3),
-            json.dumps(por_turno, separators=(",", ":"))])
+            json.dumps(por_turno, separators=(",", ":")),
+            f"{t.longitud_m:.0f} m\n{rotulo_corto(tuberia)}"])
         entidades.append(entidad)
     tramos.dataProvider().addFeatures(entidades)
     _estilo_por_tuberia(tramos, resultado)
+    # Un rótulo por tramo (de nodo a nodo), sin unir tramos vecinos aunque tengan el mismo texto.
+    rotular_tuberia(tramos, color="#c62828", tamano=9, unir=False)
 
     valvulas = _capa(
         "Point",

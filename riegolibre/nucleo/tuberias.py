@@ -75,6 +75,38 @@ def clave_economica(tuberia):
             tuberia.presion_nominal_m or 0.0, -tuberia.diametro_interior_mm)
 
 
+# Diámetro exterior comercial (mm) de los tubos que en el plano se rotulan en pulgadas.
+PULGADAS = ((21.0, "½"), (26.5, "¾"), (33.0, "1"), (42.0, "1¼"), (48.0, "1½"), (60.0, "2"))
+PULGADAS_HASTA_MM = 63.0  # desde este diámetro el rótulo va en milímetros
+TOLERANCIA_PULGADAS_MM = 3.0
+
+
+def diametro_en_plano(diametro_nominal_mm):
+    """«1½"» para los tubos menores de 63 mm (32 mm → 1", 48 o 50 mm → 1½"); «63» para los demás.
+
+    Si el diámetro no se parece a ninguna medida comercial en pulgadas se deja en milímetros.
+    """
+    if diametro_nominal_mm < PULGADAS_HASTA_MM:
+        exterior, pulgadas = min(PULGADAS, key=lambda p: abs(p[0] - diametro_nominal_mm))
+        if abs(exterior - diametro_nominal_mm) <= TOLERANCIA_PULGADAS_MM:
+            return f'{pulgadas}"'
+    return f"{diametro_nominal_mm:g}"
+
+
+def rotulo_corto(tuberia):
+    """Rótulo de plano «diámetro nominal/clase», p. ej. «63/5» (PVC C-5) o «1"/4» (PE 32 mm PN4).
+
+    Menores de 63 mm en pulgadas. La clase es la presión nominal en bar (10 m ≈ 1 bar).
+    Sin diámetro nominal se usa el nombre.
+    """
+    if not tuberia.diametro_nominal_mm:
+        return tuberia.nombre
+    texto = diametro_en_plano(tuberia.diametro_nominal_mm)
+    if tuberia.presion_nominal_m:
+        texto += f"/{round(tuberia.presion_nominal_m / 10, 1):g}"
+    return texto
+
+
 def cargar_catalogo_tuberias(ruta=None, uso=None):
     """Catálogo de tuberías, todas o las de un uso (lateral, portalateral, principal).
 

@@ -140,5 +140,23 @@ class PruebasDisenoTelescopico(unittest.TestCase):
                                       uniforme.tuberia, self.tuberias, self.criterios, diametros_max=1), [])
 
 
+class PruebasRotulo(unittest.TestCase):
+    def test_rotulo_de_plano_diametro_y_clase(self):
+        from riegolibre.nucleo.tuberias import rotulo_corto
+        catalogo = {t.nombre: t for t in cargar_catalogo_tuberias()}
+        self.assertEqual(rotulo_corto(catalogo["Tubería PVC 63 mm C-5"]), "63/5")
+        self.assertEqual(rotulo_corto(catalogo["Tubería PVC 90 mm C-7.5"]), "90/7.5")
+        self.assertEqual(rotulo_corto(Tuberia("Sin datos", 50.0)), "Sin datos")
+
+    def test_menores_de_63_mm_en_pulgadas(self):
+        from riegolibre.nucleo.tuberias import diametro_en_plano, rotulo_corto
+        catalogo = {t.nombre: t for t in cargar_catalogo_tuberias()}
+        self.assertEqual(rotulo_corto(catalogo["Tubería PE 32 mm PN4"]), '1"/4')
+        self.assertEqual(rotulo_corto(catalogo["Tubería PVC 48 mm C-10"]), '1½"/10')
+        self.assertEqual([diametro_en_plano(d) for d in (20, 25, 40, 50, 60, 63, 75)],
+                         ['½"', '¾"', '1¼"', '1½"', '2"', "63", "75"])
+        self.assertEqual(diametro_en_plano(16), "16")  # sin medida comercial cercana en pulgadas
+
+
 if __name__ == "__main__":
     unittest.main()

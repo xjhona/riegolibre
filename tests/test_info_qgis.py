@@ -106,6 +106,20 @@ class PruebasInfoSubunidad(unittest.TestCase):
                             key=lambda f: abs(f["desde_m"] - 50))
             self.assertAlmostEqual(tramos[-1]["caudal_sale_lh"], 0.0, places=1)
 
+    def test_rotulo_de_plano_por_tramo_de_la_misma_tuberia(self):
+        _, capas = self._calcular("InfoRotulos", entrada=1)
+        capa = capas["Portalateral"]
+        self.assertTrue(capa.labelsEnabled())
+        self.assertEqual(capa.labeling().settings().fieldName, "rotulo")
+        por_rotulo = {}
+        for f in capa.getFeatures():
+            por_rotulo.setdefault(f["rotulo"], []).append(f)
+        for texto, tramos in por_rotulo.items():
+            self.assertEqual(len({f["rama"] for f in tramos}), 1, texto)  # el rótulo no cruza la válvula
+            metros, diametro = texto.rstrip(chr(0x200B)).split("\n")
+            self.assertEqual(metros, f"{sum(f.geometry().length() for f in tramos):.0f} m")
+            self.assertIn("/", diametro)
+
     def test_buscar_encuentra_el_lateral_o_la_valvula_bajo_el_cursor(self):
         from riegolibre.integracion.info_objeto import (LATERALES, VALVULA, buscar, consultar,
                                                         tipo_de_capa)
@@ -292,6 +306,15 @@ class PruebasInfoRed(unittest.TestCase):
         for fila in filas:
             p1, p2, perdida, desnivel = (float(x) for x in fila[2:6])
             self.assertAlmostEqual(p1 - p2, perdida + desnivel, delta=0.012)
+
+    def test_rotulo_de_plano_por_tramo_de_la_red(self):
+        from riegolibre.nucleo.tuberias import rotulo_corto
+        capa = self.capas["Red principal · tuberías"]
+        self.assertTrue(capa.labelsEnabled())
+        self.assertFalse(capa.labeling().settings().lineSettings().mergeLines())
+        for f in capa.getFeatures():
+            tuberia = self.resultado.asignacion[f["tramo"]]
+            self.assertEqual(f["rotulo"], f"{f['longitud']:.0f} m\n{rotulo_corto(tuberia)}")
 
     def test_ficha_de_la_bomba(self):
         from riegolibre.integracion.info_objeto import BOMBA, consultar

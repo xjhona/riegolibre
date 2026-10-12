@@ -10,13 +10,15 @@ from typing import List, Optional
 
 from qgis.core import (Qgis, QgsClassificationEqualInterval, QgsCoordinateTransform,
                        QgsFeature, QgsGeometry, QgsGraduatedSymbolRenderer,
-                       QgsMarkerSymbol, QgsPointXY, QgsProject,
-                       QgsSingleSymbolRenderer, QgsStyle, QgsSymbol, QgsVectorLayer)
+                       QgsMarkerSymbol, QgsPalLayerSettings, QgsPointXY, QgsProject,
+                       QgsSingleSymbolRenderer, QgsStyle, QgsSymbol, QgsTextBufferSettings,
+                       QgsTextFormat, QgsVectorLayer, QgsVectorLayerSimpleLabeling)
 
 from qgis.PyQt.QtGui import QColor
 
 from ..nucleo import ConexionLateral
 from ..nucleo.hidraulica import interpolar_perfil
+from ..nucleo.tuberias import rotulo_corto
 from .perfil_terreno import MuestreadorDem, linea_simple, perfil_de_geometria
 
 LADO_A, LADO_B = "A", "B"  # A: a la izquierda del portalateral (según su sentido de dibujo)
@@ -268,7 +270,7 @@ def capas_resultado(diseno, modelo, portalateral, distancia_entrada_m, crs, nomb
         "LineString",
         "field=rama:string(20)&field=desde_m:double&field=hasta_m:double&field=caudal_lh:double"
         "&field=velocidad:double&field=p_inicio:double&field=p_fin:double&field=tuberia:string(80)"
-        "&field=perdida_m:double&field=desnivel_m:double&field=caudal_sale_lh:double",
+        "&field=perdida_m:double&field=desnivel_m:double&field=caudal_sale_lh:double&field=rotulo:string(80)",
         f"Portalateral · {nombre}", crs)
     valvula = _capa(
         "Point",
@@ -276,7 +278,9 @@ def capas_resultado(diseno, modelo, portalateral, distancia_entrada_m, crs, nomb
         f"Válvula · {nombre}", crs)
 
     entidades_lat, entidades_tramo = [], []
+    corridas = []  # [tubería, metros, tramos, rama]: tramos seguidos de la misma tubería en una rama
     for rama_r, rama in zip(r.ramas, diseno.subunidad.ramas):
+        corrida = None
         indices = indices_por_rama(modelo.conexiones, distancia_entrada_m, rama.sentido)
         nombre_rama = "única" if len(r.ramas) == 1 else ("hacia el final" if rama.sentido > 0 else "hacia el inicio")
         caudal_aguas_abajo = sum(rama_r.caudales_lh)
@@ -317,10 +321,22 @@ def capas_resultado(diseno, modelo, portalateral, distancia_entrada_m, crs, nomb
                     nombre_rama, round(desde, 2), round(hasta, 2), round(caudal_aguas_abajo, 1),
                     round(tuberia_pieza.velocidad(caudal_aguas_abajo / 3.6e6), 3), round(presion_a, 3),
                     round(presion_b, 3), tuberia_pieza.nombre, round(presion_a - presion_b - desnivel, 3),
-                    round(desnivel, 3), round(caudal_sale, 1)])
+                    round(desnivel, 3), round(caudal_sale, 1), ""])
                 entidades_tramo.append(tramo)
+                if corrida is None or corrida[0] is not tuberia_pieza:
+                    corrida = [tuberia_pieza, 0.0, [], len(corridas)]
+                    corridas.append(corrida)
+                corrida[1] += abs(hasta - desde)
+                corrida[2].append(tramo)
             caudal_aguas_abajo -= rama_r.caudales_lh[j]
             anterior, presion_anterior = actual, rama_r.presiones_m[j]
+
+    # Rótulo de plano por corrida: «25 m» sobre «63/5». QGIS une los tramos conectados con el mismo
+    # texto y pone un solo rótulo; el espacio de ancho cero distingue corridas iguales que se tocan.
+    for tuberia_corrida, metros, tramos_corrida, k in corridas:
+        texto = f"{metros:.0f} m\n{rotulo_corto(tuberia_corrida)}" + chr(0x200B) * k
+        for tramo in tramos_corrida:
+            tramo.setAttribute("rotulo", texto)
 
     punto = QgsFeature(valvula.fields())
     punto.setGeometry(portalateral.interpolate(distancia_entrada_m))
@@ -333,9 +349,37 @@ def capas_resultado(diseno, modelo, portalateral, distancia_entrada_m, crs, nomb
 
     _estilo_graduado(laterales, "p_min", ancho=0.6)
     _estilo_graduado(tramos, "p_fin", ancho=1.8)
+    rotular_tuberia(tramos)
     valvula.setRenderer(QgsSingleSymbolRenderer(QgsMarkerSymbol.createSimple(
         {"name": "circle", "color": "#c62828", "size": "4", "outline_color": "#ffffff"})))
     return [valvula, tramos, laterales]
+
+
+def rotular_tuberia(capa, campo="rotulo", color="#1565c0", tamano=8, unir=True):
+    """Rótulos de plano a lo largo de la tubería, paralelos a ella y debajo de la línea, como en IRRICAD.
+
+    `unir`: QGIS junta las entidades conectadas con el mismo texto y pone un solo rótulo.
+    """
+    etiquetas = QgsPalLayerSettings()
+    etiquetas.fieldName = campo
+    etiquetas.placement = Qgis.LabelPlacement.Line
+    etiquetas.dist = 0.8  # mm entre la línea y el texto
+    etiquetas.multilineAlignment = Qgis.LabelMultiLineAlignment.Center
+    linea = etiquetas.lineSettings()
+    # «Debajo» según el mapa y no según el sentido de la línea: las dos ramas salen de la válvula en sentidos opuestos.
+    linea.setPlacementFlags(Qgis.LabelLinePlacementFlag.BelowLine | Qgis.LabelLinePlacementFlag.MapOrientation)
+    linea.setMergeLines(unir)
+    etiquetas.setLineSettings(linea)
+    formato = QgsTextFormat()
+    formato.setColor(QColor(color))
+    formato.setSize(tamano)
+    fondo = QgsTextBufferSettings()
+    fondo.setEnabled(True)
+    fondo.setSize(0.7)
+    formato.setBuffer(fondo)
+    etiquetas.setFormat(formato)
+    capa.setLabeling(QgsVectorLayerSimpleLabeling(etiquetas))
+    capa.setLabelsEnabled(True)
 
 
 def _cota_en(modelo, distancia_m):
