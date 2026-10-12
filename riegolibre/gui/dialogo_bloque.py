@@ -36,6 +36,7 @@ from .comunes import (ComboDiametros, ComboTuberiaPortalateral, GrupoCriterios, 
 AJUSTE_ULTIMOS = "RiegoLibre/bloque_ultimos"  # últimos parámetros usados, para un lote nuevo
 DIRECCION_AUTO, DIRECCION_USUARIO = "auto", "usuario"
 PUNTOS_CARDINALES = ["norte", "noreste", "este", "sureste", "sur", "suroeste", "oeste", "noroeste"]
+ELIMINAR_BLOQUE, ELIMINAR_CON_LOTE = "bloque", "lote"  # respuestas al eliminar un bloque
 
 
 def cardinal(azimut):
@@ -102,7 +103,9 @@ class DialogoBloque(QDialog):
             "de la subunidad y guarda los parámetros en el lote.</li></ol>"
             "<p>Con <b>Aplicar a los lotes seleccionados</b> se usan los mismos parámetros en varios lotes a "
             "la vez (cada uno con su propia dirección si es automática). Un lote demasiado grande se puede "
-            "partir con <b>Subdividir…</b></p>")
+            "partir con <b>Subdividir…</b></p>"
+            "<p>Para borrar un bloque use <b>Eliminar bloque…</b>, o como en IRRICAD, <b>Ctrl + clic</b> en el "
+            "lote con la herramienta <b>Bloque de goteo</b>.</p>")
 
         divisor = QSplitter(Qt.Orientation.Horizontal)
         divisor.addWidget(izquierda)
@@ -115,7 +118,11 @@ class DialogoBloque(QDialog):
         self.boton_aplicar.setDefault(True)
         self.boton_varios = QPushButton("Aplicar a los lotes seleccionados")
         self.boton_subdividir = QPushButton("Subdividir…")
-        for boton in (self.boton_previa, self.boton_aplicar, self.boton_varios, self.boton_subdividir):
+        self.boton_eliminar = QPushButton("Eliminar bloque…")
+        self.boton_eliminar.setToolTip("Quita los laterales, el portalateral y la válvula del lote (en el mapa: "
+                                       "Ctrl + clic en el lote con la herramienta «Bloque de goteo»).")
+        for boton in (self.boton_previa, self.boton_aplicar, self.boton_varios, self.boton_subdividir,
+                      self.boton_eliminar):
             botones.addButton(boton, QDialogButtonBox.ButtonRole.ActionRole)
         botones.addButton(QPushButton("Cerrar"), QDialogButtonBox.ButtonRole.RejectRole)
         botones.rejected.connect(self.reject)
@@ -123,6 +130,7 @@ class DialogoBloque(QDialog):
         self.boton_aplicar.clicked.connect(self.aplicar)
         self.boton_varios.clicked.connect(self.aplicar_seleccionados)
         self.boton_subdividir.clicked.connect(self.subdividir)
+        self.boton_eliminar.clicked.connect(self.eliminar)
 
         principal = QVBoxLayout(self)
         principal.addWidget(divisor)
@@ -712,6 +720,63 @@ class DialogoBloque(QDialog):
             ("Área regada", f"{sum(f[1].area_regada_m2 for f in filas) / 10000:.2f} ha"),
         ])
         return "<h3>Lotes calculados</h3>" + resumen + "".join(tabla) + html_avisos(fallos)
+
+    def eliminar(self):
+        entidad = self._ejecutar(self._lote)
+        if entidad is not None:
+            texto = self.confirmar_eliminar(self.capa, entidad)
+            if texto:
+                self.texto.setHtml(f"<p>{texto}</p>")
+
+    def _preguntar_eliminar(self, nombre, grupo, padre):
+        """None (cancelar), ELIMINAR_BLOQUE o ELIMINAR_CON_LOTE."""
+        caja = QMessageBox(padre or self)
+        caja.setIcon(QMessageBox.Icon.Question)
+        caja.setWindowTitle("RiegoLibre · Eliminar bloque de goteo")
+        caja.setText(f"¿Eliminar el bloque de goteo del lote «{nombre}»?")
+        caja.setInformativeText(
+            f"Se quitan sus laterales, su portalateral y su válvula (grupo «{grupo}») y el diseño guardado en "
+            "el lote. Si la red principal usaba esta válvula, vuelva a calcularla.")
+        solo_bloque = caja.addButton("Eliminar el bloque", QMessageBox.ButtonRole.DestructiveRole)
+        con_lote = caja.addButton("Eliminar el bloque y el lote", QMessageBox.ButtonRole.DestructiveRole)
+        caja.addButton(QMessageBox.StandardButton.Cancel)
+        caja.exec()
+        return {solo_bloque: ELIMINAR_BLOQUE, con_lote: ELIMINAR_CON_LOTE}.get(caja.clickedButton())
+
+    def confirmar_eliminar(self, capa, entidad, padre=None):
+        """Pregunta y elimina el bloque del lote (botón «Eliminar bloque…» o Ctrl + clic en el mapa).
+
+        Devuelve el texto de lo que se hizo, o None si se canceló.
+        """
+        from ..integracion.bloque_mapa import eliminar_bloque, grupo_del_lote, nombre_del_lote
+        nombre = nombre_del_lote(entidad)
+        seleccion = capa.selectedFeatureIds()
+        capa.selectByIds([entidad.id()])  # el lote queda resaltado mientras se confirma, como en IRRICAD
+        try:
+            eleccion = self._preguntar_eliminar(nombre, grupo_del_lote(entidad), padre)
+        finally:
+            capa.selectByIds([i for i in seleccion if i != entidad.id()])
+        if eleccion is None:
+            return None
+        con_lote = eleccion == ELIMINAR_CON_LOTE
+
+        def hacer():
+            eliminar_bloque(capa, entidad, borrar_lote=con_lote)
+            return True
+        if not self._ejecutar(hacer):
+            return None
+        if self.capa is capa and self.entidad is not None and self.entidad.id() == entidad.id():
+            self.bloque = self.punto_valvula = None
+            if con_lote:
+                self.capa = self.entidad = None
+                self.etiqueta_lote.setText("Haga clic en un lote con la herramienta «Bloque de goteo».")
+                self.setWindowTitle("RiegoLibre · Bloque de goteo")
+            else:
+                self.etiqueta_lote.setText(f"<b>Lote:</b> {nombre} &nbsp;·&nbsp; <i>sin diseñar</i>")
+        if self.iface is not None:
+            self.iface.mapCanvas().refresh()
+        return (f"Se eliminaron el bloque de goteo y el lote «{nombre}»." if con_lote
+                else f"Se eliminó el bloque de goteo del lote «{nombre}». El lote quedó sin diseñar.")
 
     def subdividir(self):
         from .dialogo_subdivision import DialogoSubdivision

@@ -98,14 +98,51 @@ def vista_previa(bloques, crs):
     return reemplazar_grupo(GRUPO_VISTA_PREVIA, [valvulas, portas, laterales])
 
 
-def quitar_vista_previa():
+def _quitar_grupo(nombre_grupo) -> bool:
+    """Quita del proyecto el grupo y sus capas. Devuelve False si no existía."""
     from qgis.core import QgsProject
     proyecto = QgsProject.instance()
-    grupo = proyecto.layerTreeRoot().findGroup(GRUPO_VISTA_PREVIA)
-    if grupo is not None:
-        for nodo in grupo.findLayers():
-            proyecto.removeMapLayer(nodo.layerId())
-        proyecto.layerTreeRoot().removeChildNode(grupo)
+    grupo = proyecto.layerTreeRoot().findGroup(nombre_grupo)
+    if grupo is None:
+        return False
+    for nodo in grupo.findLayers():
+        proyecto.removeMapLayer(nodo.layerId())
+    grupo.parent().removeChildNode(grupo)
+    return True
+
+
+def quitar_vista_previa():
+    _quitar_grupo(GRUPO_VISTA_PREVIA)
+
+
+def nombre_del_lote(entidad) -> str:
+    return str(entidad[CAMPO_NOMBRE] or f"Lote {entidad.id()}")
+
+
+def grupo_del_lote(entidad) -> str:
+    """Grupo de las capas de resultado del bloque (laterales, portalateral y válvula)."""
+    return f"RiegoLibre · {nombre_del_lote(entidad)}"
+
+
+def eliminar_bloque(capa, entidad, borrar_lote=False):
+    """Elimina el bloque de goteo de un lote, como «borrar el bloque» en IRRICAD.
+
+    Quita sus capas de resultado (el grupo «RiegoLibre · nombre») y deja el lote sin diseñar.
+    Con `borrar_lote` también se borra el polígono del lote de su capa.
+    """
+    from .lotes import borrar_parametros
+    quitar_vista_previa()
+    _quitar_grupo(grupo_del_lote(entidad))
+    if not borrar_lote:
+        borrar_parametros(capa, entidad.id())
+    elif capa.isEditable():
+        if not capa.deleteFeature(entidad.id()):
+            raise ValueError("No se pudo borrar el lote.")
+    else:
+        if not capa.dataProvider().deleteFeatures([entidad.id()]):
+            raise ValueError(f"No se pudo modificar la capa «{capa.name()}». ¿Es de solo lectura?")
+        capa.updateExtents()
+        capa.triggerRepaint()
 
 
 def calcular_bloque(nombre, crs, bloque: Bloque, geometria_lote, config, avisos=None):

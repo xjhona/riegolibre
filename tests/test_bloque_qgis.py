@@ -285,6 +285,94 @@ class PruebasLotesYBloque(unittest.TestCase):
             self.assertIsNone(dialogo.punto_valvula)
         canvas.unsetMapTool(anterior)
 
+    def test_eliminar_bloque_con_ctrl_clic(self):
+        """Como en IRRICAD: Ctrl + clic en el lote elimina su bloque; un clic normal lo abre."""
+        from qgis.gui import QgsMapCanvas, QgsMapMouseEvent
+        from qgis.PyQt.QtCore import QEvent, QPoint, Qt
+        from riegolibre.gui import dialogo_bloque
+        from riegolibre.gui.herramienta_bloque import HerramientaBloque
+        from riegolibre.integracion.lotes import capas_de_lotes, parametros_guardados
+
+        _, capa = self._importar("eliminar.gpkg")
+        raiz = QgsProject.instance().layerTreeRoot()
+        otras = [raiz.findLayer(c.id()) for c in capas_de_lotes() if c is not capa]
+        for nodo in otras:  # los lotes de otras pruebas están en el mismo lugar
+            nodo.setItemVisibilityChecked(False)
+        lote_a = next(e for e in capa.getFeatures() if e["nombre"] == "Lote 1")
+        canvas = QgsMapCanvas()
+        canvas.resize(800, 600)
+        canvas.setDestinationCrs(capa.crs())
+        canvas.setExtent(capa.extent().buffered(10))
+
+        clase = dialogo_bloque.DialogoBloque
+        with mock.patch.object(dialogo_bloque.QMessageBox, "warning", side_effect=_fallar), \
+                mock.patch.object(clase, "_leer_ultimos", return_value={}), \
+                mock.patch.object(clase, "_guardar_ultimos"):
+            dialogo = clase(None)
+            dialogo.spin_separacion.setValue(2.0)
+            dialogo.combo_dem.setLayer(None)
+            abiertos = []
+            herramienta = HerramientaBloque(canvas, lambda c, e: abiertos.append(e["nombre"]), _fallar,
+                                            dialogo.confirmar_eliminar)
+
+            def clic(x, y, ctrl):
+                pantalla = canvas.getCoordinateTransform().transform(QgsPointXY(X0 + x, Y0 + y))
+                evento = QgsMapMouseEvent(canvas, QEvent.Type.MouseButtonRelease,
+                                          QPoint(round(pantalla.x()), round(pantalla.y())), Qt.MouseButton.LeftButton,
+                                          Qt.MouseButton.LeftButton,
+                                          Qt.KeyboardModifier.ControlModifier if ctrl else Qt.KeyboardModifier.NoModifier)
+                herramienta.canvasReleaseEvent(evento)
+
+            def disenar():
+                dialogo.abrir_lote(capa, capa.getFeature(lote_a.id()))
+                dialogo.edit_nombre.setText("E1")
+                dialogo.aplicar()
+                self.assertIsNotNone(raiz.findGroup("RiegoLibre · E1"))
+
+            disenar()
+            clic(50, -25, ctrl=False)
+            self.assertEqual(abiertos, ["E1"])
+
+            # Cancelar no cambia nada; mientras se pregunta, el lote queda seleccionado (resaltado)
+            capa.selectByIds([])
+            vistos = []
+
+            def responder(eleccion):
+                def preguntar(nombre, grupo, padre):
+                    vistos.append((nombre, grupo, capa.selectedFeatureIds()))
+                    return eleccion
+                return preguntar
+
+            with mock.patch.object(dialogo, "_preguntar_eliminar", side_effect=responder(None)):
+                clic(50, -25, ctrl=True)
+            self.assertEqual(vistos, [("E1", "RiegoLibre · E1", [lote_a.id()])])
+            self.assertEqual(capa.selectedFeatureIds(), [])
+            self.assertIsNotNone(raiz.findGroup("RiegoLibre · E1"))
+
+            # Eliminar solo el bloque: el lote queda, sin diseñar
+            with mock.patch.object(dialogo, "_preguntar_eliminar",
+                                   side_effect=responder(dialogo_bloque.ELIMINAR_BLOQUE)):
+                clic(50, -25, ctrl=True)
+            self.assertIsNone(raiz.findGroup("RiegoLibre · E1"))
+            lote = capa.getFeature(lote_a.id())
+            self.assertTrue(lote.isValid())
+            self.assertIsNone(parametros_guardados(lote))
+            self.assertIn("sin diseñar", dialogo.etiqueta_lote.text())
+            self.assertEqual(len(abiertos), 1)  # Ctrl + clic no abre la ventana
+
+            # Eliminar el bloque y el lote
+            disenar()
+            with mock.patch.object(dialogo, "_preguntar_eliminar",
+                                   side_effect=responder(dialogo_bloque.ELIMINAR_CON_LOTE)):
+                dialogo.eliminar()  # botón «Eliminar bloque…» de la ventana
+            self.assertIsNone(raiz.findGroup("RiegoLibre · E1"))
+            self.assertFalse(capa.getFeature(lote_a.id()).isValid())
+            self.assertEqual(sorted(e["nombre"] for e in capa.getFeatures()), ["M7. 6"])
+            self.assertIsNone(dialogo.capa)
+            self.assertIn("y el lote", dialogo.texto.toPlainText())
+        for nodo in otras:
+            nodo.setItemVisibilityChecked(True)
+
     def test_tabla_de_zonas(self):
         """Como «Zone Design Configuration» de IRRICAD: todas las zonas, con cambios por zona y su resultado."""
         from qgis.PyQt.QtCore import Qt

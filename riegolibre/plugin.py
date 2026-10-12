@@ -94,7 +94,8 @@ class RiegoLibrePlugin:
 
     def _agregar_herramienta_bloque(self):
         accion = QAction(QIcon(os.path.join(CARPETA, "icon_bloque.svg")),
-                         "Bloque de goteo (clic en un lote)", self.iface.mainWindow())
+                         "Bloque de goteo (clic en un lote; Ctrl + clic para eliminar su bloque)",
+                         self.iface.mainWindow())
         accion.setCheckable(True)
         accion.toggled.connect(self._activar_bloque)
         self.iface.addPluginToMenu(MENU, accion)
@@ -107,7 +108,8 @@ class RiegoLibrePlugin:
         if activa:
             from .gui.herramienta_bloque import HerramientaBloque
             if self.herramienta_bloque is None:
-                self.herramienta_bloque = HerramientaBloque(canvas, self._abrir_lote, self._avisar)
+                self.herramienta_bloque = HerramientaBloque(canvas, self._abrir_lote, self._avisar,
+                                                            self._eliminar_bloque)
                 self.herramienta_bloque.deactivated.connect(lambda: self.accion_bloque.setChecked(False))
             canvas.setMapTool(self.herramienta_bloque)
         elif self.herramienta_bloque is not None and canvas.mapTool() is self.herramienta_bloque:
@@ -116,6 +118,12 @@ class RiegoLibrePlugin:
     def _abrir_lote(self, capa, entidad):
         self.abrir("bloque", mostrar=False)
         self.dialogos["bloque"].abrir_lote(capa, entidad)
+
+    def _eliminar_bloque(self, capa, entidad):
+        self.abrir("bloque", mostrar=False)
+        texto = self.dialogos["bloque"].confirmar_eliminar(capa, entidad, self.iface.mainWindow())
+        if texto:
+            self._avisar(texto)
 
     def _avisar(self, texto):
         from qgis.core import Qgis

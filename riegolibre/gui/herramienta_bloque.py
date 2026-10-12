@@ -1,4 +1,7 @@
-"""Herramienta de mapa «Bloque de goteo»: un clic en un lote abre su ventana de diseño."""
+"""Herramienta de mapa «Bloque de goteo»: un clic en un lote abre su ventana de diseño.
+
+Ctrl + clic en un lote elimina su bloque (previa confirmación), como en IRRICAD.
+"""
 
 from qgis.core import QgsCoordinateTransform, QgsGeometry, QgsProject, QgsRectangle
 from qgis.gui import QgsMapTool
@@ -24,9 +27,9 @@ def lote_en(punto, crs_mapa):
 
 
 class HerramientaBloque(QgsMapTool):
-    def __init__(self, canvas, abrir, avisar):
+    def __init__(self, canvas, abrir, avisar, eliminar=None):
         super().__init__(canvas)
-        self.abrir, self.avisar = abrir, avisar
+        self.abrir, self.avisar, self.eliminar = abrir, avisar, eliminar
         self.setCursor(Qt.CursorShape.PointingHandCursor)
 
     def canvasReleaseEvent(self, evento):  # noqa: N802 (nombre exigido por Qt)
@@ -39,4 +42,7 @@ class HerramientaBloque(QgsMapTool):
             else:
                 self.avisar("No hay un lote visible en ese punto. Haga clic dentro de un lote.")
             return
-        self.abrir(*encontrado)
+        if self.eliminar is not None and evento.modifiers() & Qt.KeyboardModifier.ControlModifier:
+            self.eliminar(*encontrado)
+        else:
+            self.abrir(*encontrado)

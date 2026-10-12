@@ -235,6 +235,17 @@ def guardar_parametros(capa, id_entidad, datos: dict, nombre: Optional[str] = No
     capa.triggerRepaint()
 
 
+def borrar_parametros(capa, id_entidad):
+    """Deja el lote sin diseñar: vacía los parámetros del bloque guardados en él."""
+    indice = capa.fields().indexOf(CAMPO_BLOQUE)
+    if capa.isEditable():
+        capa.changeAttributeValue(id_entidad, indice, None)
+        return
+    if not capa.dataProvider().changeAttributeValues({id_entidad: {indice: None}}):
+        raise ValueError(f"No se pudo modificar la capa «{capa.name()}». ¿Es de solo lectura?")
+    capa.triggerRepaint()
+
+
 def ruta_por_defecto(ruta_dxf):
     base, _ = os.path.splitext(ruta_dxf)
     return base + "_lotes.gpkg"
