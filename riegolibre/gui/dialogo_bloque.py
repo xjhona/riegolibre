@@ -16,7 +16,8 @@ import re
 from qgis.core import Qgis, QgsProject, QgsSettings
 from qgis.gui import QgsMapLayerComboBox
 from qgis.PyQt.QtCore import Qt
-from qgis.PyQt.QtWidgets import (QApplication, QButtonGroup, QCheckBox, QComboBox, QDialog, QDialogButtonBox,
+from qgis.PyQt.QtGui import QKeySequence
+from qgis.PyQt.QtWidgets import (QAction, QApplication, QButtonGroup, QCheckBox, QComboBox, QDialog, QDialogButtonBox,
                                  QFormLayout, QGroupBox, QHBoxLayout, QLabel, QLineEdit, QMessageBox,
                                  QPushButton, QRadioButton, QScrollArea, QSpinBox, QSplitter, QTabWidget,
                                  QTextBrowser, QVBoxLayout, QWidget)
@@ -105,7 +106,7 @@ class DialogoBloque(QDialog):
             "la vez (cada uno con su propia dirección si es automática). Un lote demasiado grande se puede "
             "partir con <b>Subdividir…</b></p>"
             "<p>Para borrar un bloque use <b>Eliminar bloque…</b>, o como en IRRICAD, <b>Ctrl + clic</b> en el "
-            "lote con la herramienta <b>Bloque de goteo</b>.</p>")
+            "lote con la herramienta <b>Bloque de goteo</b>. <b>Ctrl + Z</b> lo recupera.</p>")
 
         divisor = QSplitter(Qt.Orientation.Horizontal)
         divisor.addWidget(izquierda)
@@ -131,6 +132,10 @@ class DialogoBloque(QDialog):
         self.boton_varios.clicked.connect(self.aplicar_seleccionados)
         self.boton_subdividir.clicked.connect(self.subdividir)
         self.boton_eliminar.clicked.connect(self.eliminar)
+        deshacer = QAction("Deshacer la eliminación del bloque", self)
+        deshacer.setShortcut(QKeySequence(QKeySequence.StandardKey.Undo))  # Ctrl + Z
+        deshacer.triggered.connect(self.deshacer)
+        self.addAction(deshacer)
 
         principal = QVBoxLayout(self)
         principal.addWidget(divisor)
@@ -724,9 +729,7 @@ class DialogoBloque(QDialog):
     def eliminar(self):
         entidad = self._ejecutar(self._lote)
         if entidad is not None:
-            texto = self.confirmar_eliminar(self.capa, entidad)
-            if texto:
-                self.texto.setHtml(f"<p>{texto}</p>")
+            self.confirmar_eliminar(self.capa, entidad)
 
     def _preguntar_eliminar(self, nombre, grupo, padre):
         """None (cancelar), ELIMINAR_BLOQUE o ELIMINAR_CON_LOTE."""
@@ -773,10 +776,50 @@ class DialogoBloque(QDialog):
                 self.setWindowTitle("RiegoLibre · Bloque de goteo")
             else:
                 self.etiqueta_lote.setText(f"<b>Lote:</b> {nombre} &nbsp;·&nbsp; <i>sin diseñar</i>")
+        texto = (f"Se eliminaron el bloque de goteo y el lote «{nombre}»." if con_lote
+                 else f"Se eliminó el bloque de goteo del lote «{nombre}». El lote quedó sin diseñar.")
+        self.texto.setHtml(f"<p>{texto}</p><p>Para recuperarlo pulse <b>Ctrl + Z</b> (o «Deshacer» en el "
+                           "aviso de arriba del mapa) mientras QGIS siga abierto.</p>")
         if self.iface is not None:
             self.iface.mapCanvas().refresh()
-        return (f"Se eliminaron el bloque de goteo y el lote «{nombre}»." if con_lote
-                else f"Se eliminó el bloque de goteo del lote «{nombre}». El lote quedó sin diseñar.")
+            self._aviso_con_deshacer(texto)
+        return texto
+
+    def _aviso_con_deshacer(self, texto):
+        """Aviso en la barra de mensajes de QGIS con un botón «Deshacer»."""
+        barra = self.iface.messageBar()
+        aviso = barra.createMessage("RiegoLibre", texto)
+        boton = QPushButton("Deshacer")
+
+        def pulsar():
+            barra.popWidget(aviso)
+            self.deshacer()
+        boton.clicked.connect(pulsar)
+        aviso.layout().addWidget(boton)
+        barra.pushWidget(aviso, Qgis.MessageLevel.Info, 15)
+
+    def deshacer(self):
+        """Recupera el último bloque eliminado (Ctrl + Z). Devuelve el texto de lo hecho, o None."""
+        from ..integracion.bloque_mapa import deshacer_eliminacion, hay_eliminacion_para_deshacer
+        if not hay_eliminacion_para_deshacer():
+            texto, nivel = "No hay ninguna eliminación de bloque para deshacer.", Qgis.MessageLevel.Info
+            e = None
+        else:
+            e = self._ejecutar(deshacer_eliminacion)
+            if e is None:
+                return None
+            texto = (f"Se recuperaron el lote «{e.nombre}» y su bloque de goteo." if e.lote_borrado
+                     else f"Se recuperó el bloque de goteo del lote «{e.nombre}».")
+            nivel = Qgis.MessageLevel.Success
+            if (not e.lote_borrado and self.capa is e.capa_lotes and self.entidad is not None
+                    and self.entidad.id() == e.entidad.id()):
+                self.etiqueta_lote.setText(f"<b>Lote:</b> {e.nombre} &nbsp;·&nbsp; "
+                                           f"{e.entidad.geometry().area() / 10000:.3f} ha")
+        self.texto.setHtml(f"<p>{texto}</p>")
+        if self.iface is not None:
+            self.iface.mapCanvas().refresh()
+            self.iface.messageBar().pushMessage("RiegoLibre", texto, nivel, 5)
+        return texto if e is not None else None
 
     def subdividir(self):
         from .dialogo_subdivision import DialogoSubdivision

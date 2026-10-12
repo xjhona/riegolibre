@@ -289,10 +289,13 @@ class PruebasLotesYBloque(unittest.TestCase):
         """Como en IRRICAD: Ctrl + clic en el lote elimina su bloque; un clic normal lo abre."""
         from qgis.gui import QgsMapCanvas, QgsMapMouseEvent
         from qgis.PyQt.QtCore import QEvent, QPoint, Qt
+        from qgis.PyQt.QtGui import QKeyEvent
         from riegolibre.gui import dialogo_bloque
         from riegolibre.gui.herramienta_bloque import HerramientaBloque
+        from riegolibre.integracion import bloque_mapa
         from riegolibre.integracion.lotes import capas_de_lotes, parametros_guardados
 
+        bloque_mapa._eliminados.clear()
         _, capa = self._importar("eliminar.gpkg")
         raiz = QgsProject.instance().layerTreeRoot()
         otras = [raiz.findLayer(c.id()) for c in capas_de_lotes() if c is not capa]
@@ -360,8 +363,16 @@ class PruebasLotesYBloque(unittest.TestCase):
             self.assertIn("sin diseñar", dialogo.etiqueta_lote.text())
             self.assertEqual(len(abiertos), 1)  # Ctrl + clic no abre la ventana
 
-            # Eliminar el bloque y el lote
-            disenar()
+            # Deshacer (Ctrl + Z en la ventana): vuelven las mismas capas y los parámetros
+            self.assertEqual(dialogo.deshacer(), "Se recuperó el bloque de goteo del lote «E1».")
+            grupo = raiz.findGroup("RiegoLibre · E1")
+            self.assertEqual(sorted(n.layer().name().split(" · ")[0] for n in grupo.findLayers()),
+                             ["Laterales", "Portalateral", "Válvula"])
+            self.assertEqual(parametros_guardados(capa.getFeature(lote_a.id()))["separacion_m"], 2.0)
+            self.assertNotIn("sin diseñar", dialogo.etiqueta_lote.text())
+            self.assertIsNone(dialogo.deshacer())  # no queda nada por deshacer
+
+            # Eliminar el bloque y el lote, y recuperarlos con Ctrl + Z en el mapa
             with mock.patch.object(dialogo, "_preguntar_eliminar",
                                    side_effect=responder(dialogo_bloque.ELIMINAR_CON_LOTE)):
                 dialogo.eliminar()  # botón «Eliminar bloque…» de la ventana
@@ -370,6 +381,23 @@ class PruebasLotesYBloque(unittest.TestCase):
             self.assertEqual(sorted(e["nombre"] for e in capa.getFeatures()), ["M7. 6"])
             self.assertIsNone(dialogo.capa)
             self.assertIn("y el lote", dialogo.texto.toPlainText())
+            herramienta.deshacer = dialogo.deshacer
+            herramienta.keyPressEvent(QKeyEvent(QEvent.Type.KeyPress, Qt.Key.Key_Z,
+                                                Qt.KeyboardModifier.ControlModifier))
+            self.assertEqual(sorted(e["nombre"] for e in capa.getFeatures()), ["E1", "M7. 6"])
+            recuperado = next(e for e in capa.getFeatures() if e["nombre"] == "E1")
+            self.assertAlmostEqual(recuperado.geometry().area(), 80 * 40, places=3)
+            self.assertEqual(parametros_guardados(recuperado)["separacion_m"], 2.0)
+            self.assertIsNotNone(raiz.findGroup("RiegoLibre · E1"))
+
+            # Si el lote se volvió a calcular después de eliminarlo, deshacer no pisa el bloque nuevo
+            lote_a = recuperado
+            with mock.patch.object(dialogo, "_preguntar_eliminar",
+                                   side_effect=responder(dialogo_bloque.ELIMINAR_BLOQUE)):
+                clic(50, -25, ctrl=True)
+            disenar()
+            with self.assertRaisesRegex(ValueError, "ya tiene otra vez un bloque"):
+                bloque_mapa.deshacer_eliminacion()
         for nodo in otras:
             nodo.setItemVisibilityChecked(True)
 

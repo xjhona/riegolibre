@@ -1,11 +1,12 @@
 """Herramienta de mapa «Bloque de goteo»: un clic en un lote abre su ventana de diseño.
 
-Ctrl + clic en un lote elimina su bloque (previa confirmación), como en IRRICAD.
+Ctrl + clic en un lote elimina su bloque (previa confirmación), como en IRRICAD; Ctrl + Z lo recupera.
 """
 
 from qgis.core import QgsCoordinateTransform, QgsGeometry, QgsProject, QgsRectangle
 from qgis.gui import QgsMapTool
 from qgis.PyQt.QtCore import Qt
+from qgis.PyQt.QtGui import QKeySequence
 
 from ..integracion.lotes import capas_de_lotes
 
@@ -27,9 +28,9 @@ def lote_en(punto, crs_mapa):
 
 
 class HerramientaBloque(QgsMapTool):
-    def __init__(self, canvas, abrir, avisar, eliminar=None):
+    def __init__(self, canvas, abrir, avisar, eliminar=None, deshacer=None):
         super().__init__(canvas)
-        self.abrir, self.avisar, self.eliminar = abrir, avisar, eliminar
+        self.abrir, self.avisar, self.eliminar, self.deshacer = abrir, avisar, eliminar, deshacer
         self.setCursor(Qt.CursorShape.PointingHandCursor)
 
     def canvasReleaseEvent(self, evento):  # noqa: N802 (nombre exigido por Qt)
@@ -46,3 +47,11 @@ class HerramientaBloque(QgsMapTool):
             self.eliminar(*encontrado)
         else:
             self.abrir(*encontrado)
+
+    def keyPressEvent(self, evento):  # noqa: N802 (nombre exigido por Qt)
+        """Ctrl + Z recupera el último bloque eliminado."""
+        if self.deshacer is not None and evento.matches(QKeySequence.StandardKey.Undo):
+            evento.accept()
+            self.deshacer()
+        else:
+            evento.ignore()

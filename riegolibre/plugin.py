@@ -109,7 +109,7 @@ class RiegoLibrePlugin:
             from .gui.herramienta_bloque import HerramientaBloque
             if self.herramienta_bloque is None:
                 self.herramienta_bloque = HerramientaBloque(canvas, self._abrir_lote, self._avisar,
-                                                            self._eliminar_bloque)
+                                                            self._eliminar_bloque, self._deshacer_bloque)
                 self.herramienta_bloque.deactivated.connect(lambda: self.accion_bloque.setChecked(False))
             canvas.setMapTool(self.herramienta_bloque)
         elif self.herramienta_bloque is not None and canvas.mapTool() is self.herramienta_bloque:
@@ -121,9 +121,11 @@ class RiegoLibrePlugin:
 
     def _eliminar_bloque(self, capa, entidad):
         self.abrir("bloque", mostrar=False)
-        texto = self.dialogos["bloque"].confirmar_eliminar(capa, entidad, self.iface.mainWindow())
-        if texto:
-            self._avisar(texto)
+        self.dialogos["bloque"].confirmar_eliminar(capa, entidad, self.iface.mainWindow())
+
+    def _deshacer_bloque(self):
+        self.abrir("bloque", mostrar=False)
+        self.dialogos["bloque"].deshacer()
 
     def _avisar(self, texto):
         from qgis.core import Qgis
@@ -153,6 +155,8 @@ class RiegoLibrePlugin:
         if self.herramienta_bloque is not None:
             self.iface.mapCanvas().unsetMapTool(self.herramienta_bloque)
             self.herramienta_bloque = None
+        from .integracion.bloque_mapa import olvidar_eliminaciones
+        olvidar_eliminaciones()  # suelta las capas guardadas para deshacer
         if self.herramienta_info is not None:
             self.iface.mapCanvas().unsetMapTool(self.herramienta_info)
             self.herramienta_info = None

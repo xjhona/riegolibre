@@ -5,6 +5,7 @@ El motor (`nucleo.bloque`, `nucleo.subdivision`) trabaja con listas de puntos; a
 geometrías de QGIS, se leen las cotas del DEM y se crean las capas.
 """
 
+from dataclasses import dataclass
 from typing import List, Optional
 
 from qgis.core import (Qgis, QgsFeature, QgsGeometry, QgsMarkerSymbol, QgsPointXY, QgsSingleSymbolRenderer,
@@ -124,25 +125,128 @@ def grupo_del_lote(entidad) -> str:
     return f"RiegoLibre · {nombre_del_lote(entidad)}"
 
 
-def eliminar_bloque(capa, entidad, borrar_lote=False):
+@dataclass
+class BloqueEliminado:
+    """Lo necesario para deshacer la eliminación de un bloque (solo durante la sesión de QGIS)."""
+    nombre: str
+    capa_lotes: object
+    entidad: QgsFeature  # copia del lote tal como estaba
+    lote_borrado: bool
+    grupo: str
+    capas: list  # capas de resultado sacadas del proyecto (vivas), en el orden del grupo
+    posicion: int  # lugar del grupo en la raíz del árbol de capas
+
+
+MAX_DESHACER = 20
+_eliminados: List[BloqueEliminado] = []  # pila de deshacer de la sesión
+
+
+def _sacar_grupo(nombre_grupo):
+    """Saca del proyecto el grupo sin destruir sus capas: (capas, posición), o ([], 0) si no existía."""
+    from qgis.core import QgsProject
+    proyecto = QgsProject.instance()
+    raiz = proyecto.layerTreeRoot()
+    grupo = raiz.findGroup(nombre_grupo)
+    if grupo is None:
+        return [], 0
+    padre = grupo.parent()
+    posicion = padre.children().index(grupo) if padre is raiz else 0
+    capas = [proyecto.takeMapLayer(nodo.layer()) for nodo in grupo.findLayers()]
+    padre.removeChildNode(grupo)
+    return [c for c in capas if c is not None], posicion
+
+
+def eliminar_bloque(capa, entidad, borrar_lote=False) -> BloqueEliminado:
     """Elimina el bloque de goteo de un lote, como «borrar el bloque» en IRRICAD.
 
     Quita sus capas de resultado (el grupo «RiegoLibre · nombre») y deja el lote sin diseñar.
-    Con `borrar_lote` también se borra el polígono del lote de su capa.
+    Con `borrar_lote` también se borra el polígono del lote de su capa. Se puede deshacer con
+    `deshacer_eliminacion` mientras QGIS siga abierto.
     """
     from .lotes import borrar_parametros
     quitar_vista_previa()
-    _quitar_grupo(grupo_del_lote(entidad))
-    if not borrar_lote:
-        borrar_parametros(capa, entidad.id())
-    elif capa.isEditable():
-        if not capa.deleteFeature(entidad.id()):
-            raise ValueError("No se pudo borrar el lote.")
+    nombre = nombre_del_lote(entidad)
+    copia = QgsFeature(entidad)
+    capas, posicion = _sacar_grupo(grupo_del_lote(entidad))
+    eliminado = BloqueEliminado(nombre, capa, copia, borrar_lote, grupo_del_lote(entidad), capas, posicion)
+    _eliminados.append(eliminado)  # antes de tocar el lote: si falla, aún se pueden devolver las capas
+    del _eliminados[:-MAX_DESHACER]
+    try:
+        if not borrar_lote:
+            borrar_parametros(capa, entidad.id())
+        elif capa.isEditable():
+            if not capa.deleteFeature(entidad.id()):
+                raise ValueError("No se pudo borrar el lote.")
+        else:
+            if not capa.dataProvider().deleteFeatures([entidad.id()]):
+                raise ValueError(f"No se pudo modificar la capa «{capa.name()}». ¿Es de solo lectura?")
+            capa.updateExtents()
+            capa.triggerRepaint()
+    except ValueError:
+        eliminado.lote_borrado = False  # el lote sigue ahí: deshacer no debe duplicarlo
+        raise
+    return eliminado
+
+
+def hay_eliminacion_para_deshacer() -> bool:
+    return bool(_eliminados)
+
+
+def olvidar_eliminaciones():
+    _eliminados.clear()
+
+
+def deshacer_eliminacion() -> Optional[BloqueEliminado]:
+    """Devuelve el último bloque eliminado: sus capas, sus parámetros y, si se borró, el lote.
+
+    None si no hay nada que deshacer.
+    """
+    from qgis.core import QgsProject
+    from .lotes import CAMPO_BLOQUE
+    if not _eliminados:
+        return None
+    e = _eliminados[-1]
+    proyecto = QgsProject.instance()
+    try:
+        capa_viva = proyecto.mapLayer(e.capa_lotes.id()) is e.capa_lotes
+    except RuntimeError:  # la capa ya no existe (se cerró el proyecto)
+        capa_viva = False
+    if not capa_viva:
+        _eliminados.clear()
+        raise ValueError("Ya no se puede deshacer: la capa de lotes ya no está en el proyecto.")
+    raiz = proyecto.layerTreeRoot()
+    if raiz.findGroup(e.grupo) is not None:
+        raise ValueError(f"No se puede deshacer: el lote «{e.nombre}» ya tiene otra vez un bloque calculado "
+                         f"(grupo «{e.grupo}»). Elimínelo primero si quiere recuperar el anterior.")
+    capa = e.capa_lotes
+    if e.lote_borrado:
+        nuevo = QgsFeature(capa.fields())
+        nuevo.setGeometry(e.entidad.geometry())
+        for i in range(capa.fields().count()):
+            if capa.fields().at(i).name().lower() != "fid":  # el GeoPackage numera la entidad
+                nuevo.setAttribute(i, e.entidad.attribute(i))
+        if capa.isEditable():
+            ok = capa.addFeature(nuevo)
+        else:
+            ok, _ = capa.dataProvider().addFeatures([nuevo])
+            capa.updateExtents()
+        if not ok:
+            raise ValueError(f"No se pudo devolver el lote a la capa «{capa.name()}».")
     else:
-        if not capa.dataProvider().deleteFeatures([entidad.id()]):
-            raise ValueError(f"No se pudo modificar la capa «{capa.name()}». ¿Es de solo lectura?")
-        capa.updateExtents()
-        capa.triggerRepaint()
+        indice = capa.fields().indexOf(CAMPO_BLOQUE)
+        valor = e.entidad.attribute(indice)
+        if capa.isEditable():
+            capa.changeAttributeValue(e.entidad.id(), indice, valor)
+        elif not capa.dataProvider().changeAttributeValues({e.entidad.id(): {indice: valor}}):
+            raise ValueError(f"No se pudo modificar la capa «{capa.name()}».")
+    capa.triggerRepaint()
+    if e.capas:
+        grupo = raiz.insertGroup(min(e.posicion, len(raiz.children())), e.grupo)
+        for c in e.capas:
+            proyecto.addMapLayer(c, False)
+            grupo.addLayer(c)
+    _eliminados.pop()
+    return e
 
 
 def calcular_bloque(nombre, crs, bloque: Bloque, geometria_lote, config, avisos=None):
