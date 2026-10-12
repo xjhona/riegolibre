@@ -4,8 +4,9 @@ import math
 import unittest
 
 from riegolibre.nucleo.bloque import (PORTA_ALTO, PORTA_BAJO, PORTA_CENTRO, PORTA_DISTANCIA, PORTA_FINAL,
-                                      VALV_ALTO, VALV_BAJO, VALV_CENTRO, VALV_PORCENTAJE, ParametrosBloque,
-                                      punto_en, trazar_bloque)
+                                      VALV_ALTO, VALV_BAJO, VALV_CENTRO, VALV_PORCENTAJE, VALV_PUNTO,
+                                      ParametrosBloque, azimut_entre, distancia_sobre_polilinea, punto_en,
+                                      trazar_bloque)
 from riegolibre.nucleo.subdivision import (AUTO_AREA, AUTO_CAUDAL, AUTO_NUMERO, DISTANCIA, HILERAS, NUMERO,
                                            ParametrosSubdivision, subdividir)
 from tests.test_trazado import dentro, girar, puntos_del_lateral, rectangulo
@@ -148,6 +149,40 @@ class PruebasBloque(unittest.TestCase):
         # Automática: el extremo más cercano a la fuente
         b = trazar_bloque(self.lote, ParametrosBloque(**base), fuente=(0.0, 200.0))
         self.assertAlmostEqual(b.valvula_m, b.longitud_portalateral_m)
+
+    def test_valvula_marcada_en_el_mapa(self):
+        base = dict(separacion_m=2.0, cabecera_m=0.0, angulo_deg=0.0)
+        # El portalateral va por x = 0, de y = 1 a y = 79: la válvula se proyecta sobre él.
+        b = trazar_bloque(self.lote, ParametrosBloque(**base, valvula=VALV_PUNTO, punto_valvula=(3.0, 30.0)))
+        self.assertAlmostEqual(b.valvula[0], 0.0)
+        self.assertAlmostEqual(b.valvula[1], 30.0)
+        self.assertEqual(b.avisos, [])
+        b = trazar_bloque(self.lote, ParametrosBloque(**base, valvula=VALV_PUNTO, punto_valvula=(-50.0, -20.0)))
+        self.assertAlmostEqual(b.valvula_m, 0.0)
+        self.assertTrue(any("del portalateral" in a for a in b.avisos))
+        # Sin punto: automática, con aviso
+        b = trazar_bloque(self.lote, ParametrosBloque(**base, valvula=VALV_PUNTO), fuente=(0.0, 200.0))
+        self.assertAlmostEqual(b.valvula_m, b.longitud_portalateral_m)
+        self.assertTrue(any("No se ha marcado" in a for a in b.avisos))
+
+    def test_direccion_con_dos_puntos(self):
+        self.assertAlmostEqual(azimut_entre((0, 0), (0, 10)), 0.0)
+        self.assertAlmostEqual(azimut_entre((0, 0), (10, 0)), 90.0)
+        self.assertAlmostEqual(azimut_entre((5, 5), (0, 0)), 225.0)
+        with self.assertRaises(ValueError):
+            azimut_entre((1, 1), (1, 1))
+        # Dos puntos sobre el lado inferior de un lote girado 30°: laterales paralelos a ese lado.
+        lote = [girar(rectangulo(90, 60), 30.0)]
+        p1, p2 = lote[0][0], lote[0][1]
+        azimut = azimut_entre(p1, p2)
+        b = trazar_bloque(lote, ParametrosBloque(separacion_m=2.0, cabecera_m=0.0,
+                                                 angulo_deg=(90.0 - azimut) % 360.0))
+        self.assertAlmostEqual(b.angulo_deg, 30.0)
+        self.assertAlmostEqual(b.lateral_mas_largo_m, 90.0, places=3)
+
+    def test_distancia_sobre_polilinea(self):
+        self.assertEqual(distancia_sobre_polilinea([(0, 0), (10, 0), (10, 10)], (12, 4)), (14.0, 2.0))
+        self.assertEqual(distancia_sobre_polilinea([(0, 0), (10, 0)], (-3, 4)), (0.0, 5.0))
 
     def test_caudal_y_lote_concavo(self):
         lote = [[(0, 0), (90, 0), (90, 30), (40, 30), (40, 60), (90, 60), (90, 80), (0, 80)]]  # una «C»

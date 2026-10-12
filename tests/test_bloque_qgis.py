@@ -206,5 +206,161 @@ class PruebasLotesYBloque(unittest.TestCase):
         self.assertEqual(len(ramas), 2)  # válvula al centro
 
 
+    def test_direccion_y_valvula_marcadas_en_el_mapa(self):
+        """Como en IRRICAD: dos puntos fijan la dirección de los laterales y un clic coloca la válvula."""
+        from qgis.gui import QgsMapCanvas, QgsMapMouseEvent
+        from qgis.PyQt.QtCore import QEvent, QPoint, Qt
+        from riegolibre.gui import dialogo_bloque
+        from riegolibre.gui.herramienta_puntos import HerramientaPuntos
+        from riegolibre.integracion.lotes import parametros_guardados
+        from riegolibre.nucleo.bloque import PORTA_INICIO, VALV_AUTO, VALV_PUNTO
+
+        _, capa = self._importar("puntos.gpkg")
+        lote_a = next(e for e in capa.getFeatures() if e["nombre"] == "Lote 1")
+        canvas = QgsMapCanvas()
+        canvas.resize(800, 600)
+        canvas.setDestinationCrs(capa.crs())
+        canvas.setExtent(capa.extent().buffered(10))
+        anterior = HerramientaPuntos(canvas, 1, [], [""], lambda p: None, lambda: None)
+        canvas.setMapTool(anterior)
+
+        def clic(x, y, boton=Qt.MouseButton.LeftButton):
+            pantalla = canvas.getCoordinateTransform().transform(QgsPointXY(X0 + x, Y0 + y))
+            posicion = QPoint(round(pantalla.x()), round(pantalla.y()))
+            evento = QgsMapMouseEvent(canvas, QEvent.Type.MouseButtonRelease, posicion, boton)
+            canvas.mapTool().canvasReleaseEvent(evento)
+
+        iface = mock.MagicMock()
+        iface.mapCanvas.return_value = canvas
+        clase = dialogo_bloque.DialogoBloque
+        with mock.patch.object(dialogo_bloque.QMessageBox, "warning", side_effect=_fallar), \
+                mock.patch.object(clase, "_leer_ultimos", return_value={}), \
+                mock.patch.object(clase, "_guardar_ultimos"):
+            dialogo = clase(iface)
+            dialogo.spin_separacion.setValue(2.0)
+            dialogo.spin_costados.setValue(1.0)
+            dialogo.spin_cabecera.setValue(0.0)
+            dialogo.combo_porta.setCurrentIndex(dialogo.combo_porta.findData(PORTA_INICIO))
+            dialogo.combo_dem.setLayer(None)
+            dialogo.abrir_lote(capa, lote_a)
+
+            # Dirección: del vértice (90, -45) al (90, -5) del lado este, con clics algo corridos (imán)
+            dialogo.marcar_direccion()
+            self.assertIsInstance(canvas.mapTool(), HerramientaPuntos)
+            self.assertIsNot(canvas.mapTool(), anterior)
+            self.assertTrue(dialogo.isHidden())
+            clic(89.6, -44.7)
+            clic(90.3, -5.4)
+            self.assertIs(canvas.mapTool(), anterior)  # vuelve la herramienta que estaba
+            self.assertFalse(dialogo.isHidden())
+            self.assertTrue(dialogo.radio_usuario.isChecked())
+            self.assertAlmostEqual(dialogo.spin_azimut.value(), 0.0)  # hacia el norte
+            b = dialogo.bloque
+            self.assertAlmostEqual(b.lateral_mas_largo_m, 40.0, places=3)
+            self.assertTrue(all(abs(lat.inicio[1] - (Y0 - 45)) < 1e-6 for lat in b.laterales))  # portalateral al sur
+
+            # Válvula: un clic cerca del portalateral (sur, de x = 11 a 89), a 30 m de su extremo oeste
+            dialogo.marcar_valvula()
+            clic(41.0, -43.0)
+            self.assertEqual(dialogo.combo_valvula.currentData(), VALV_PUNTO)
+            self.assertAlmostEqual(dialogo.bloque.valvula[0], X0 + 41.0, delta=0.3)  # un píxel
+            self.assertAlmostEqual(dialogo.bloque.valvula[1], Y0 - 45.0, places=3)
+
+            # Esc cancela sin cambiar nada
+            dialogo.marcar_direccion()
+            clic(10.0, -45.0)
+            clic(0, 0, Qt.MouseButton.RightButton)
+            self.assertIs(canvas.mapTool(), anterior)
+            self.assertAlmostEqual(dialogo.spin_azimut.value(), 0.0)
+
+            dialogo.edit_nombre.setText("A-puntos")
+            dialogo.aplicar()
+            datos = parametros_guardados(capa.getFeature(lote_a.id()))
+            self.assertEqual(datos["valvula"], VALV_PUNTO)
+            self.assertAlmostEqual(datos["punto_valvula"][0], X0 + 41.0, delta=0.3)
+            # Otro lote nuevo no hereda el punto; varios lotes a la vez: válvula automática
+            self.assertEqual(dialogo_bloque._sin_punto_de_valvula(datos)["valvula"], VALV_AUTO)
+            lote_b = next(e for e in capa.getFeatures() if e["nombre"] == "M7. 6")
+            dialogo.abrir_lote(capa, lote_b)
+            self.assertIsNone(dialogo.punto_valvula)
+        canvas.unsetMapTool(anterior)
+
+    def test_tabla_de_zonas(self):
+        """Como «Zone Design Configuration» de IRRICAD: todas las zonas, con cambios por zona y su resultado."""
+        from qgis.PyQt.QtCore import Qt
+        from riegolibre.gui import dialogo_bloque, dialogo_zonas
+        from riegolibre.gui.dialogo_zonas import (C_DIAMETROS, C_PERMITIDA_MAX, C_PERMITIDA_MIN, C_PROCESAR,
+                                                  C_RESULTADO, C_VALVULA_DESEADA, C_VALVULA_REAL, C_ZONA)
+        from riegolibre.integracion.lotes import parametros_guardados
+
+        _, capa = self._importar("zonas.gpkg")
+        lote_b = next(e for e in capa.getFeatures() if e["nombre"] == "M7. 6")
+        clase = dialogo_bloque.DialogoBloque
+        with mock.patch.object(dialogo_bloque.QMessageBox, "warning", side_effect=_fallar), \
+                mock.patch.object(clase, "_leer_ultimos", return_value={}), \
+                mock.patch.object(clase, "_guardar_ultimos"):
+            bloque = clase(None)
+            bloque.spin_separacion.setValue(2.0)
+            bloque.radio_usuario.setChecked(True)
+            bloque.spin_azimut.setValue(90.0)
+            bloque.combo_dem.setLayer(None)
+            bloque.abrir_lote(capa, lote_b)
+            bloque.aplicar()  # solo el lote B queda diseñado
+        guardado = parametros_guardados(capa.getFeature(lote_b.id()))
+        self.assertIn("resultado", guardado)
+
+        with mock.patch.object(dialogo_zonas.QMessageBox, "warning", side_effect=_fallar):
+            zonas = dialogo_zonas.DialogoZonas(None)
+            zonas.combo_capa.addItem(capa.name(), capa.id())
+            zonas.combo_capa.setCurrentIndex(zonas.combo_capa.findData(capa.id()))
+            zonas.llenar()
+            t = zonas.tabla
+            self.assertEqual(t.rowCount(), 2)
+            filas = {t.item(f, C_ZONA).text(): f for f in range(t.rowCount())}
+            a, b = filas["Lote 1"], filas["M7. 6"]
+            self.assertIn("sin diseñar", t.item(a, C_RESULTADO).text())
+            self.assertFalse(t.item(a, C_PROCESAR).flags() & Qt.ItemFlag.ItemIsUserCheckable)
+            self.assertEqual(t.item(b, C_PROCESAR).checkState(), Qt.CheckState.Checked)
+            real = float(t.item(b, C_VALVULA_REAL).text())
+            self.assertAlmostEqual(real, guardado["resultado"]["presion_valvula_m"])
+            # La mínima permitida viene de la base de datos (gris) y no cuenta como cambio
+            emisor = zonas._emisor(guardado["emisor"])
+            if emisor.presion_min_m is not None:
+                self.assertEqual(float(t.item(b, C_PERMITIDA_MIN).text()), emisor.presion_min_m)
+            self.assertIsNone(zonas.cambios(b)["presion_permitida_min_m"])
+
+            # Cambios de la zona: presión deseada en la válvula, máxima permitida baja y 2 diámetros
+            t.item(b, C_VALVULA_DESEADA).setText(f"{real + 5:.2f}")
+            t.item(b, C_PERMITIDA_MAX).setText("1")
+            t.item(b, C_PERMITIDA_MIN).setText("0,5")
+            t.cellWidget(b, C_DIAMETROS).setValue(2)
+            cambios = zonas.cambios(b)
+            self.assertAlmostEqual(cambios["presion_permitida_min_m"], 0.5)
+            fallos = zonas.calcular_filas(capa, {b: cambios})
+            self.assertEqual(fallos, [])
+            datos = parametros_guardados(capa.getFeature(lote_b.id()))
+            self.assertAlmostEqual(datos["presion_conocida_m"], real + 5, places=2)
+            self.assertEqual(datos["presion_permitida_max_m"], 1.0)
+            self.assertEqual(datos["diametros_max"], 2)
+            self.assertAlmostEqual(datos["resultado"]["presion_valvula_m"], real + 5, places=1)
+            self.assertTrue(any("permitida" in m for m in datos["resultado"]["motivos"]))
+            self.assertTrue(t.item(b, C_RESULTADO).text().startswith("✘"))
+            self.assertIsNotNone(QgsProject.instance().layerTreeRoot().findGroup("RiegoLibre · M7. 6"))
+
+            # Un número malo se avisa con el nombre de la zona
+            t.item(b, C_PERMITIDA_MAX).setText("abc")
+            with self.assertRaises(ValueError) as error:
+                zonas.cambios(b)
+            self.assertIn("M7. 6", str(error.exception))
+
+            # La ventana del bloque conserva las claves de la tabla al volver a aplicar
+            with mock.patch.object(dialogo_bloque.QMessageBox, "warning", side_effect=_fallar), \
+                    mock.patch.object(clase, "_leer_ultimos", return_value={}), \
+                    mock.patch.object(clase, "_guardar_ultimos"):
+                otra = clase(None)
+                otra.abrir_lote(capa, capa.getFeature(lote_b.id()))
+                otra.aplicar()
+            self.assertEqual(parametros_guardados(capa.getFeature(lote_b.id()))["presion_permitida_max_m"], 1.0)
+
 if __name__ == "__main__":
     unittest.main()

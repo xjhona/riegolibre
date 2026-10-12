@@ -10,7 +10,7 @@ el lote ya es una subunidad (una válvula) y el proyectista elige:
   hilera),
 - dónde va el portalateral (al inicio o al final de los laterales, al centro, a una distancia dada o en
   el borde más alto o más bajo del lote),
-- dónde va la válvula a lo largo del portalateral.
+- dónde va la válvula a lo largo del portalateral (o la marca con un clic en el mapa).
 
 El motor es Python puro: trabaja con anillos de puntos (x, y) en metros. Gira el lote hasta que los
 laterales quedan horizontales (hacia +x); las hileras son entonces rectas horizontales y el
@@ -18,7 +18,7 @@ portalateral es una polilínea que cruza cada hilera una sola vez.
 """
 
 import math
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 from typing import Callable, List, Optional, Sequence, Tuple
 
 from .trazado import (EPS, Anillo, LateralTrazado, Punto, _intervalos, _verificar, area_anillos,
@@ -32,7 +32,9 @@ POSICIONES_PORTALATERAL = (PORTA_INICIO, PORTA_FINAL, PORTA_CENTRO, PORTA_DISTAN
 # Posición de la válvula a lo largo del portalateral
 VALV_AUTO, VALV_ALTO, VALV_BAJO = "auto", "alto", "bajo"
 VALV_INICIO, VALV_FINAL, VALV_CENTRO, VALV_PORCENTAJE = "inicio", "final", "centro", "porcentaje"
-POSICIONES_VALVULA = (VALV_AUTO, VALV_ALTO, VALV_BAJO, VALV_INICIO, VALV_FINAL, VALV_CENTRO, VALV_PORCENTAJE)
+VALV_PUNTO = "punto"  # en el punto del portalateral más cercano al que marcó el proyectista
+POSICIONES_VALVULA = (VALV_AUTO, VALV_ALTO, VALV_BAJO, VALV_INICIO, VALV_FINAL, VALV_CENTRO, VALV_PORCENTAJE,
+                      VALV_PUNTO)
 
 TOLERANCIA_PORTALATERAL_M = 1.0  # para enderezar el portalateral que sigue un borde irregular
 
@@ -49,6 +51,7 @@ class ParametrosBloque:
     distancia_portalateral_m: float = 0.0  # desde el inicio de los laterales, con PORTA_DISTANCIA
     valvula: str = VALV_AUTO
     porcentaje_valvula: float = 50.0  # con VALV_PORCENTAJE, desde el extremo más alto (o el inicio sin cotas)
+    punto_valvula: Optional[Punto] = None  # con VALV_PUNTO; sin él, la válvula es automática
     longitud_min_m: float = 1.0  # un lateral más corto no se traza
     # Caudal de un lateral según su longitud. Sin él, el «caudal» es la longitud en metros.
     caudal_lateral: Optional[Callable[[float], float]] = field(default=None, compare=False)
@@ -141,6 +144,27 @@ def punto_en(puntos, distancia):
                     puntos[i][1] + t * (puntos[i + 1][1] - puntos[i][1]))
         restante -= tramo
     return puntos[-1]
+
+
+def distancia_sobre_polilinea(puntos, p) -> Tuple[float, float]:
+    """(distancia desde el inicio de la polilínea hasta su punto más cercano a p, separación entre ambos)."""
+    mejor, recorrido = (0.0, math.inf), 0.0
+    for a, b in zip(puntos, puntos[1:]):
+        dx, dy = b[0] - a[0], b[1] - a[1]
+        tramo2 = dx * dx + dy * dy
+        t = 0.0 if tramo2 == 0 else min(1.0, max(0.0, ((p[0] - a[0]) * dx + (p[1] - a[1]) * dy) / tramo2))
+        separacion = math.dist(p, (a[0] + t * dx, a[1] + t * dy))
+        if separacion < mejor[1]:
+            mejor = (recorrido + t * math.sqrt(tramo2), separacion)
+        recorrido += math.sqrt(tramo2)
+    return mejor
+
+
+def azimut_entre(desde: Punto, hacia: Punto) -> float:
+    """Azimut (grados desde el norte, horario, entre 0 y 360) de la recta que va de un punto al otro."""
+    if math.dist(desde, hacia) < EPS:
+        raise ValueError("Los dos puntos de la dirección coinciden.")
+    return math.degrees(math.atan2(hacia[0] - desde[0], hacia[1] - desde[1])) % 360.0
 
 
 def _simplificar(puntos, tolerancia):
@@ -380,7 +404,18 @@ def trazar_bloque(anillos: Sequence[Anillo], params: ParametrosBloque,
         if z1 is None or z2 is None:
             z1 = z2 = None
     largo_porta = _longitud(portalateral)
-    valvula_m = _posicion_valvula(params, largo_porta, extremo_1, extremo_2, z1, z2, fuente, peso_subida, avisos)
+    portalateral_terreno = [plano.al_terreno(p) for p in portalateral]
+    if params.valvula == VALV_PUNTO and params.punto_valvula is not None:
+        valvula_m, separacion = distancia_sobre_polilinea(portalateral_terreno, params.punto_valvula)
+        if separacion > max(5.0, 2 * params.separacion_m):
+            avisos.append(f"El punto marcado para la válvula está a {separacion:.1f} m del portalateral: la "
+                          "válvula va en el punto del portalateral más cercano.")
+    else:
+        if params.valvula == VALV_PUNTO:
+            avisos.append("No se ha marcado la válvula en el mapa: va en la posición automática.")
+            params = replace(params, valvula=VALV_AUTO)
+        valvula_m = _posicion_valvula(params, largo_porta, extremo_1, extremo_2, z1, z2, fuente, peso_subida,
+                                      avisos)
 
     resultado = []
     for y, xp, extremo, k in sorted(laterales, key=lambda lat: (lat[0], lat[2])):
@@ -400,7 +435,6 @@ def trazar_bloque(anillos: Sequence[Anillo], params: ParametrosBloque,
                 subidas.append((zb - za) / lat.longitud_m)
         if subidas:
             pendiente_lat = sum(subidas) / len(subidas)
-    portalateral_terreno = [plano.al_terreno(p) for p in portalateral]
     return Bloque(angulo, portalateral_terreno, resultado, valvula_m, hileras, area, params.separacion_m, caudal,
                   None if z1 is None else z2 - z1, pendiente_lat, avisos,
                   params.laterales_por_hilera)

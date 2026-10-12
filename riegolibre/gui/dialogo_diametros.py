@@ -13,8 +13,8 @@ from qgis.PyQt.QtWidgets import (QApplication, QCheckBox, QComboBox, QDialog, QD
                                  QGroupBox, QMessageBox, QPushButton, QRadioButton, QSpinBox, QSplitter,
                                  QTextBrowser, QVBoxLayout, QWidget)
 
-from ..integracion.bloque_mapa import (DIMENSIONADO_VELOCIDAD, calcular_bloque, config_de, metros_por_tuberia,
-                                       parametros_de, quitar_vista_previa, trazar_en_lote)
+from ..integracion.bloque_mapa import (DIMENSIONADO_VELOCIDAD, RESULTADO, metros_por_tuberia,
+                                       quitar_vista_previa, recalcular_lote, resumen_resultado)
 from ..integracion.lotes import CAMPO_NOMBRE, capas_de_lotes, guardar_parametros, parametros_guardados
 from ..nucleo import PresionInsuficiente, cargar_catalogo_emisores, cargar_catalogo_tuberias
 from ..nucleo.diametros_velocidad import serie_por_defecto, series_de_tuberias
@@ -161,7 +161,6 @@ class DialogoDiametros(QDialog):
         """Recalcula los lotes y devuelve el informe en HTML."""
         quitar_vista_previa()
         opciones = self.opciones()
-        proyecto = QgsProject.instance()
         filas, fallos, sin_bloque, metros = [], [], [], {}
         entidades = sorted(entidades, key=lambda e: str(e[CAMPO_NOMBRE]))
         for i, entidad in enumerate(entidades, 1):
@@ -173,25 +172,13 @@ class DialogoDiametros(QDialog):
             self.texto.setHtml(f"<p>Calculando el lote {nombre} ({i} de {len(entidades)})…</p>")
             QApplication.processEvents()
             valores = dict(guardados, **opciones)
-            dem = proyecto.mapLayer(valores["dem"]) if valores.get("dem") else None
-            dem = dem or self.combo_dem.currentLayer()
-            fuente_capa = proyecto.mapLayer(valores["fuente"]) if valores.get("fuente") else None
             try:
-                config = config_de(valores, self.tuberias_lateral, self.emisores, self.tuberias_portalateral, dem)
-                trazo = dict(valores)
-                if guardados.get("azimut_usado_deg") is not None:  # el mismo trazado que se aplicó
-                    trazo.update(direccion="usuario", azimut_deg=guardados["azimut_usado_deg"])
-                params = parametros_de(trazo, config.emisor)
-                geometria = entidad.geometry()
-                fuente = None
-                if fuente_capa is not None:
-                    from ..integracion.trazado_mapa import punto_de_entidad
-                    fuente = punto_de_entidad(fuente_capa, capa.crs())
-                bloque = trazar_en_lote(geometria, params, capa.crs(), dem, fuente)
-                r = calcular_bloque(nombre, capa.crs(), bloque, geometria, config)
+                r, config = recalcular_lote(capa, entidad, valores, self.tuberias_lateral, self.emisores,
+                                            self.tuberias_portalateral, self.combo_dem.currentLayer())
             except (ValueError, PresionInsuficiente) as e:
                 fallos.append(f"{nombre}: {e}")
                 continue
+            valores[RESULTADO] = resumen_resultado(r, config, valores)
             guardar_parametros(capa, entidad.id(), valores)
             for tubo, largo in metros_por_tuberia(r.diseno).items():
                 metros[tubo] = metros.get(tubo, 0.0) + largo

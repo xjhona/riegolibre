@@ -116,5 +116,19 @@ class PruebasSubunidad(unittest.TestCase):
         self.assertEqual(sub.numero_emisores, 150 * 20)
 
 
+class PruebasPresionesPermitidas(unittest.TestCase):
+    def test_limites_y_motivos(self):
+        from riegolibre.nucleo.subunidad import fuera_de_presiones_permitidas, limites_presion_emisor
+        self.assertEqual(limites_presion_emisor(COMP), (5.0, 40.0))  # el rango de la base de datos
+        self.assertEqual(limites_presion_emisor(COMP, 8.0), (8.0, 40.0))
+        self.assertEqual(limites_presion_emisor(NO_COMP), (None, None))
+        self.assertEqual(fuera_de_presiones_permitidas(9.0, 20.0, 8.0, 25.0), [])
+        self.assertEqual(fuera_de_presiones_permitidas(9.0, 20.0), [])
+        motivos = fuera_de_presiones_permitidas(6.5, 26.0, 8.0, 25.0)
+        self.assertEqual(len(motivos), 2)
+        self.assertIn("6.50 m < 8 m", motivos[0])
+        self.assertIn("26.00 m > 25 m", motivos[1])
+
+
 if __name__ == "__main__":
     unittest.main()

@@ -211,6 +211,7 @@ def parametros_de(v: dict, emisor) -> ParametrosBloque:
         portalateral=v.get("portalateral", "inicio"),
         distancia_portalateral_m=float(v.get("distancia_portalateral_m", 0.0)),
         valvula=v.get("valvula", "auto"), porcentaje_valvula=float(v.get("porcentaje_valvula", 50.0)),
+        punto_valvula=tuple(v["punto_valvula"]) if v.get("punto_valvula") else None,
         caudal_lateral=funcion_caudal(emisor, float(v["espaciamiento_m"]), float(v["primer_emisor_m"])))
 
 
@@ -256,3 +257,53 @@ def metros_por_tuberia(diseno) -> dict:
         for tuberia, a, b in rama.piezas(0.0, rama.longitud_m):
             metros[tuberia.nombre] = metros.get(tuberia.nombre, 0.0) + (b - a)
     return metros
+
+
+# ------------------------------------------------------------------ recálculo y resumen de una zona
+
+# Claves del lote (JSON) que solo usa la tabla de zonas
+PERMITIDA_MIN, PERMITIDA_MAX, RESULTADO = "presion_permitida_min_m", "presion_permitida_max_m", "resultado"
+
+
+def recalcular_lote(capa, entidad, valores: dict, tuberias_lateral, emisores, tuberias_portalateral,
+                    dem_defecto=None):
+    """Vuelve a trazar y calcular un lote con los valores dados (los guardados, quizá con cambios).
+
+    Usa la dirección con que se aplicó el bloque (`azimut_usado_deg`), para que el trazado no cambie.
+    Devuelve (ResultadoCalculo, ConfigCalculo); lanza ValueError o PresionInsuficiente.
+    """
+    from qgis.core import QgsProject
+    from .trazado_mapa import punto_de_entidad
+    proyecto = QgsProject.instance()
+    dem = proyecto.mapLayer(valores["dem"]) if valores.get("dem") else None
+    dem = dem or dem_defecto
+    fuente_capa = proyecto.mapLayer(valores["fuente"]) if valores.get("fuente") else None
+    config = config_de(valores, tuberias_lateral, emisores, tuberias_portalateral, dem)
+    trazo = dict(valores)
+    if valores.get("azimut_usado_deg") is not None:
+        trazo.update(direccion="usuario", azimut_deg=valores["azimut_usado_deg"])
+    params = parametros_de(trazo, config.emisor)
+    fuente = punto_de_entidad(fuente_capa, capa.crs()) if fuente_capa is not None else None
+    geometria = entidad.geometry()
+    bloque = trazar_en_lote(geometria, params, capa.crs(), dem, fuente)
+    nombre = str(entidad[CAMPO_NOMBRE] or f"Lote {entidad.id()}")
+    return calcular_bloque(nombre, capa.crs(), bloque, geometria, config), config
+
+
+def resumen_resultado(r, config, valores: dict) -> dict:
+    """Lo que la tabla de zonas muestra de un lote calculado (se guarda en el lote, clave «resultado»)."""
+    from ..nucleo.memoria import descripcion_telescopico
+    from ..nucleo.subunidad import fuera_de_presiones_permitidas, incumplimientos
+    res = r.diseno.resultado
+    motivos = incumplimientos(res, config.criterios, r.diseno.tuberia)
+    motivos += fuera_de_presiones_permitidas(res.presion_min_emisor_m, res.presion_max_emisor_m,
+                                             valores.get(PERMITIDA_MIN), valores.get(PERMITIDA_MAX))
+    return {
+        "caudal_m3h": round(res.caudal_total_lh / 1000, 3),
+        "presion_valvula_m": round(res.presion_entrada_m, 2),
+        "h_emisor_min_m": round(res.presion_min_emisor_m, 2),
+        "h_emisor_max_m": round(res.presion_max_emisor_m, 2),
+        "variacion_caudal": round(res.variacion_caudal, 4), "velocidad_max_ms": round(res.velocidad_max_ms, 3),
+        "portalateral": descripcion_telescopico(r.diseno) if r.diseno.telescopico else r.diseno.tuberia.nombre,
+        "motivos": motivos,
+    }

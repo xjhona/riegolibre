@@ -23,7 +23,8 @@ from qgis.PyQt.QtWidgets import (QApplication, QButtonGroup, QCheckBox, QComboBo
 
 from ..nucleo import PresionInsuficiente, cargar_catalogo_emisores, cargar_catalogo_tuberias
 from ..nucleo.bloque import (PORTA_ALTO, PORTA_BAJO, PORTA_CENTRO, PORTA_DISTANCIA, PORTA_FINAL, PORTA_INICIO,
-                             VALV_ALTO, VALV_AUTO, VALV_BAJO, VALV_CENTRO, VALV_PORCENTAJE, ParametrosBloque)
+                             VALV_ALTO, VALV_AUTO, VALV_BAJO, VALV_CENTRO, VALV_PORCENTAJE, VALV_PUNTO,
+                             ParametrosBloque, azimut_entre)
 from ..nucleo.subunidad import incumplimientos
 from ..nucleo.tuberias import clave_economica
 from ..integracion.bloque_mapa import DIMENSIONADO_COSTO, DIMENSIONADO_VELOCIDAD
@@ -64,6 +65,8 @@ class DialogoBloque(QDialog):
         self.iface = iface
         self.capa = self.entidad = None  # lote abierto
         self.bloque = None  # último trazado del lote abierto
+        self.punto_valvula = None  # (x, y) marcado en el mapa, en el SRC de la capa de lotes
+        self._herramienta_puntos = None
         self.setWindowTitle("RiegoLibre · Bloque de goteo")
         self.resize(1150, 780)
 
@@ -92,6 +95,9 @@ class DialogoBloque(QDialog):
             "<li>Active la herramienta <b>Bloque de goteo</b> y haga clic en un lote.</li>"
             "<li>Elija la cinta, la separación y la dirección de los laterales (pestaña Laterales), la "
             "posición del portalateral y de la válvula (pestaña Bloque) y el nombre (pestaña Área).</li>"
+            "<li>Como en IRRICAD, la dirección se puede marcar con <b>dos puntos en el mapa</b> (por ejemplo, dos "
+            "vértices de un lado del lote: los laterales quedan paralelos a ese lado) y la válvula con <b>un "
+            "clic</b> sobre el portalateral. El cursor se pega a los vértices y lados del lote.</li>"
             "<li><b>Vista previa</b> dibuja el bloque sin calcular; <b>Aplicar y calcular</b> crea las capas "
             "de la subunidad y guarda los parámetros en el lote.</li></ol>"
             "<p>Con <b>Aplicar a los lotes seleccionados</b> se usan los mismos parámetros en varios lotes a "
@@ -166,7 +172,7 @@ class DialogoBloque(QDialog):
         self.grupo_direccion.addButton(self.radio_auto)
         self.grupo_direccion.addButton(self.radio_usuario)
         self.radio_auto.setChecked(True)
-        self.spin_azimut = spin(0, 359.9, 0, 1, decimales=1, sufijo="°")
+        self.spin_azimut = spin(0, 359.99, 0, 1, decimales=2, sufijo="°")
         self.spin_azimut.setToolTip("Sentido de los laterales, del inicio al final, en grados desde el norte "
                                     "(horario). Con el portalateral «al inicio», los laterales salen de él hacia "
                                     "ese rumbo.")
@@ -176,6 +182,13 @@ class DialogoBloque(QDialog):
         fila.addWidget(self.radio_usuario)
         fila.addWidget(self.spin_azimut)
         formulario_dir.addRow(fila)
+        self.boton_dos_puntos = QPushButton("Marcar con dos puntos en el mapa")
+        self.boton_dos_puntos.setToolTip(
+            "Como «Block Lateral» de IRRICAD: haga clic en el primer punto y luego en el segundo. Los laterales "
+            "van paralelos a esa línea, del lado del primer punto hacia el del segundo (con el portalateral «al "
+            "inicio», queda del lado del primer punto). El cursor se pega a los vértices y lados del lote.")
+        self.boton_dos_puntos.clicked.connect(self.marcar_direccion)
+        formulario_dir.addRow(self.boton_dos_puntos)
         self.boton_usar_azimut = QPushButton("Fijar la dirección de la vista previa")
         self.boton_usar_azimut.setToolTip("Pasa a «definida por el usuario» con la dirección que eligió el modo "
                                           "automático, para afinarla a mano.")
@@ -259,12 +272,18 @@ class DialogoBloque(QDialog):
         self.combo_valvula.addItem("En el extremo más bajo del portalateral", VALV_BAJO)
         self.combo_valvula.addItem("Al centro del portalateral", VALV_CENTRO)
         self.combo_valvula.addItem("A un porcentaje del portalateral", VALV_PORCENTAJE)
+        self.combo_valvula.addItem("Marcada en el mapa", VALV_PUNTO)
         self.combo_valvula.currentIndexChanged.connect(self._actualizar)
         formulario_valv.addRow("Posición:", self.combo_valvula)
+        self.boton_valvula = QPushButton("Colocar la válvula en el mapa")
+        self.boton_valvula.setToolTip("Como «Place a Point» de IRRICAD: haga clic donde va la válvula; queda en el "
+                                      "punto más cercano del portalateral de la vista previa.")
+        self.boton_valvula.clicked.connect(self.marcar_valvula)
         self.spin_porcentaje = spin(0, 100, 50, 5, decimales=0, sufijo="%")
         self.spin_porcentaje.setToolTip("Medido desde el extremo más alto del portalateral (sin DEM, desde su "
                                         "extremo 1).")
         formulario_valv.addRow("Porcentaje:", self.spin_porcentaje)
+        formulario_valv.addRow(self.boton_valvula)
 
         terreno = QGroupBox("Terreno")
         formulario_terreno = QFormLayout(terreno)
@@ -310,6 +329,8 @@ class DialogoBloque(QDialog):
         for control in (self.combo_tuberia_porta, self.combo_diametros):
             control.setEnabled(not por_velocidad)
         self.boton_usar_azimut.setEnabled(self.radio_auto.isChecked() and self.bloque is not None)
+        self.boton_dos_puntos.setEnabled(self.capa is not None and self.iface is not None)
+        self.boton_valvula.setEnabled(self.bloque is not None and self.iface is not None)
 
     def _fijar_azimut(self):
         if self.bloque is not None:
@@ -339,6 +360,7 @@ class DialogoBloque(QDialog):
             "dem": self.combo_dem.currentLayer().id() if self.combo_dem.currentLayer() else None,
             "fuente": self.combo_fuente.currentLayer().id() if self.combo_fuente.currentLayer() else None,
             "valvula": self.combo_valvula.currentData(), "porcentaje_valvula": self.spin_porcentaje.value(),
+            "punto_valvula": list(self.punto_valvula) if self.punto_valvula else None,
             "presion_conocida_m": c.presion_conocida(), "metodo": c.metodo(),
             "variacion_caudal_pct": c.spin_variacion.value(), "velocidad_max_ms": c.spin_velocidad.value(),
             "presion_entrada_max_m": c.spin_presion_max.value(),
@@ -378,6 +400,8 @@ class DialogoBloque(QDialog):
             _elegir_por_dato(self.combo_porta, v["portalateral"])
         if "valvula" in v:
             _elegir_por_dato(self.combo_valvula, v["valvula"])
+        if "punto_valvula" in v:
+            self.punto_valvula = tuple(v["punto_valvula"]) if v["punto_valvula"] else None
         if "tuberia_portalateral" in v:
             if v["tuberia_portalateral"] is None:
                 self.combo_tuberia_porta.setCurrentIndex(0)
@@ -455,6 +479,7 @@ class DialogoBloque(QDialog):
         from ..integracion.bloque_mapa import quitar_vista_previa
         quitar_vista_previa()
         self.capa, self.entidad, self.bloque = capa, entidad, None
+        self.punto_valvula = None  # el de otro lote no sirve
         guardados = parametros_guardados(entidad)
         if guardados:
             self.poner_valores(guardados)
@@ -580,8 +605,8 @@ class DialogoBloque(QDialog):
             self.texto.setHtml(informe)
 
     def _aplicar(self):
-        from ..integracion.bloque_mapa import calcular_bloque, quitar_vista_previa
-        from ..integracion.lotes import CAMPO_NOMBRE, guardar_parametros
+        from ..integracion.bloque_mapa import RESULTADO, calcular_bloque, quitar_vista_previa, resumen_resultado
+        from ..integracion.lotes import CAMPO_NOMBRE, guardar_parametros, parametros_guardados
         entidad = self._lote()
         nombre = self.edit_nombre.text().strip()
         if not nombre:
@@ -590,9 +615,12 @@ class DialogoBloque(QDialog):
         bloque, geometria, crs = self._trazar(self.capa, entidad, alcance=self._alcance())
         self.bloque = bloque
         quitar_vista_previa()
-        r = calcular_bloque(nombre, crs, bloque, geometria, self.config_calculo())
-        valores = self.valores()
+        config = self.config_calculo()
+        r = calcular_bloque(nombre, crs, bloque, geometria, config)
+        # Se conservan las claves que esta ventana no maneja (las de la tabla de zonas)
+        valores = dict(parametros_guardados(entidad) or {}, **self.valores())
         valores["azimut_usado_deg"] = round(bloque.azimut_laterales_grados, 3)
+        valores[RESULTADO] = resumen_resultado(r, config, valores)
         guardar_parametros(self.capa, entidad.id(), valores, nombre)
         self._guardar_ultimos()
         if anterior and anterior != nombre:
@@ -636,12 +664,14 @@ class DialogoBloque(QDialog):
             self.texto.setHtml(informe)
 
     def _aplicar_varios(self, entidades):
-        from ..integracion.bloque_mapa import calcular_bloque, quitar_vista_previa
-        from ..integracion.lotes import CAMPO_NOMBRE, guardar_parametros
+        from ..integracion.bloque_mapa import (RESULTADO, calcular_bloque, parametros_de, quitar_vista_previa,
+                                               resumen_resultado)
+        from ..integracion.lotes import CAMPO_NOMBRE, guardar_parametros, parametros_guardados
         quitar_vista_previa()
-        params, config, alcance = self.parametros(), self.config_calculo(), self._alcance()
+        valores = _sin_punto_de_valvula(self.valores())
+        params, config, alcance = (parametros_de(valores, self.grupo_laterales.emisor()), self.config_calculo(),
+                                   self._alcance())
         criterios = self.grupo_criterios.criterios()
-        valores = self.valores()
         filas, fallos = [], []
         for i, entidad in enumerate(sorted(entidades, key=lambda e: str(e[CAMPO_NOMBRE])), 1):
             nombre = str(entidad[CAMPO_NOMBRE] or f"Lote {entidad.id()}")
@@ -653,7 +683,9 @@ class DialogoBloque(QDialog):
             except (ValueError, PresionInsuficiente) as e:
                 fallos.append(f"{nombre}: {e}")
                 continue
-            datos = dict(valores, azimut_usado_deg=round(bloque.azimut_laterales_grados, 3))
+            datos = dict(parametros_guardados(entidad) or {}, **valores)
+            datos["azimut_usado_deg"] = round(bloque.azimut_laterales_grados, 3)
+            datos[RESULTADO] = resumen_resultado(r, config, datos)
             guardar_parametros(self.capa, entidad.id(), datos)
             res = r.diseno.resultado
             motivos = incumplimientos(res, criterios, r.diseno.tuberia)
@@ -702,7 +734,7 @@ class DialogoBloque(QDialog):
                 return
             angulo = bloque.angulo_deg
         dialogo = DialogoSubdivision(self, self.capa, entidad, params, angulo, self.edit_nombre.text().strip(),
-                                     self.valores())
+                                     _sin_punto_de_valvula(self.valores()))
         if dialogo.exec() == QDialog.DialogCode.Accepted and dialogo.nuevas:
             self.capa.selectByIds(dialogo.nuevas)
             self.entidad = self.bloque = None
@@ -713,10 +745,83 @@ class DialogoBloque(QDialog):
             if self.iface is not None:
                 self.iface.mapCanvas().refresh()
 
+    # ---------------------------------------------------------------- puntos en el mapa
+
+    def marcar_direccion(self):
+        """Dirección de los laterales con dos puntos en el mapa («Block Lateral» de IRRICAD)."""
+        def listo(p1, p2):
+            try:
+                azimut = azimut_entre(p1, p2)
+            except ValueError as e:
+                QMessageBox.warning(self, "RiegoLibre", str(e))
+                return
+            self.spin_azimut.setValue(round(azimut, 2))
+            self.radio_usuario.setChecked(True)
+            self.vista_previa()
+
+        self._marcar(2, ["Dirección de los laterales: haga clic en el primer punto",
+                         "Dirección de los laterales: haga clic en el segundo punto"], listo)
+
+    def marcar_valvula(self):
+        """Válvula con un clic en el mapa («Place a Point» de IRRICAD)."""
+        def listo(punto):
+            self.punto_valvula = (punto[0], punto[1])
+            _elegir_por_dato(self.combo_valvula, VALV_PUNTO)
+            self.vista_previa()
+
+        self._marcar(1, ["Válvula: haga clic donde va (queda sobre el portalateral)"], listo, con_portalateral=True)
+
+    def _marcar(self, cuantos, mensajes, listo, con_portalateral=False):
+        """Esconde la ventana y pide los puntos en el mapa; `listo` los recibe en el SRC de la capa de lotes."""
+        from qgis.core import QgsCoordinateTransform
+        from .herramienta_puntos import HerramientaPuntos
+        entidad = self._ejecutar(self._lote)
+        if entidad is None or self.iface is None:
+            return
+        canvas = self.iface.mapCanvas()
+        crs_mapa = canvas.mapSettings().destinationCrs()
+        al_mapa = QgsCoordinateTransform(self.capa.crs(), crs_mapa, QgsProject.instance())
+        al_lote = QgsCoordinateTransform(crs_mapa, self.capa.crs(), QgsProject.instance())
+        geometrias = [entidad.geometry()]
+        if con_portalateral and self.bloque is not None:
+            from ..integracion.bloque_mapa import geometria_portalateral
+            geometrias.append(geometria_portalateral(self.bloque))
+        for geometria in geometrias:
+            geometria.transform(al_mapa)
+        anterior = canvas.mapTool()
+
+        def volver():
+            self._herramienta_puntos = None
+            if canvas.mapTool() is None and anterior is not None:
+                canvas.setMapTool(anterior)
+            self.show()
+            self.raise_()
+            self.activateWindow()
+
+        def terminar(puntos):
+            volver()
+            listo(*[al_lote.transform(p) for p in puntos])
+
+        barra = self.iface.statusBarIface()
+        self._herramienta_puntos = HerramientaPuntos(canvas, cuantos, geometrias, mensajes, terminar, volver,
+                                                     barra.showMessage)
+        self.iface.messageBar().pushMessage("RiegoLibre", mensajes[0] + " (Esc para cancelar).",
+                                            Qgis.MessageLevel.Info, 5)
+        self.hide()
+        canvas.setMapTool(self._herramienta_puntos)
+        canvas.setFocus()
+
     def reject(self):
         from ..integracion.bloque_mapa import quitar_vista_previa
         quitar_vista_previa()
         super().reject()
+
+
+def _sin_punto_de_valvula(valores):
+    """Valores para otros lotes: el punto de la válvula es de un solo lote; en ellos va automática."""
+    if valores.get("valvula") != VALV_PUNTO:
+        return valores
+    return dict(valores, valvula=VALV_AUTO, punto_valvula=None)
 
 
 def _texto_portalateral(diseno):

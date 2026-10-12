@@ -244,6 +244,23 @@ def incumplimientos(resultado, criterios, tuberia_portalateral=None):
     return motivos
 
 
+def limites_presion_emisor(emisor, minimo=None, maximo=None):
+    """(mínima, máxima) presión permitida en los emisores: las dadas o, si faltan, el rango de compensación
+    del emisor en la base de datos (None si no hay)."""
+    return (minimo if minimo is not None else emisor.presion_min_m,
+            maximo if maximo is not None else emisor.presion_max_m)
+
+
+def fuera_de_presiones_permitidas(h_min_m, h_max_m, minimo=None, maximo=None):
+    """Motivos por los que las presiones de los emisores salen de los límites dados por el proyectista."""
+    motivos = []
+    if minimo is not None and h_min_m < minimo - 1e-6:
+        motivos.append(f"presión mínima de emisor {h_min_m:.2f} m < {minimo:g} m permitida")
+    if maximo is not None and h_max_m > maximo + 1e-6:
+        motivos.append(f"presión máxima de emisor {h_max_m:.2f} m > {maximo:g} m permitida")
+    return motivos
+
+
 @dataclass
 class EvaluacionDiametro:
     tuberia: object
