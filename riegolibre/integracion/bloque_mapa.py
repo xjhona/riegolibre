@@ -185,3 +185,74 @@ def reemplazar_lote_por_partes(capa, entidad, partes, nombres: List[str]) -> Lis
     capa.updateExtents()
     capa.triggerRepaint()
     return [f.id() for f in agregadas]
+
+
+# ------------------------------------------------------------------ parámetros guardados
+
+DIMENSIONADO_COSTO, DIMENSIONADO_VELOCIDAD = "costo", "velocidad"
+
+
+def _por_nombre(lista, nombre, que):
+    for objeto in lista:
+        if objeto.nombre == nombre:
+            return objeto
+    raise ValueError(f"{que} «{nombre}» no está en la base de datos de materiales.")
+
+
+def parametros_de(v: dict, emisor) -> ParametrosBloque:
+    """Parámetros del motor a partir de los valores guardados en un lote (ver `DialogoBloque.valores`)."""
+    from .trazado_mapa import funcion_caudal
+    automatica = v.get("direccion", "auto") == "auto"
+    return ParametrosBloque(
+        separacion_m=float(v["separacion_m"]), laterales_por_hilera=int(v.get("laterales_por_hilera", 1)),
+        separacion_en_hilera_m=float(v.get("separacion_en_hilera_m", 1.0)),
+        cabecera_m=float(v.get("cabecera_m", 0.0)), costados_m=v.get("costados_m"),
+        angulo_deg=None if automatica else (90.0 - float(v.get("azimut_deg", 0.0))) % 360.0,
+        portalateral=v.get("portalateral", "inicio"),
+        distancia_portalateral_m=float(v.get("distancia_portalateral_m", 0.0)),
+        valvula=v.get("valvula", "auto"), porcentaje_valvula=float(v.get("porcentaje_valvula", 50.0)),
+        caudal_lateral=funcion_caudal(emisor, float(v["espaciamiento_m"]), float(v["primer_emisor_m"])))
+
+
+def serie_elegida(v: dict, tuberias_portalateral):
+    """Serie de tuberías del dimensionado por velocidad (la guardada, o la de menor presión nominal)."""
+    from ..nucleo.diametros_velocidad import serie_por_defecto, series_de_tuberias
+    series = series_de_tuberias(tuberias_portalateral)
+    if not series:
+        raise ValueError("No hay tuberías de portalateral en la base de datos.")
+    return next((s for s in series if s.clave == v.get("serie")), serie_por_defecto(series))
+
+
+def config_de(v: dict, tuberias_lateral, emisores, tuberias_portalateral, capa_dem=None):
+    """Configuración del cálculo de la subunidad a partir de los valores guardados en un lote."""
+    from ..nucleo import CriteriosDiseno
+    from ..nucleo.diametros_velocidad import CriterioVelocidad
+    from .calculo_subunidad import ConfigCalculo
+    tuberia = _por_nombre(tuberias_lateral, v["tuberia"], "La tubería lateral")
+    emisor = _por_nombre(emisores, v["emisor"], "El emisor")
+    criterios = CriteriosDiseno(
+        variacion_caudal_max=float(v.get("variacion_caudal_pct", 10.0)) / 100,
+        velocidad_max_ms=float(v.get("velocidad_max_ms", 1.5)),
+        presion_entrada_max_m=float(v.get("presion_entrada_max_m") or 0) or None)
+    velocidad, tubos, fija = None, tuberias_portalateral, None
+    if v.get("dimensionado") == DIMENSIONADO_VELOCIDAD:
+        velocidad = CriterioVelocidad(criterios.velocidad_max_ms, int(v.get("diametros_velocidad", 3)),
+                                      float(v.get("tramo_min_m", 6.0)), bool(v.get("ajustar_variacion", True)))
+        tubos = serie_elegida(v, tuberias_portalateral).tuberias
+    elif v.get("tuberia_portalateral"):
+        fija = _por_nombre(tuberias_portalateral, v["tuberia_portalateral"], "La tubería del portalateral")
+    return ConfigCalculo(
+        tuberia_lateral=tuberia, emisor=emisor, espaciamiento_m=float(v["espaciamiento_m"]),
+        primer_emisor_m=float(v["primer_emisor_m"]), metodo=v.get("metodo", "darcy"),
+        tuberias_portalateral=tubos, criterios=criterios, capa_dem=capa_dem, tuberia_portalateral=fija,
+        presion_conocida=v.get("presion_conocida_m"), diametros_max=int(v.get("diametros_max", 1)),
+        velocidad=velocidad)
+
+
+def metros_por_tuberia(diseno) -> dict:
+    """{nombre de la tubería: metros} del portalateral de una subunidad calculada."""
+    metros = {}
+    for rama in diseno.subunidad.ramas:
+        for tuberia, a, b in rama.piezas(0.0, rama.longitud_m):
+            metros[tuberia.nombre] = metros.get(tuberia.nombre, 0.0) + (b - a)
+    return metros

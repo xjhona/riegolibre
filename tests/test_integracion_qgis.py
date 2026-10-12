@@ -179,6 +179,7 @@ class PruebasIntegracionQgis(unittest.TestCase):
                           "Calculadora de lateral (goteo)…", "Subunidad de riego (goteo)…",
                           "Diseño de subunidad en el mapa (goteo)…",
                           "Importar lotes de CAD…", "Bloque de goteo (clic en un lote)",
+                          "Diámetros de portalaterales por velocidad…",
                           "Trazado automático de subunidades (goteo)…", "Red principal y bomba…",
                           "Base de datos de materiales…", "Lista de materiales y costos…", "Memoria de cálculo…",
                           "Información del objeto (clic en un lateral, tubería o válvula)"])
@@ -195,17 +196,19 @@ class PruebasIntegracionQgis(unittest.TestCase):
         iface.mapCanvas().unsetMapTool(plugin.herramienta_bloque)
         self.assertFalse(iface.menu[5].isChecked())
         iface.menu[6].trigger()
+        self.assertTrue(plugin.dialogos["diametros"].isVisible())
+        iface.menu[7].trigger()
         self.assertTrue(plugin.dialogos["trazado"].isVisible())
-        iface.menu[10].trigger()  # sin resultados en el proyecto: la memoria lo indica
+        iface.menu[11].trigger()  # sin resultados en el proyecto: la memoria lo indica
         self.assertIn("No hay resultados", plugin.dialogos["memoria"].etiqueta_estado.text())
         # La herramienta «Información del objeto» se activa y se desactiva desde su botón.
-        iface.menu[11].setChecked(True)
+        iface.menu[12].setChecked(True)
         self.assertIs(iface.mapCanvas().mapTool(), plugin.herramienta_info)
         iface.mapCanvas().unsetMapTool(plugin.herramienta_info)
-        self.assertFalse(iface.menu[11].isChecked())
+        self.assertFalse(iface.menu[12].isChecked())
         # Al cambiar la base de datos, las ventanas se rehacen para leer los catálogos nuevos:
         # las cerradas de inmediato y las abiertas cuando se vuelven a abrir.
-        iface.menu[8].trigger()
+        iface.menu[9].trigger()
         base = plugin.dialogos["base_datos"]
         plugin.dialogos["topografia"].hide()
         subunidad = plugin.dialogos["subunidad"]

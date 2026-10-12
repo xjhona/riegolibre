@@ -16,7 +16,7 @@ import re
 from qgis.core import Qgis, QgsProject, QgsSettings
 from qgis.gui import QgsMapLayerComboBox
 from qgis.PyQt.QtCore import Qt
-from qgis.PyQt.QtWidgets import (QApplication, QButtonGroup, QComboBox, QDialog, QDialogButtonBox,
+from qgis.PyQt.QtWidgets import (QApplication, QButtonGroup, QCheckBox, QComboBox, QDialog, QDialogButtonBox,
                                  QFormLayout, QGroupBox, QHBoxLayout, QLabel, QLineEdit, QMessageBox,
                                  QPushButton, QRadioButton, QScrollArea, QSpinBox, QSplitter, QTabWidget,
                                  QTextBrowser, QVBoxLayout, QWidget)
@@ -26,6 +26,9 @@ from ..nucleo.bloque import (PORTA_ALTO, PORTA_BAJO, PORTA_CENTRO, PORTA_DISTANC
                              VALV_ALTO, VALV_AUTO, VALV_BAJO, VALV_CENTRO, VALV_PORCENTAJE, ParametrosBloque)
 from ..nucleo.subunidad import incumplimientos
 from ..nucleo.tuberias import clave_economica
+from ..integracion.bloque_mapa import DIMENSIONADO_COSTO, DIMENSIONADO_VELOCIDAD
+from ..nucleo.diametros_velocidad import serie_por_defecto, series_de_tuberias
+from ..nucleo.memoria import descripcion_telescopico
 from .comunes import (ComboDiametros, ComboTuberiaPortalateral, GrupoCriterios, GrupoLaterales, html_avisos,
                       html_estado, html_tabla, spin)
 
@@ -216,10 +219,37 @@ class DialogoBloque(QDialog):
         formulario_porta.addRow("Posición:", self.combo_porta)
         self.spin_distancia = spin(0, 2000, 50, 1, sufijo="m")
         formulario_porta.addRow("Distancia:", self.spin_distancia)
+        self.combo_dimensionado = QComboBox()
+        self.combo_dimensionado.addItem("Menor tubería que cumple los criterios", DIMENSIONADO_COSTO)
+        self.combo_dimensionado.addItem("Por velocidad (diámetros por tramos)", DIMENSIONADO_VELOCIDAD)
+        self.combo_dimensionado.setToolTip(
+            "«Por velocidad»: cada tramo entre laterales lleva la tubería más pequeña de la serie que no pasa la "
+            "velocidad máxima (pestaña Bloque, criterios de diseño); los tramos se agrupan en pocos diámetros.")
+        self.combo_dimensionado.currentIndexChanged.connect(self._actualizar)
+        formulario_porta.addRow("Diámetros:", self.combo_dimensionado)
         self.combo_tuberia_porta = ComboTuberiaPortalateral(self.tuberias_portalateral)
         formulario_porta.addRow("Tubería:", self.combo_tuberia_porta)
         self.combo_diametros = ComboDiametros()
-        formulario_porta.addRow("Diámetros:", self.combo_diametros)
+        formulario_porta.addRow("Telescópico:", self.combo_diametros)
+        self.combo_serie = QComboBox()
+        series = series_de_tuberias(self.tuberias_portalateral)
+        for serie in series:
+            self.combo_serie.addItem(serie.nombre, serie.clave)
+        if series:
+            self.combo_serie.setCurrentIndex(self.combo_serie.findData(serie_por_defecto(series).clave))
+        self.combo_serie.setToolTip("Material y clase de las tuberías entre las que se elige cada diámetro.")
+        formulario_porta.addRow("Serie:", self.combo_serie)
+        self.spin_diametros_vel = QSpinBox()
+        self.spin_diametros_vel.setRange(1, 6)
+        self.spin_diametros_vel.setValue(3)
+        self.spin_diametros_vel.setToolTip("Tuberías distintas como máximo en cada rama del portalateral.")
+        formulario_porta.addRow("Diámetros por rama, máximo:", self.spin_diametros_vel)
+        self.spin_tramo_min = spin(0, 100, 6, 1, decimales=1, sufijo="m")
+        self.spin_tramo_min.setToolTip("Largo mínimo de cada diámetro (por ejemplo, el de un tubo).")
+        formulario_porta.addRow("Largo mínimo de cada diámetro:", self.spin_tramo_min)
+        self.check_ajustar = QCheckBox("Bajar la velocidad si no se cumple la variación de caudal")
+        self.check_ajustar.setChecked(True)
+        formulario_porta.addRow(self.check_ajustar)
 
         valvula = QGroupBox("Válvula")
         formulario_valv = QFormLayout(valvula)
@@ -274,6 +304,11 @@ class DialogoBloque(QDialog):
         self.spin_azimut.setEnabled(self.radio_usuario.isChecked())
         self.spin_distancia.setEnabled(self.combo_porta.currentData() == PORTA_DISTANCIA)
         self.spin_porcentaje.setEnabled(self.combo_valvula.currentData() == VALV_PORCENTAJE)
+        por_velocidad = self.combo_dimensionado.currentData() == DIMENSIONADO_VELOCIDAD
+        for control in (self.combo_serie, self.spin_diametros_vel, self.spin_tramo_min, self.check_ajustar):
+            control.setEnabled(por_velocidad)
+        for control in (self.combo_tuberia_porta, self.combo_diametros):
+            control.setEnabled(not por_velocidad)
         self.boton_usar_azimut.setEnabled(self.radio_auto.isChecked() and self.bloque is not None)
 
     def _fijar_azimut(self):
@@ -298,6 +333,11 @@ class DialogoBloque(QDialog):
             "portalateral": self.combo_porta.currentData(), "distancia_portalateral_m": self.spin_distancia.value(),
             "tuberia_portalateral": tuberia_porta.nombre if tuberia_porta else None,
             "diametros_max": self.combo_diametros.maximo(),
+            "dimensionado": self.combo_dimensionado.currentData(), "serie": self.combo_serie.currentData(),
+            "diametros_velocidad": self.spin_diametros_vel.value(), "tramo_min_m": self.spin_tramo_min.value(),
+            "ajustar_variacion": self.check_ajustar.isChecked(),
+            "dem": self.combo_dem.currentLayer().id() if self.combo_dem.currentLayer() else None,
+            "fuente": self.combo_fuente.currentLayer().id() if self.combo_fuente.currentLayer() else None,
             "valvula": self.combo_valvula.currentData(), "porcentaje_valvula": self.spin_porcentaje.value(),
             "presion_conocida_m": c.presion_conocida(), "metodo": c.metodo(),
             "variacion_caudal_pct": c.spin_variacion.value(), "velocidad_max_ms": c.spin_velocidad.value(),
@@ -347,6 +387,21 @@ class DialogoBloque(QDialog):
                         self.combo_tuberia_porta.elegir(t)
         if "diametros_max" in v:
             _elegir_por_dato(self.combo_diametros, v["diametros_max"])
+        if "dimensionado" in v:
+            _elegir_por_dato(self.combo_dimensionado, v["dimensionado"])
+        if v.get("serie"):
+            _elegir_por_dato(self.combo_serie, v["serie"])
+        if v.get("diametros_velocidad"):
+            self.spin_diametros_vel.setValue(int(v["diametros_velocidad"]))
+        if v.get("tramo_min_m") is not None:
+            self.spin_tramo_min.setValue(float(v["tramo_min_m"]))
+        if "ajustar_variacion" in v:
+            self.check_ajustar.setChecked(bool(v["ajustar_variacion"]))
+        proyecto = QgsProject.instance()
+        for clave, combo in (("dem", self.combo_dem), ("fuente", self.combo_fuente)):
+            capa = proyecto.mapLayer(v[clave]) if v.get(clave) else None
+            if capa is not None:
+                combo.setLayer(capa)
         if "metodo" in v:
             _elegir_por_dato(c.combo_metodo, v["metodo"])
         if "presion_conocida_m" in v:
@@ -369,27 +424,13 @@ class DialogoBloque(QDialog):
         QgsSettings().setValue(AJUSTE_ULTIMOS, json.dumps(self.valores(), ensure_ascii=False))
 
     def parametros(self) -> ParametrosBloque:
-        from ..integracion.trazado_mapa import funcion_caudal
-        g = self.grupo_laterales
-        azimut = self.spin_azimut.value()
-        return ParametrosBloque(
-            separacion_m=self.spin_separacion.value(), laterales_por_hilera=self.spin_por_hilera.value(),
-            separacion_en_hilera_m=self.spin_en_hilera.value(), cabecera_m=self.spin_cabecera.value(),
-            costados_m=self.spin_costados.value(),
-            angulo_deg=None if self.radio_auto.isChecked() else (90.0 - azimut) % 360.0,
-            portalateral=self.combo_porta.currentData(), distancia_portalateral_m=self.spin_distancia.value(),
-            valvula=self.combo_valvula.currentData(), porcentaje_valvula=self.spin_porcentaje.value(),
-            caudal_lateral=funcion_caudal(g.emisor(), g.spin_espaciamiento.value(), g.spin_primer.value()))
+        from ..integracion.bloque_mapa import parametros_de
+        return parametros_de(self.valores(), self.grupo_laterales.emisor())
 
     def config_calculo(self):
-        from ..integracion.calculo_subunidad import ConfigCalculo
-        g, c = self.grupo_laterales, self.grupo_criterios
-        return ConfigCalculo(
-            tuberia_lateral=g.tuberia(), emisor=g.emisor(), espaciamiento_m=g.spin_espaciamiento.value(),
-            primer_emisor_m=g.spin_primer.value(), metodo=c.metodo(),
-            tuberias_portalateral=self.tuberias_portalateral, criterios=c.criterios(),
-            capa_dem=self.combo_dem.currentLayer(), tuberia_portalateral=self.combo_tuberia_porta.tuberia(),
-            presion_conocida=c.presion_conocida(), diametros_max=self.combo_diametros.maximo())
+        from ..integracion.bloque_mapa import config_de
+        return config_de(self.valores(), self.tuberias_lateral, self.emisores, self.tuberias_portalateral,
+                         self.combo_dem.currentLayer())
 
     def _alcance(self):
         """Longitud de lateral que cumple la variación de caudal en terreno plano (para la dirección automática)."""
@@ -565,12 +606,12 @@ class DialogoBloque(QDialog):
             ("Resultado", html_estado(not motivos) + ("" if not motivos else " " + "; ".join(motivos))),
             ("Presión en la válvula", f"{res.presion_entrada_m:.2f} m"),
             ("Caudal", f"{res.caudal_total_lh / 1000:.2f} m³/h ({res.caudal_total_lh / 3600:.2f} L/s)"),
-            ("Portalateral", r.diseno.tuberia.nombre + (" (telescópico)" if r.diseno.telescopico else "")),
+            ("Portalateral", _texto_portalateral(r.diseno)),
             ("Velocidad máxima en el portalateral", f"{res.velocidad_max_ms:.2f} m/s"),
             ("Variación de caudal", f"{res.variacion_caudal:.1%}"),
         ]
         return (self._html_bloque(bloque, f"Bloque «{nombre}» calculado") + "<h3>Subunidad</h3>" + html_tabla(filas)
-                + html_avisos(r.avisos) + f"<p>Las capas están en el grupo <i>RiegoLibre · {nombre}</i>. Los "
+                + html_avisos(r.avisos + r.diseno.avisos) + f"<p>Las capas están en el grupo <i>RiegoLibre · {nombre}</i>. Los "
                 "parámetros quedaron guardados en el lote.</p>")
 
     def aplicar_seleccionados(self):
@@ -616,7 +657,7 @@ class DialogoBloque(QDialog):
             guardar_parametros(self.capa, entidad.id(), datos)
             res = r.diseno.resultado
             motivos = incumplimientos(res, criterios, r.diseno.tuberia)
-            filas.append((nombre, bloque, res, r.diseno.tuberia.nombre, motivos))
+            filas.append((nombre, bloque, res, _texto_portalateral(r.diseno), motivos))
         self._guardar_ultimos()
         if self.iface is not None:
             self.iface.mapCanvas().refresh()
@@ -676,6 +717,10 @@ class DialogoBloque(QDialog):
         from ..integracion.bloque_mapa import quitar_vista_previa
         quitar_vista_previa()
         super().reject()
+
+
+def _texto_portalateral(diseno):
+    return descripcion_telescopico(diseno) if diseno.telescopico else diseno.tuberia.nombre
 
 
 def _azimut(desde, hacia):

@@ -41,12 +41,25 @@ def nombre_rama(numero_ramas, sentido):
 
 
 def descripcion_telescopico(diseno):
-    """Tuberías del portalateral con sus distancias desde la válvula, p. ej. «A (0–38 m) → B (38–70 m)»."""
-    largo = max(rama.longitud_m for rama in diseno.subunidad.ramas)
-    inicios = [0.0] + [d for d, _ in diseno.reducciones]
-    tubos = [diseno.tuberia] + [t for _, t in diseno.reducciones]
-    fines = inicios[1:] + [largo]
-    return " → ".join(f"{t.nombre} ({a:.1f}–{b:.1f} m)" for t, a, b in zip(tubos, inicios, fines))
+    """Tuberías del portalateral con sus distancias desde la válvula, p. ej. «A (0–38 m) → B (38–70 m)».
+
+    Si las ramas tienen diámetros distintos se describe cada una («hacia el final: …; hacia el inicio: …»).
+    """
+    ramas = diseno.subunidad.ramas
+
+    def de_rama(rama):
+        inicios = [0.0] + [d for d, _ in rama.reducciones]
+        tubos = [rama.tuberia] + [t for _, t in rama.reducciones]
+        fines = [min(f, rama.longitud_m) for f in inicios[1:]] + [rama.longitud_m]
+        return " → ".join(f"{t.nombre} ({a:.1f}–{b:.1f} m)" for t, a, b in zip(tubos, inicios, fines) if b > a)
+
+    if len(ramas) == 1:
+        return de_rama(ramas[0])
+    if all(rama.tuberia is ramas[0].tuberia and list(rama.reducciones) == list(ramas[0].reducciones)
+           for rama in ramas):
+        largo = max(ramas, key=lambda rama: rama.longitud_m)
+        return de_rama(largo)
+    return "; ".join(f"{nombre_rama(len(ramas), rama.sentido)}: {de_rama(rama)}" for rama in ramas)
 
 
 # ------------------------------------------------------------------ avisos

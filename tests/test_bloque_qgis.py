@@ -151,6 +151,60 @@ class PruebasLotesYBloque(unittest.TestCase):
         self.assertEqual(parametros_guardados(hija)["separacion_m"], 2.0)
         self.assertAlmostEqual(hija["area_ha"], 43 * 40 / 10000, places=3)
 
+    def test_diametros_por_velocidad(self):
+        from riegolibre.gui import dialogo_bloque
+        from riegolibre.gui.dialogo_diametros import DialogoDiametros
+        from riegolibre.integracion.bloque_mapa import DIMENSIONADO_VELOCIDAD
+        from riegolibre.integracion.lotes import parametros_guardados
+        from riegolibre.nucleo.bloque import PORTA_CENTRO, VALV_CENTRO
+
+        _, capa = self._importar("velocidad.gpkg")
+        clase = dialogo_bloque.DialogoBloque
+        with mock.patch.object(dialogo_bloque.QMessageBox, "warning", side_effect=_fallar),                 mock.patch.object(clase, "_leer_ultimos", return_value={}),                 mock.patch.object(clase, "_guardar_ultimos"):
+            dialogo = clase(None)
+            dialogo.spin_separacion.setValue(1.0)  # muchos laterales: caudal alto en el portalateral
+            dialogo.radio_usuario.setChecked(True)
+            dialogo.spin_azimut.setValue(0.0)  # laterales hacia el norte: portalateral a lo largo de x
+            dialogo.combo_porta.setCurrentIndex(dialogo.combo_porta.findData(PORTA_CENTRO))
+            dialogo.combo_valvula.setCurrentIndex(dialogo.combo_valvula.findData(VALV_CENTRO))
+            dialogo.combo_dem.setLayer(self.dem)
+            lote_b = next(e for e in capa.getFeatures() if e["nombre"] == "M7. 6")
+            dialogo.abrir_lote(capa, lote_b)
+            # En la ventana del bloque: diámetros por velocidad
+            dialogo.combo_dimensionado.setCurrentIndex(dialogo.combo_dimensionado.findData(DIMENSIONADO_VELOCIDAD))
+            self.assertTrue(dialogo.combo_serie.isEnabled())
+            self.assertFalse(dialogo.combo_tuberia_porta.isEnabled())
+            dialogo.grupo_criterios.spin_velocidad.setValue(1.0)
+            dialogo.aplicar()
+            self.assertIn("calculado", dialogo.texto.toPlainText())
+            self.assertEqual(parametros_guardados(capa.getFeature(lote_b.id()))["dimensionado"], DIMENSIONADO_VELOCIDAD)
+
+        # La herramienta aparte: todos los lotes diseñados (el lote A no lo está y se salta)
+        herramienta = DialogoDiametros(None)
+        self.assertTrue(herramienta.combo_serie.currentData().startswith("PVC|"))
+        herramienta.spin_velocidad.setValue(0.8)
+        herramienta.spin_diametros.setValue(2)
+        herramienta.spin_tramo.setValue(0.0)
+        herramienta.check_ajustar.setChecked(False)
+        html = herramienta.calcular_lotes(capa, list(capa.getFeatures()))
+        texto = html
+        self.assertIn("Metros de portalateral por tubería", texto)
+        self.assertIn("se saltaron", texto)
+        datos = parametros_guardados(capa.getFeature(lote_b.id()))
+        self.assertAlmostEqual(datos["velocidad_max_ms"], 0.8)
+        self.assertEqual(datos["diametros_velocidad"], 2)
+        self.assertEqual(datos["direccion"], "usuario")
+        raiz = QgsProject.instance().layerTreeRoot()
+        tramos = next(n.layer() for n in raiz.findGroup("RiegoLibre · M7. 6").findLayers()
+                      if n.layer().name().startswith("Portalateral"))
+        velocidades = [f["velocidad"] for f in tramos.getFeatures()]
+        self.assertTrue(velocidades)
+        self.assertLessEqual(max(velocidades), 0.8 * 1.15)  # con caudales nominales; el real varía poco
+        tubos = {f["tuberia"] for f in tramos.getFeatures()}
+        self.assertGreaterEqual(len(tubos), 2)  # telescópico
+        ramas = {f["rama"] for f in tramos.getFeatures()}
+        self.assertEqual(len(ramas), 2)  # válvula al centro
+
 
 if __name__ == "__main__":
     unittest.main()

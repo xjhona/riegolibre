@@ -10,6 +10,7 @@ from typing import Optional, Sequence
 
 from ..nucleo import (CriteriosDiseno, Lateral, disenar_subunidad,
                       subunidad_desde_conexiones)
+from ..nucleo.diametros_velocidad import disenar_por_velocidad
 from ..nucleo.memoria import resumen_subunidad
 from . import subunidad_mapa as mapa
 from .memoria_mapa import guardar_resumen
@@ -33,6 +34,8 @@ class ConfigCalculo:
     presion_conocida: Optional[float] = None
     diametros_max: int = 1
     entrada_m: Optional[float] = None  # posición de la válvula en el portalateral; None: según `entrada`
+    # Diámetros por velocidad (`nucleo.diametros_velocidad`): `tuberias_portalateral` es entonces la serie.
+    velocidad: Optional[object] = None
 
 
 @dataclass
@@ -86,15 +89,21 @@ def calcular_subunidad(nombre, crs, portalateral, bloque, laterales_mapa, config
     entrada = (distancia_entrada(config.entrada, portalateral) if config.entrada_m is None
                else min(max(config.entrada_m, 0.0), portalateral.length()))
 
-    def construir(tuberia, reducciones=()):
+    def construir(tuberia, reducciones=(), por_rama=None):
         return subunidad_desde_conexiones(tuberia, modelo.conexiones, entrada,
                                           perfil=modelo.perfil_portalateral, metodo=metodo,
-                                          reducciones=reducciones)
+                                          reducciones=reducciones, por_rama=por_rama)
 
-    diseno = disenar_subunidad(construir, config.tuberias_portalateral, config.criterios,
-                               tuberia_fija=config.tuberia_portalateral,
-                               presion_entrada_m=config.presion_conocida,
-                               diametros_max=config.diametros_max)
+    if config.velocidad is not None:
+        tubos = list(config.tuberias_portalateral)
+        diseno = disenar_por_velocidad(lambda por_rama: construir(tubos[0], por_rama=por_rama),
+                                       modelo.conexiones, entrada, tubos, config.velocidad, config.criterios,
+                                       config.presion_conocida)
+    else:
+        diseno = disenar_subunidad(construir, config.tuberias_portalateral, config.criterios,
+                                   tuberia_fija=config.tuberia_portalateral,
+                                   presion_entrada_m=config.presion_conocida,
+                                   diametros_max=config.diametros_max)
     area = bloque.area() if bloque is not None else 0.0
     descartados = {id(lat) for lat in modelo.descartados}
     longitudes = [lat.longitud_m for lat in laterales_mapa if id(lat) not in descartados]

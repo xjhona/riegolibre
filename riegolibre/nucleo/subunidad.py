@@ -144,7 +144,7 @@ def _perfil_rama(perfil, entrada, sentido):
 
 
 def subunidad_desde_conexiones(tuberia, conexiones, distancia_entrada_m=0.0, pendiente=0.0,
-                               perfil=None, metodo="darcy", reducciones=()):
+                               perfil=None, metodo="darcy", reducciones=(), por_rama=None):
     """Subunidad a partir de conexiones medidas desde el inicio del portalateral.
 
     La válvula está a distancia_entrada_m del inicio; las conexiones situadas
@@ -152,6 +152,8 @@ def subunidad_desde_conexiones(tuberia, conexiones, distancia_entrada_m=0.0, pen
     retrocede (sentido -1). Cada conexión puede llevar laterales distintos.
     reducciones: portalateral telescópico, con distancias medidas desde la válvula
     (valen para las dos ramas).
+    por_rama: {sentido: (tubería, reducciones)} para dar a cada rama sus propios diámetros
+    (reemplaza a `tuberia` y `reducciones` en esa rama).
     """
     if not conexiones:
         raise ValueError("La subunidad no tiene laterales.")
@@ -162,9 +164,10 @@ def subunidad_desde_conexiones(tuberia, conexiones, distancia_entrada_m=0.0, pen
                    if (c.distancia_m - distancia_entrada_m) * sentido > 0
                    or (sentido == 1 and c.distancia_m == distancia_entrada_m)]
         if propias:
-            ramas.append(Portalateral(tuberia, propias, pendiente=pendiente * sentido,
+            tubo, reduc = (por_rama or {}).get(sentido, (tuberia, reducciones))
+            ramas.append(Portalateral(tubo, propias, pendiente=pendiente * sentido,
                                       perfil=_perfil_rama(perfil, distancia_entrada_m, sentido),
-                                      metodo=metodo, sentido=sentido, reducciones=reducciones))
+                                      metodo=metodo, sentido=sentido, reducciones=reduc))
     return Subunidad(ramas)
 
 
@@ -363,7 +366,10 @@ class Diseno:
 
     @property
     def telescopico(self):
-        return bool(self.reducciones)
+        """Más de una tubería en el portalateral (en alguna rama, o distintas entre ramas)."""
+        ramas = self.subunidad.ramas
+        return (bool(self.reducciones) or any(rama.reducciones for rama in ramas)
+                or len({rama.tuberia.nombre for rama in ramas}) > 1)
 
 
 def disenar_subunidad(construir: Callable, tuberias, criterios, tuberia_fija=None,
