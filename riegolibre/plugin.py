@@ -18,12 +18,16 @@ class RiegoLibrePlugin:
         self.accion_info = None
         self.herramienta_info = None
         self.dialogo_info = None
+        self.accion_bloque = None
+        self.herramienta_bloque = None
 
     def initGui(self):  # noqa: N802 (nombre exigido por QGIS)
         self._agregar_accion("icon_topografia.svg", "Topografía: curvas de CAD, imagen satelital y 3D…", "topografia")
         self._agregar_accion("icon.svg", "Calculadora de lateral (goteo)…", "lateral")
         self._agregar_accion("icon_subunidad.svg", "Subunidad de riego (goteo)…", "subunidad")
         self._agregar_accion("icon_mapa.svg", "Diseño de subunidad en el mapa (goteo)…", "mapa")
+        self._agregar_accion("icon_lotes.svg", "Importar lotes de CAD…", "lotes")
+        self._agregar_herramienta_bloque()
         self._agregar_accion("icon_trazado.svg", "Trazado automático de subunidades (goteo)…", "trazado")
         self._agregar_accion("icon_red.svg", "Red principal y bomba…", "red")
         self._agregar_accion("icon_base_datos.svg", "Base de datos de materiales…", "base_datos")
@@ -48,6 +52,35 @@ class RiegoLibrePlugin:
         self.accion_info = accion
         self.acciones.append(accion)
 
+    def _agregar_herramienta_bloque(self):
+        accion = QAction(QIcon(os.path.join(CARPETA, "icon_bloque.svg")),
+                         "Bloque de goteo (clic en un lote)", self.iface.mainWindow())
+        accion.setCheckable(True)
+        accion.toggled.connect(self._activar_bloque)
+        self.iface.addPluginToMenu(MENU, accion)
+        self.iface.addToolBarIcon(accion)
+        self.accion_bloque = accion
+        self.acciones.append(accion)
+
+    def _activar_bloque(self, activa):
+        canvas = self.iface.mapCanvas()
+        if activa:
+            from .gui.herramienta_bloque import HerramientaBloque
+            if self.herramienta_bloque is None:
+                self.herramienta_bloque = HerramientaBloque(canvas, self._abrir_lote, self._avisar)
+                self.herramienta_bloque.deactivated.connect(lambda: self.accion_bloque.setChecked(False))
+            canvas.setMapTool(self.herramienta_bloque)
+        elif self.herramienta_bloque is not None and canvas.mapTool() is self.herramienta_bloque:
+            canvas.unsetMapTool(self.herramienta_bloque)
+
+    def _abrir_lote(self, capa, entidad):
+        self.abrir("bloque", mostrar=False)
+        self.dialogos["bloque"].abrir_lote(capa, entidad)
+
+    def _avisar(self, texto):
+        from qgis.core import Qgis
+        self.iface.messageBar().pushMessage("RiegoLibre", texto, Qgis.MessageLevel.Info, 5)
+
     def _activar_info(self, activa):
         canvas = self.iface.mapCanvas()
         if activa:
@@ -61,6 +94,9 @@ class RiegoLibrePlugin:
             canvas.unsetMapTool(self.herramienta_info)
 
     def unload(self):
+        if self.herramienta_bloque is not None:
+            self.iface.mapCanvas().unsetMapTool(self.herramienta_bloque)
+            self.herramienta_bloque = None
         if self.herramienta_info is not None:
             self.iface.mapCanvas().unsetMapTool(self.herramienta_info)
             self.herramienta_info = None
@@ -89,7 +125,7 @@ class RiegoLibrePlugin:
                 dialogo.deleteLater()
                 del self.dialogos[nombre]
 
-    def abrir(self, nombre):
+    def abrir(self, nombre, mostrar=True):
         dialogo = self.dialogos.get(nombre)
         if dialogo is not None and nombre in self.desactualizados and not dialogo.isVisible():
             self.dialogos.pop(nombre).deleteLater()
@@ -112,11 +148,17 @@ class RiegoLibrePlugin:
                 from .gui.dialogo_materiales import DialogoMateriales as Clase
             elif nombre == "base_datos":
                 from .gui.dialogo_base_datos import DialogoBaseDatos as Clase
+            elif nombre == "lotes":
+                from .gui.dialogo_lotes import DialogoLotes as Clase
+            elif nombre == "bloque":
+                from .gui.dialogo_bloque import DialogoBloque as Clase
             else:
                 from .gui.dialogo_memoria import DialogoMemoria as Clase
             dialogo = self.dialogos[nombre] = Clase(self.iface, self.iface.mainWindow())
             if nombre == "base_datos":
                 dialogo.base_cambiada.connect(self._base_cambiada)
+        if not mostrar:
+            return
         dialogo.show()
         dialogo.raise_()
         dialogo.activateWindow()

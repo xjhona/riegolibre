@@ -1,0 +1,240 @@
+"""Pruebas del bloque de goteo de un lote y de su subdivisión (motor de Python puro)."""
+
+import math
+import unittest
+
+from riegolibre.nucleo.bloque import (PORTA_ALTO, PORTA_BAJO, PORTA_CENTRO, PORTA_DISTANCIA, PORTA_FINAL,
+                                      VALV_ALTO, VALV_BAJO, VALV_CENTRO, VALV_PORCENTAJE, ParametrosBloque,
+                                      punto_en, trazar_bloque)
+from riegolibre.nucleo.subdivision import (AUTO_AREA, AUTO_CAUDAL, AUTO_NUMERO, DISTANCIA, HILERAS, NUMERO,
+                                           ParametrosSubdivision, subdividir)
+from tests.test_trazado import dentro, girar, puntos_del_lateral, rectangulo
+
+
+def cota_hacia_x(x, y):
+    """Terreno que baja 1 % hacia +x."""
+    return 100.0 - 0.01 * x
+
+
+def recortar(anillo, caja):
+    """Caja (x0, y0, x1, y1) que envuelve el anillo, recortada a otra caja: basta para rectángulos alineados."""
+    xs, ys = [p[0] for p in anillo], [p[1] for p in anillo]
+    return (max(min(xs), caja[0]), max(min(ys), caja[1]), min(max(xs), caja[2]), min(max(ys), caja[3]))
+
+
+class PruebasBloque(unittest.TestCase):
+    def setUp(self):
+        self.lote = [rectangulo(90, 80)]  # laterales a lo largo de x: 90 m
+
+    def test_rectangulo_portalateral_al_inicio(self):
+        params = ParametrosBloque(separacion_m=2.0, cabecera_m=0.5, costados_m=1.0, angulo_deg=0.0)
+        b = trazar_bloque(self.lote, params)
+        self.assertEqual(b.hileras, 40)  # y = 1, 3, …, 79
+        self.assertEqual(len(b.laterales), 40)
+        for lat in b.laterales:
+            self.assertAlmostEqual(lat.longitud_m, 89.0)
+            self.assertAlmostEqual(lat.inicio[0], 0.5)
+            self.assertAlmostEqual(lat.fin[0], 89.5)
+            self.assertEqual(lat.lado, "B")
+        self.assertAlmostEqual(b.portalateral[0][0], 0.5)
+        self.assertAlmostEqual(b.portalateral[0][1], 1.0)
+        self.assertAlmostEqual(b.portalateral[-1][1], 79.0)
+        self.assertAlmostEqual(b.longitud_portalateral_m, 78.0)
+        self.assertAlmostEqual(b.area_regada_m2, 40 * 89.0 * 2.0)
+        distancias = sorted(lat.distancia_m for lat in b.laterales)
+        self.assertAlmostEqual(distancias[0], 0.0)
+        self.assertAlmostEqual(distancias[1], 2.0)
+
+    def test_costados_por_defecto_media_separacion(self):
+        b = trazar_bloque(self.lote, ParametrosBloque(separacion_m=4.0, angulo_deg=0.0))
+        ys = sorted({round(lat.inicio[1], 6) for lat in b.laterales})
+        self.assertAlmostEqual(ys[0], 2.0)
+        self.assertEqual(len(ys), 20)
+
+    def test_portalateral_al_final_y_al_centro(self):
+        final = trazar_bloque(self.lote, ParametrosBloque(separacion_m=2.0, cabecera_m=0.0, angulo_deg=0.0,
+                                                          portalateral=PORTA_FINAL))
+        self.assertTrue(all(abs(lat.inicio[0] - 90.0) < 1e-6 and lat.fin[0] < lat.inicio[0]
+                            for lat in final.laterales))
+        centro = trazar_bloque(self.lote, ParametrosBloque(separacion_m=2.0, cabecera_m=0.0, angulo_deg=0.0,
+                                                           portalateral=PORTA_CENTRO))
+        self.assertEqual(len(centro.laterales), 80)
+        self.assertTrue(all(abs(lat.longitud_m - 45.0) < 1e-6 for lat in centro.laterales))
+        self.assertEqual({lat.lado for lat in centro.laterales}, {"A", "B"})
+
+    def test_portalateral_a_una_distancia(self):
+        b = trazar_bloque(self.lote, ParametrosBloque(separacion_m=2.0, cabecera_m=0.0, angulo_deg=0.0,
+                                                      portalateral=PORTA_DISTANCIA, distancia_portalateral_m=30))
+        largos = sorted({round(lat.longitud_m, 6) for lat in b.laterales})
+        self.assertEqual(largos, [30.0, 60.0])
+
+    def test_sentido_contrario_de_los_laterales(self):
+        b = trazar_bloque(self.lote, ParametrosBloque(separacion_m=2.0, cabecera_m=0.0, angulo_deg=180.0))
+        self.assertTrue(all(abs(lat.inicio[0] - 90.0) < 1e-6 for lat in b.laterales))
+        self.assertAlmostEqual(b.azimut_laterales_grados, 270.0)
+
+    def test_laterales_dobles_por_hilera(self):
+        params = ParametrosBloque(separacion_m=3.0, laterales_por_hilera=2, separacion_en_hilera_m=1.0,
+                                  angulo_deg=0.0, cabecera_m=0.0)
+        b = trazar_bloque(self.lote, params)
+        ys = sorted(lat.inicio[1] for lat in b.laterales)
+        self.assertAlmostEqual(ys[0], 1.0)  # eje de la primera hilera a 1.5 m, lateral medio metro abajo
+        self.assertAlmostEqual(ys[1], 2.0)
+        self.assertEqual(b.hileras, 26)
+        self.assertEqual(len(b.laterales), 52)
+        self.assertAlmostEqual(b.area_regada_m2, 26 * 90 * 3.0)
+        # El portalateral llega a los laterales de las hileras de los extremos.
+        self.assertAlmostEqual(b.portalateral[0][1], ys[0])
+        self.assertAlmostEqual(b.portalateral[-1][1], ys[-1])
+        with self.assertRaises(ValueError):
+            ParametrosBloque(separacion_m=2.0, laterales_por_hilera=3, separacion_en_hilera_m=1.0)
+
+    def test_paralelogramo_portalateral_sigue_el_borde(self):
+        lote = [[(0, 0), (90, 0), (120, 80), (30, 80)]]  # bordes de inicio y final inclinados
+        b = trazar_bloque(lote, ParametrosBloque(separacion_m=2.0, cabecera_m=0.0, angulo_deg=0.0))
+        self.assertEqual(len(b.portalateral), 2)  # recto, a lo largo del borde inclinado
+        for lat in b.laterales:
+            self.assertAlmostEqual(lat.longitud_m, 90.0, places=6)
+            self.assertAlmostEqual(lat.inicio[0], lat.inicio[1] * 30 / 80, places=6)
+
+    def test_lote_girado_y_direccion_automatica(self):
+        lote = [girar(rectangulo(160, 40), 35, (80, 20))]
+        b = trazar_bloque(lote, ParametrosBloque(separacion_m=2.0, cabecera_m=0.5))
+        self.assertAlmostEqual(min(abs(b.angulo_deg - 35) % 180, 180 - abs(b.angulo_deg - 35) % 180), 0.0, places=3)
+        for lat in b.laterales:
+            for p in puntos_del_lateral(lat):
+                self.assertTrue(dentro(p, lote, 1e-6))
+        # Con un alcance corto conviene que los laterales vayan a lo ancho
+        corto = trazar_bloque(lote, ParametrosBloque(separacion_m=2.0, cabecera_m=0.5), alcance_m=45)
+        self.assertAlmostEqual(min(abs(corto.angulo_deg - 125) % 180, 180 - abs(corto.angulo_deg - 125) % 180),
+                               0.0, places=3)
+
+    def test_direccion_automatica_paralela_a_un_lado(self):
+        from riegolibre.nucleo.bloque import direcciones_candidatas
+        trapecio = [[(0, 0), (100, 0), (100, 60), (0, 90)]]  # lados a 0°, 90° y -16.7°
+        for angulo in direcciones_candidatas(trapecio):
+            self.assertTrue(any(min(abs(angulo - lado) % 180, 180 - abs(angulo - lado) % 180) < 1.0
+                                for lado in (0.0, 90.0, 163.3, 73.3)), angulo)
+        b = trazar_bloque(trapecio, ParametrosBloque(separacion_m=3.0), pendiente=lambda a: 0.0)
+        self.assertIn(round(b.angulo_deg) % 180, (0, 90, 163, 73))
+
+    def test_borde_alto_y_bajo(self):
+        alto = trazar_bloque(self.lote, ParametrosBloque(separacion_m=2.0, cabecera_m=0.0, angulo_deg=0.0,
+                                                         portalateral=PORTA_ALTO), cota=cota_hacia_x)
+        self.assertTrue(all(abs(lat.inicio[0]) < 1e-6 for lat in alto.laterales))
+        self.assertLess(alto.pendiente_laterales, 0)  # en bajada
+        bajo = trazar_bloque(self.lote, ParametrosBloque(separacion_m=2.0, cabecera_m=0.0, angulo_deg=0.0,
+                                                         portalateral=PORTA_BAJO), cota=cota_hacia_x)
+        self.assertTrue(all(abs(lat.inicio[0] - 90) < 1e-6 for lat in bajo.laterales))
+        self.assertGreater(bajo.pendiente_laterales, 0)
+        sin_dem = trazar_bloque(self.lote, ParametrosBloque(separacion_m=2.0, angulo_deg=0.0, portalateral=PORTA_ALTO))
+        self.assertTrue(sin_dem.avisos)
+
+    def test_posicion_de_la_valvula(self):
+        def cota_hacia_y(x, y):
+            return 100.0 - 0.02 * y  # baja hacia +y: el extremo 1 del portalateral (y bajo) es el alto
+
+        base = dict(separacion_m=2.0, cabecera_m=0.0, angulo_deg=0.0)
+        b = trazar_bloque(self.lote, ParametrosBloque(**base, valvula=VALV_ALTO), cota=cota_hacia_y)
+        self.assertAlmostEqual(b.valvula_m, 0.0)
+        b = trazar_bloque(self.lote, ParametrosBloque(**base, valvula=VALV_BAJO), cota=cota_hacia_y)
+        self.assertAlmostEqual(b.valvula_m, b.longitud_portalateral_m)
+        self.assertLess(b.desnivel_portalateral_m, 0)
+        b = trazar_bloque(self.lote, ParametrosBloque(**base, valvula=VALV_CENTRO))
+        self.assertAlmostEqual(b.valvula_m, b.longitud_portalateral_m / 2)
+        self.assertAlmostEqual(b.valvula[1], 40.0)
+        b = trazar_bloque(self.lote, ParametrosBloque(**base, valvula=VALV_PORCENTAJE, porcentaje_valvula=25))
+        self.assertAlmostEqual(b.valvula_m, 0.25 * b.longitud_portalateral_m)
+        # Automática: el extremo más cercano a la fuente
+        b = trazar_bloque(self.lote, ParametrosBloque(**base), fuente=(0.0, 200.0))
+        self.assertAlmostEqual(b.valvula_m, b.longitud_portalateral_m)
+
+    def test_caudal_y_lote_concavo(self):
+        lote = [[(0, 0), (90, 0), (90, 30), (40, 30), (40, 60), (90, 60), (90, 80), (0, 80)]]  # una «C»
+        params = ParametrosBloque(separacion_m=2.0, cabecera_m=0.0, angulo_deg=0.0,
+                                  caudal_lateral=lambda largo: 10.0 * largo)
+        b = trazar_bloque(lote, params)
+        for lat in b.laterales:
+            for p in puntos_del_lateral(lat):
+                self.assertTrue(dentro(p, lote, 1e-6))
+        self.assertAlmostEqual(b.caudal, 10.0 * b.longitud_laterales_m)
+
+    def test_punto_en_polilinea(self):
+        self.assertEqual(punto_en([(0, 0), (10, 0), (10, 10)], 15), (10, 5))
+        self.assertEqual(punto_en([(0, 0), (10, 0)], 50), (10, 0))
+
+
+class PruebasSubdivision(unittest.TestCase):
+    def setUp(self):
+        self.lote = [rectangulo(200, 80)]
+        self.bloque = ParametrosBloque(separacion_m=2.0, cabecera_m=0.0, angulo_deg=0.0,
+                                       caudal_lateral=lambda largo: largo)  # 1 unidad por metro
+
+    def cajas(self, partes):
+        return sorted(recortar(p.anillo, (0, 0, 200, 80)) for p in partes)
+
+    def test_sin_subdividir(self):
+        partes = subdividir(self.lote, self.bloque, 0.0, ParametrosSubdivision())
+        self.assertEqual(len(partes), 1)
+        self.assertEqual(partes[0].hileras, 40)
+        self.assertAlmostEqual(partes[0].caudal, 40 * 200)
+        self.assertEqual(self.cajas(partes)[0], (0, 0, 200, 80))
+
+    def test_cortes_por_distancia_con_hueco(self):
+        partes = subdividir(self.lote, self.bloque, 0.0,
+                            ParametrosSubdivision(cortes=DISTANCIA, cortes_valor=100, cortes_hueco_m=5))
+        cajas = self.cajas(partes)
+        self.assertEqual(len(cajas), 2)
+        self.assertAlmostEqual(cajas[0][2], 100)
+        self.assertAlmostEqual(cajas[1][0], 105)
+
+    def test_cortes_por_numero(self):
+        partes = subdividir(self.lote, self.bloque, 0.0,
+                            ParametrosSubdivision(cortes=NUMERO, cortes_valor=4, cortes_hueco_m=0))
+        self.assertEqual([round(c[2]) for c in self.cajas(partes)], [50, 100, 150, 200])
+
+    def test_franjas_por_hileras_con_hueco(self):
+        partes = subdividir(self.lote, self.bloque, 0.0,
+                            ParametrosSubdivision(franjas=HILERAS, franjas_valor=15, franjas_hueco=2))
+        self.assertEqual([p.hileras for p in partes], [15, 15, 6])  # 40 hileras: 15 + 2 + 15 + 2 + 6
+        cajas = sorted(self.cajas(partes), key=lambda c: c[1])
+        self.assertAlmostEqual(cajas[0][3], 30)  # hasta media separación después de la hilera 15 (y = 29)
+        self.assertAlmostEqual(cajas[1][1], 34)  # el hueco son las hileras de y = 31 y 33
+
+    def test_franjas_por_distancia_y_numero(self):
+        partes = subdividir(self.lote, self.bloque, 0.0, ParametrosSubdivision(franjas=DISTANCIA, franjas_valor=20))
+        self.assertEqual([p.hileras for p in partes], [10, 10, 10, 10])
+        partes = subdividir(self.lote, self.bloque, 0.0, ParametrosSubdivision(franjas=NUMERO, franjas_valor=3))
+        self.assertEqual(sorted(p.hileras for p in partes), [13, 13, 14])
+
+    def test_automatica_por_caudal(self):
+        params = ParametrosSubdivision(automatica=True, longitud_max_lateral_m=120, criterio=AUTO_CAUDAL,
+                                       caudal_max=2500)
+        partes = subdividir(self.lote, self.bloque, 0.0, params)
+        # dos cortes de 100 m (laterales ≤ 120 m); cada mitad lleva 4000, así que dos franjas de 2000
+        self.assertEqual(len(partes), 4)
+        for p in partes:
+            self.assertLessEqual(p.caudal, 2500)
+            self.assertAlmostEqual(p.caudal, 2000)
+
+    def test_automatica_por_area_y_numero(self):
+        partes = subdividir(self.lote, self.bloque, 0.0, ParametrosSubdivision(
+            automatica=True, longitud_max_lateral_m=500, criterio=AUTO_AREA, area_max_m2=6000))
+        self.assertEqual(len(partes), 3)
+        self.assertTrue(all(p.area_m2 <= 6000 for p in partes))
+        partes = subdividir(self.lote, self.bloque, 0.0, ParametrosSubdivision(
+            automatica=True, longitud_max_lateral_m=500, criterio=AUTO_NUMERO, numero=4))
+        self.assertEqual(len(partes), 4)
+
+    def test_lote_girado(self):
+        lote = [girar(rectangulo(200, 80), 30)]
+        partes = subdividir(lote, ParametrosBloque(separacion_m=2.0, angulo_deg=30.0), 30.0,
+                            ParametrosSubdivision(cortes=NUMERO, cortes_valor=2))
+        self.assertEqual(len(partes), 2)
+        centro = [sum(p[k] for p in partes[0].anillo) / 4 for k in (0, 1)]
+        a = math.radians(30)
+        self.assertLess(centro[0] * math.cos(a) + centro[1] * math.sin(a), 100)
+
+
+if __name__ == "__main__":
+    unittest.main()

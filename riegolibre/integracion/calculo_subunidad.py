@@ -32,6 +32,7 @@ class ConfigCalculo:
     tuberia_portalateral: Optional[object] = None  # None: la menor que cumple
     presion_conocida: Optional[float] = None
     diametros_max: int = 1
+    entrada_m: Optional[float] = None  # posición de la válvula en el portalateral; None: según `entrada`
 
 
 @dataclass
@@ -82,7 +83,8 @@ def calcular_subunidad(nombre, crs, portalateral, bloque, laterales_mapa, config
     if config.capa_dem is None:
         avisos.append("Sin DEM: se calculó con el terreno plano.")
 
-    entrada = distancia_entrada(config.entrada, portalateral)
+    entrada = (distancia_entrada(config.entrada, portalateral) if config.entrada_m is None
+               else min(max(config.entrada_m, 0.0), portalateral.length()))
 
     def construir(tuberia, reducciones=()):
         return subunidad_desde_conexiones(tuberia, modelo.conexiones, entrada,
