@@ -278,7 +278,10 @@ def capa_emisores(trazado, crs, nombre, espaciamiento_m, primer_emisor_m):
 def vista_previa(trazado, crs, nombre_grupo):
     """Muestra el trazado (sin bloques) en un grupo temporal que reemplaza al anterior."""
     from .subunidad_mapa import reemplazar_grupo
+    from .persistencia import TEMPORAL
     laterales, portalaterales, *_ = capas_trazado(trazado, crs, "vista previa", con_bloques=False)
+    for capa in (laterales, portalaterales):
+        capa.setCustomProperty(TEMPORAL, True)
     return reemplazar_grupo(nombre_grupo, [portalaterales, laterales])
 
 

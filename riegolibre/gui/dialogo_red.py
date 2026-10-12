@@ -149,13 +149,14 @@ class DialogoRed(QDialog):
                                         "tubería, o una válvula y la tubería que la alimenta.")
         formulario.addRow("Tolerancia de conexión:", self.spin_tolerancia)
         boton = QPushButton("Crear capas para dibujar")
-        boton.setToolTip("Crea capas temporales «Fuente» (punto) y «Red principal» (líneas) en el SRC "
+        boton.setToolTip("Crea las capas «Fuente» (punto) y «Red principal» (líneas) en el SRC "
                          "del proyecto y activa la edición de la fuente.")
         boton.clicked.connect(self.crear_capas_de_dibujo)
         formulario.addRow(boton)
         return grupo
 
     def crear_capas_de_dibujo(self):
+        from ..integracion.persistencia import aviso_html, guardar_capas_de_dibujo
         from ..integracion.subunidad_mapa import verificar_crs_metrico
         proyecto = QgsProject.instance()
         try:
@@ -168,6 +169,7 @@ class DialogoRed(QDialog):
         for capa in (fuente, tuberias):
             capa.setCrs(proyecto.crs())
         proyecto.addMapLayers([fuente, tuberias])
+        ruta = guardar_capas_de_dibujo([fuente, tuberias], proyecto)
         self.combo_fuente.setLayer(fuente)
         self.combo_tuberias.setLayer(tuberias)
         if self.iface is not None:
@@ -175,10 +177,10 @@ class DialogoRed(QDialog):
             fuente.startEditing()
             self.iface.actionAddFeature().trigger()
         self.texto.setHtml(
-            "<p>Se crearon las capas temporales <b>Fuente</b> y <b>Red principal</b>.</p>"
+            "<p>Se crearon las capas <b>Fuente</b> y <b>Red principal</b>.</p>"
             "<p>Marque la fuente con un clic. Luego active la edición de <i>Red principal</i> y dibuje "
             "las tuberías desde la fuente hasta cada válvula (active el autoajuste para unir bien "
-            "los extremos). Guarde las ediciones.</p>")
+            "los extremos). Guarde las ediciones.</p>" + aviso_html(ruta))
 
     def _grupo_valvulas(self):
         grupo = QGroupBox("Válvulas y turnos de riego")

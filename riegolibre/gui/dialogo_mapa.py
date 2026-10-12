@@ -103,7 +103,7 @@ class DialogoMapa(QDialog):
         nota.setWordWrap(True)
         formulario.addRow(nota)
         boton = QPushButton("Crear capas para dibujar")
-        boton.setToolTip("Crea capas temporales «Bloques» y «Portalaterales» en el SRC del proyecto "
+        boton.setToolTip("Crea las capas «Bloques» y «Portalaterales» en el SRC del proyecto "
                          "y activa la edición para dibujar el bloque.")
         boton.clicked.connect(self.crear_capas_de_dibujo)
         formulario.addRow(boton)
@@ -187,6 +187,7 @@ class DialogoMapa(QDialog):
         return None
 
     def crear_capas_de_dibujo(self):
+        from ..integracion.persistencia import aviso_html, guardar_capas_de_dibujo
         from ..integracion.subunidad_mapa import verificar_crs_metrico
 
         def crear():
@@ -204,6 +205,7 @@ class DialogoMapa(QDialog):
             bloques.setRenderer(QgsSingleSymbolRenderer(QgsFillSymbol.createSimple(
                 {"color": "80,170,80,50", "outline_color": "40,120,40", "outline_width": "0.6"})))
             proyecto.addMapLayers([bloques, lineas])
+            self._ruta_capas = guardar_capas_de_dibujo([bloques, lineas], proyecto)
             self.combo_bloque.setLayer(bloques)
             self.combo_portalateral.setLayer(lineas)
             if self.iface is not None:
@@ -214,12 +216,11 @@ class DialogoMapa(QDialog):
 
         if self._ejecutar(crear):
             self.panel.texto.setHtml(
-                "<p>Se crearon las capas temporales <b>Bloques</b> y <b>Portalaterales</b>.</p>"
+                "<p>Se crearon las capas <b>Bloques</b> y <b>Portalaterales</b>.</p>"
                 "<p>Dibuje el bloque en el mapa (clic para cada vértice, clic derecho para terminar). "
                 "Luego seleccione la capa <i>Portalaterales</i>, active la edición y dibuje el "
                 "portalateral empezando por el extremo donde irá la válvula. Guarde las ediciones.</p>"
-                "<p>Son capas temporales: si quiere conservarlas, use <i>Exportar → Guardar "
-                "objetos como…</i></p>")
+                + aviso_html(self._ruta_capas))
 
     def _geometrias(self):
         from ..integracion.perfil_terreno import entidad_unica, linea_simple

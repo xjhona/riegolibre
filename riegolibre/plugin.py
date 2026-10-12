@@ -20,6 +20,8 @@ class RiegoLibrePlugin:
         self.dialogo_info = None
         self.accion_bloque = None
         self.herramienta_bloque = None
+        self.guardado_pendiente = False
+        self.reescribiendo = False
 
     def initGui(self):  # noqa: N802 (nombre exigido por QGIS)
         self._agregar_accion("icon_topografia.svg", "Topografía: curvas de CAD, imagen satelital y 3D…", "topografia")
@@ -36,6 +38,42 @@ class RiegoLibrePlugin:
         self._agregar_accion("icon_materiales.svg", "Lista de materiales y costos…", "materiales")
         self._agregar_accion("icon_memoria.svg", "Memoria de cálculo…", "memoria")
         self._agregar_herramienta_info()
+        from qgis.core import QgsProject
+        proyecto = QgsProject.instance()
+        proyecto.layersAdded.connect(self._programar_guardado)
+        proyecto.projectSaved.connect(self._proyecto_guardado)
+        self._programar_guardado()  # capas temporales que ya estaban (por ejemplo, al recargar el complemento)
+
+    # Las capas que crea RiegoLibre nacen en memoria; se pasan al GeoPackage del proyecto en
+    # cuanto termina la operación que las agregó (ya con sus entidades) y al guardar el proyecto.
+
+    def _programar_guardado(self, *_):
+        if not self.guardado_pendiente:
+            from qgis.PyQt.QtCore import QTimer
+            self.guardado_pendiente = True
+            QTimer.singleShot(0, self._guardar_capas)
+
+    def _guardar_capas(self):
+        from .integracion.persistencia import guardar_capas_temporales
+        self.guardado_pendiente = False
+        try:
+            return guardar_capas_temporales()
+        except OSError as error:
+            from qgis.core import Qgis
+            self.iface.messageBar().pushMessage("RiegoLibre", str(error), Qgis.MessageLevel.Warning, 8)
+            return []
+
+    def _proyecto_guardado(self):
+        """Al guardar un proyecto por primera vez, sus capas temporales pasan al GeoPackage y el
+        proyecto se vuelve a escribir para que apunte a ellas."""
+        if self.reescribiendo or not self._guardar_capas():
+            return
+        from qgis.core import QgsProject
+        self.reescribiendo = True
+        try:
+            QgsProject.instance().write()
+        finally:
+            self.reescribiendo = False
 
     def _agregar_accion(self, icono, texto, dialogo):
         accion = QAction(QIcon(os.path.join(CARPETA, icono)), texto, self.iface.mainWindow())
@@ -96,6 +134,14 @@ class RiegoLibrePlugin:
             canvas.unsetMapTool(self.herramienta_info)
 
     def unload(self):
+        from qgis.core import QgsProject
+        proyecto = QgsProject.instance()
+        for senal, ranura in ((proyecto.layersAdded, self._programar_guardado),
+                              (proyecto.projectSaved, self._proyecto_guardado)):
+            try:
+                senal.disconnect(ranura)
+            except TypeError:
+                pass
         if self.herramienta_bloque is not None:
             self.iface.mapCanvas().unsetMapTool(self.herramienta_bloque)
             self.herramienta_bloque = None

@@ -269,8 +269,10 @@ def trazar_red_en_mapa(punto_fuente, valvulas: List[ValvulaMapa], crs, modo=ORTO
             continue  # válvula justo sobre otro punto de la red: no necesita tubería
         entidad = QgsFeature(capa.fields())
         entidad.setGeometry(QgsGeometry.fromPolylineXY([QgsPointXY(x, y) for x, y in t.vertices]))
-        entidad.setAttributes([f"{t.desde} → {t.hasta}", t.desde, t.hasta, round(t.caudal_lh, 1),
-                               round(t.longitud_m, 2)])
+        # Por nombre: si la capa ya se guardó en el GeoPackage, el primer campo es «fid».
+        for campo, valor in (("nombre", f"{t.desde} → {t.hasta}"), ("desde", t.desde), ("hasta", t.hasta),
+                             ("caudal_lh", round(t.caudal_lh, 1)), ("longitud", round(t.longitud_m, 2))):
+            entidad[campo] = valor
         entidades.append(entidad)
     capa.dataProvider().addFeatures(entidades)
     capa.updateExtents()
