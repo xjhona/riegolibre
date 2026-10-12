@@ -10,9 +10,9 @@ import math
 from dataclasses import dataclass
 from typing import Dict, List, Optional
 
-from qgis.core import (Qgis, QgsCategorizedSymbolRenderer, QgsFeature, QgsGeometry,
+from qgis.core import (Qgis, QgsFeature, QgsGeometry,
                        QgsMarkerSymbol, QgsPointXY, QgsProject, QgsRectangle,
-                       QgsRendererCategory, QgsSingleSymbolRenderer, QgsSymbol, QgsVectorLayer)
+                       QgsSingleSymbolRenderer, QgsSymbol, QgsVectorLayer)
 from qgis.PyQt.QtGui import QColor
 
 from ..nucleo import Red, TramoRed, Valvula
@@ -20,7 +20,7 @@ from ..nucleo.terreno import Terreno, celda_automatica
 from ..nucleo.trazado_red import ORTOGONAL, ParametrosRed, ValvulaDestino, trazar_red
 from ..nucleo.tuberias import rotulo_corto
 from .perfil_terreno import MuestreadorDem, linea_simple, perfil_de_geometria
-from .subunidad_mapa import PROPIEDAD, geometria_en, rotular_tuberia
+from .subunidad_mapa import PROPIEDAD, estilo_por_tuberia, geometria_en, rotular_tuberia
 
 CAMPOS_VALVULA = ("presion", "caudal_lh")
 PREFIJO_VALVULA = "Válvula · "
@@ -320,7 +320,7 @@ def capas_resultado(red_mapa, resultado, bomba, crs):
             f"{t.longitud_m:.0f} m\n{rotulo_corto(tuberia)}"])
         entidades.append(entidad)
     tramos.dataProvider().addFeatures(entidades)
-    _estilo_por_tuberia(tramos, resultado)
+    estilo_por_tuberia(tramos, resultado.asignacion.values())
     # Un rótulo por tramo (de nodo a nodo), sin unir tramos vecinos aunque tengan el mismo texto.
     rotular_tuberia(tramos, color="#c62828", tamano=9, unir=False)
 
@@ -374,19 +374,3 @@ def _en_sentido_del_flujo(geometria, punto_inicial):
     if vertices[0].distance(punto_inicial) <= vertices[-1].distance(punto_inicial):
         return geometria
     return QgsGeometry.fromPolylineXY(list(reversed(vertices)))
-
-
-PALETA = ["#1565c0", "#2e7d32", "#ef6c00", "#6a1b9a", "#00838f", "#ad1457", "#558b2f", "#4e342e"]
-
-
-def _estilo_por_tuberia(capa, resultado):
-    """Una categoría por tubería usada; el grosor crece con el diámetro."""
-    usadas = sorted({t.nombre: t for t in resultado.asignacion.values()}.values(),
-                    key=lambda t: (t.diametro_nominal_mm or t.diametro_interior_mm, t.presion_nominal_m or 0))
-    categorias = []
-    for i, tuberia in enumerate(usadas):
-        simbolo = QgsSymbol.defaultSymbol(capa.geometryType())
-        simbolo.setColor(QColor(PALETA[i % len(PALETA)]))
-        simbolo.setWidth(0.6 + 0.012 * (tuberia.diametro_nominal_mm or tuberia.diametro_interior_mm))
-        categorias.append(QgsRendererCategory(tuberia.nombre, simbolo, tuberia.nombre))
-    capa.setRenderer(QgsCategorizedSymbolRenderer("tuberia", categorias))

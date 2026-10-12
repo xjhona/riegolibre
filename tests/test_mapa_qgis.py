@@ -206,6 +206,24 @@ class PruebasDialogoMapa(unittest.TestCase):
         for nombre, metros in calculado.items():
             self.assertAlmostEqual(en_mapa[nombre], metros, delta=0.01)
 
+        # Un color por tubería (no por presión): la línea solo cambia de color en la reducción.
+        from qgis.core import QgsCategorizedSymbolRenderer, QgsGraduatedSymbolRenderer
+        from riegolibre.integracion.subunidad_mapa import ESTILO_PRESION, ESTILO_TUBERIA
+        laterales = next(n.layer() for n in grupo.findLayers() if n.layer().name().startswith("Laterales"))
+        for capa, tubos in ((tramos, set(calculado)), (laterales, {f["tuberia"] for f in laterales.getFeatures()})):
+            self.assertIsInstance(capa.renderer(), QgsCategorizedSymbolRenderer)
+            self.assertEqual({c.value() for c in capa.renderer().categories()}, tubos)
+            self.assertEqual(len({c.symbol().color().name() for c in capa.renderer().categories()}), len(tubos))
+            # El mapa de presiones queda como estilo alterno de la capa.
+            gestor = capa.styleManager()
+            self.assertEqual(set(gestor.styles()), {ESTILO_TUBERIA, ESTILO_PRESION})
+            self.assertEqual(gestor.currentStyle(), ESTILO_TUBERIA)
+            self.assertTrue(gestor.setCurrentStyle(ESTILO_PRESION))
+            self.assertIsInstance(capa.renderer(), QgsGraduatedSymbolRenderer)
+            self.assertTrue(gestor.setCurrentStyle(ESTILO_TUBERIA))
+            self.assertIsInstance(capa.renderer(), QgsCategorizedSymbolRenderer)
+        self.assertTrue(tramos.labelsEnabled())
+
     def test_recalcular_reemplaza_el_grupo(self):
         dialogo = self._dialogo()
         dialogo.edit_nombre.setText("Repetida")

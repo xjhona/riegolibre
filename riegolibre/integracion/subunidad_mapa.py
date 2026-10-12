@@ -8,23 +8,26 @@ import math
 from dataclasses import dataclass
 from typing import List, Optional
 
-from qgis.core import (Qgis, QgsClassificationEqualInterval, QgsCoordinateTransform,
-                       QgsFeature, QgsGeometry, QgsGraduatedSymbolRenderer,
+from qgis.core import (Qgis, QgsCategorizedSymbolRenderer, QgsClassificationEqualInterval,
+                       QgsCoordinateTransform, QgsFeature, QgsGeometry, QgsGraduatedSymbolRenderer,
                        QgsMarkerSymbol, QgsPalLayerSettings, QgsPointXY, QgsProject,
-                       QgsSingleSymbolRenderer, QgsStyle, QgsSymbol, QgsTextBufferSettings,
+                       QgsRendererCategory, QgsSingleSymbolRenderer, QgsStyle, QgsSymbol, QgsTextBufferSettings,
                        QgsTextFormat, QgsVectorLayer, QgsVectorLayerSimpleLabeling)
 
 from qgis.PyQt.QtGui import QColor
 
 from ..nucleo import ConexionLateral
 from ..nucleo.hidraulica import interpolar_perfil
-from ..nucleo.tuberias import rotulo_corto
+from ..nucleo.tuberias import clave_economica, rotulo_corto
 from .perfil_terreno import MuestreadorDem, linea_simple, perfil_de_geometria
 
 LADO_A, LADO_B = "A", "B"  # A: a la izquierda del portalateral (según su sentido de dibujo)
 LADOS_AMBOS = (LADO_A, LADO_B)
 TOLERANCIA_M = 0.05
 PROPIEDAD = "riegolibre/tipo"
+ESTILO_TUBERIA, ESTILO_PRESION = "Por tubería", "Presión"  # estilos de las capas de resultado
+PALETA = ["#1565c0", "#2e7d32", "#ef6c00", "#6a1b9a", "#00838f", "#ad1457", "#558b2f", "#4e342e"]
+PALETA_LATERALES = ["#3d7a3a"] + [c for c in PALETA if c != "#2e7d32"]
 
 
 def verificar_crs_metrico(crs, nombre_capa):
@@ -278,6 +281,7 @@ def capas_resultado(diseno, modelo, portalateral, distancia_entrada_m, crs, nomb
         f"Válvula · {nombre}", crs)
 
     entidades_lat, entidades_tramo = [], []
+    tubos_lateral = {}  # nombre -> Tuberia
     corridas = []  # [tubería, metros, tramos, rama]: tramos seguidos de la misma tubería en una rama
     for rama_r, rama in zip(r.ramas, diseno.subunidad.ramas):
         corrida = None
@@ -299,6 +303,7 @@ def capas_resultado(diseno, modelo, portalateral, distancia_entrada_m, crs, nomb
                     round(res.presiones_m[-1], 3), round(res.perdida_friccion_m, 3),
                     round(res.cotas_m[-1], 3), round(res.velocidad_entrada_ms, 3)])
                 entidades_lat.append(entidad)
+                tubos_lateral[lateral.tuberia.nombre] = lateral.tuberia
 
             actual = rama_r.distancias_m[j]
             # Un tramo por tubería: en un portalateral telescópico el tramo se corta en la reducción.
@@ -347,9 +352,9 @@ def capas_resultado(diseno, modelo, portalateral, distancia_entrada_m, crs, nomb
         capa.dataProvider().addFeatures(entidades)
         capa.updateExtents()
 
-    _estilo_graduado(laterales, "p_min", ancho=0.6)
-    _estilo_graduado(tramos, "p_fin", ancho=1.8)
     rotular_tuberia(tramos)
+    _estilos_tuberia_y_presion(laterales, tubos_lateral.values(), "p_min", 0.6, 0.5, 0.005, PALETA_LATERALES)
+    _estilos_tuberia_y_presion(tramos, [c[0] for c in corridas], "p_fin", 1.8, 1.2, 0.012, PALETA)
     valvula.setRenderer(QgsSingleSymbolRenderer(QgsMarkerSymbol.createSimple(
         {"name": "circle", "color": "#c62828", "size": "4", "outline_color": "#ffffff"})))
     return [valvula, tramos, laterales]
@@ -387,6 +392,33 @@ def _cota_en(modelo, distancia_m):
     if not modelo.perfil_portalateral:
         return 0.0
     return interpolar_perfil(modelo.perfil_portalateral, distancia_m)
+
+
+def estilo_por_tuberia(capa, tuberias, ancho=0.6, ancho_por_mm=0.012, paleta=PALETA):
+    """Un color por tubería usada (campo «tuberia»); el grosor crece con el diámetro.
+
+    Así la línea solo cambia de color donde cambia de tubería, como en IRRICAD.
+    """
+    usadas = sorted({t.nombre: t for t in tuberias}.values(), key=clave_economica)
+    categorias = []
+    for i, tuberia in enumerate(usadas):
+        simbolo = QgsSymbol.defaultSymbol(capa.geometryType())
+        simbolo.setColor(QColor(paleta[i % len(paleta)]))
+        simbolo.setWidth(ancho + ancho_por_mm * (tuberia.diametro_nominal_mm or tuberia.diametro_interior_mm))
+        categorias.append(QgsRendererCategory(tuberia.nombre, simbolo, tuberia.nombre))
+    capa.setRenderer(QgsCategorizedSymbolRenderer("tuberia", categorias))
+
+
+def _estilos_tuberia_y_presion(capa, tuberias, campo_presion, ancho_presion, ancho, ancho_por_mm, paleta):
+    """Deja activo el estilo «Por tubería» y guarda el mapa de presiones como estilo «Presión».
+
+    El usuario cambia entre ambos con clic derecho en la capa → Estilos.
+    """
+    _estilo_graduado(capa, campo_presion, ancho=ancho_presion)
+    gestor = capa.styleManager()
+    gestor.addStyleFromLayer(ESTILO_PRESION)
+    estilo_por_tuberia(capa, tuberias, ancho, ancho_por_mm, paleta)
+    gestor.renameStyle(gestor.currentStyle(), ESTILO_TUBERIA)
 
 
 def _estilo_graduado(capa, campo, ancho, clases=5):
