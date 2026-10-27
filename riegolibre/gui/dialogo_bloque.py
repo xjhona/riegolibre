@@ -24,7 +24,8 @@ from qgis.PyQt.QtWidgets import (QAction, QApplication, QButtonGroup, QCheckBox,
 
 from ..nucleo import PresionInsuficiente, cargar_catalogo_emisores, cargar_catalogo_tuberias
 from ..nucleo.bloque import (PORTA_ALTO, PORTA_BAJO, PORTA_CENTRO, PORTA_DISTANCIA, PORTA_FINAL, PORTA_INICIO,
-                             VALV_ALTO, VALV_AUTO, VALV_BAJO, VALV_CENTRO, VALV_PORCENTAJE, VALV_PUNTO,
+                             PORTA_MANUAL,
+                             VALV_ALTO, VALV_AUTO, VALV_BAJO, VALV_CENTRO, VALV_FINAL, VALV_INICIO, VALV_PORCENTAJE, VALV_PUNTO,
                              ParametrosBloque, azimut_entre)
 from ..nucleo.subunidad import incumplimientos
 from ..nucleo.tuberias import clave_economica
@@ -68,6 +69,7 @@ class DialogoBloque(QDialog):
         self.capa = self.entidad = None  # lote abierto
         self.bloque = None  # último trazado del lote abierto
         self.punto_valvula = None  # (x, y) marcado en el mapa, en el SRC de la capa de lotes
+        self.puntos_portalateral = None  # [(x, y), …] dibujados en el mapa, en el SRC de la capa de lotes
         self._herramienta_puntos = None
         self.setWindowTitle("RiegoLibre · Bloque de goteo")
         self.resize(1150, 780)
@@ -241,10 +243,24 @@ class DialogoBloque(QDialog):
         self.combo_porta.addItem("A una distancia del inicio", PORTA_DISTANCIA)
         self.combo_porta.addItem("En el borde más alto (laterales en bajada)", PORTA_ALTO)
         self.combo_porta.addItem("En el borde más bajo (laterales en subida)", PORTA_BAJO)
+        self.combo_porta.addItem("Dibujado en el mapa", PORTA_MANUAL)
         self.combo_porta.currentIndexChanged.connect(self._actualizar)
         formulario_porta.addRow("Posición:", self.combo_porta)
         self.spin_distancia = spin(0, 2000, 50, 1, sufijo="m")
         formulario_porta.addRow("Distancia:", self.spin_distancia)
+        self.spin_prolongacion_extremo = spin(0, 100, 0, 0.5, sufijo="m")
+        self.spin_prolongacion_extremo.setToolTip(
+            "«Stub Length»: el portalateral sigue esta distancia más allá del último lateral, en el extremo contrario "
+            "a la válvula (con la válvula en medio, en los dos extremos). Solo se dibuja y entra en la lista de "
+            "materiales; no cambia el cálculo.")
+        formulario_porta.addRow("Prolongación del extremo:", self.spin_prolongacion_extremo)
+        self.boton_portalateral = QPushButton("Dibujar el portalateral en el mapa")
+        self.boton_portalateral.setToolTip(
+            "Como «Manual» de IRRICAD: haga clic en los vértices del portalateral (imán a los bordes del lote); "
+            "clic derecho, doble clic o Intro para terminar. Con la dirección automática, los laterales quedan "
+            "perpendiculares a la línea; la línea no puede retroceder respecto de esa perpendicular.")
+        self.boton_portalateral.clicked.connect(self.dibujar_portalateral)
+        formulario_porta.addRow(self.boton_portalateral)
         self.combo_dimensionado = QComboBox()
         self.combo_dimensionado.addItem("Menor tubería que cumple los criterios", DIMENSIONADO_COSTO)
         self.combo_dimensionado.addItem("Por velocidad (diámetros por tramos)", DIMENSIONADO_VELOCIDAD)
@@ -280,6 +296,8 @@ class DialogoBloque(QDialog):
         self.combo_valvula.addItem("Automática (según la fuente y el relieve)", VALV_AUTO)
         self.combo_valvula.addItem("En el extremo más alto del portalateral", VALV_ALTO)
         self.combo_valvula.addItem("En el extremo más bajo del portalateral", VALV_BAJO)
+        self.combo_valvula.addItem("En el inicio del portalateral (extremo 1)", VALV_INICIO)
+        self.combo_valvula.addItem("En el final del portalateral (extremo 2)", VALV_FINAL)
         self.combo_valvula.addItem("Al centro del portalateral", VALV_CENTRO)
         self.combo_valvula.addItem("A un porcentaje del portalateral", VALV_PORCENTAJE)
         self.combo_valvula.addItem("Marcada en el mapa", VALV_PUNTO)
@@ -293,6 +311,16 @@ class DialogoBloque(QDialog):
         self.spin_porcentaje.setToolTip("Medido desde el extremo más alto del portalateral (sin DEM, desde su "
                                         "extremo 1).")
         formulario_valv.addRow("Porcentaje:", self.spin_porcentaje)
+        self.spin_prolongacion_valvula = spin(0, 100, 0, 0.5, sufijo="m")
+        self.spin_prolongacion_valvula.setToolTip(
+            "«Submain Stub»: con la válvula en un extremo, el portalateral sigue esta distancia más allá del primer "
+            "lateral y la válvula conecta en la punta. Solo se dibuja y entra en la lista de materiales.")
+        formulario_valv.addRow("Prolongación del lado de la válvula:", self.spin_prolongacion_valvula)
+        self.spin_ramal_valvula = spin(0, 100, 0, 0.5, sufijo="m")
+        self.spin_ramal_valvula.setToolTip(
+            "«Valve Stub»: tubería perpendicular que va del portalateral a la válvula, hacia la izquierda del sentido "
+            "del portalateral. Solo se dibuja y entra en la lista de materiales; no cambia el cálculo.")
+        formulario_valv.addRow("Ramal a la válvula:", self.spin_ramal_valvula)
         formulario_valv.addRow(self.boton_valvula)
 
         terreno = QGroupBox("Terreno")
@@ -332,7 +360,9 @@ class DialogoBloque(QDialog):
         self.spin_en_hilera.setEnabled(self.spin_por_hilera.value() > 1)
         self.spin_azimut.setEnabled(self.radio_usuario.isChecked())
         self.spin_distancia.setEnabled(self.combo_porta.currentData() == PORTA_DISTANCIA)
+        self.boton_portalateral.setEnabled(self.capa is not None and self.iface is not None)
         self.spin_porcentaje.setEnabled(self.combo_valvula.currentData() == VALV_PORCENTAJE)
+        self.spin_prolongacion_valvula.setEnabled(self.combo_valvula.currentData() != VALV_CENTRO)
         por_velocidad = self.combo_dimensionado.currentData() == DIMENSIONADO_VELOCIDAD
         for control in (self.combo_serie, self.spin_diametros_vel, self.spin_tramo_min, self.check_ajustar):
             control.setEnabled(por_velocidad)
@@ -370,7 +400,11 @@ class DialogoBloque(QDialog):
             "dem": self.combo_dem.currentLayer().id() if self.combo_dem.currentLayer() else None,
             "fuente": self.combo_fuente.currentLayer().id() if self.combo_fuente.currentLayer() else None,
             "valvula": self.combo_valvula.currentData(), "porcentaje_valvula": self.spin_porcentaje.value(),
+            "prolongacion_extremo_m": self.spin_prolongacion_extremo.value(),
+            "prolongacion_valvula_m": self.spin_prolongacion_valvula.value(),
+            "ramal_valvula_m": self.spin_ramal_valvula.value(),
             "punto_valvula": list(self.punto_valvula) if self.punto_valvula else None,
+            "puntos_portalateral": [list(p) for p in self.puntos_portalateral] if self.puntos_portalateral else None,
             "presion_conocida_m": c.presion_conocida(), "metodo": c.metodo(),
             "variacion_caudal_pct": c.spin_variacion.value(), "velocidad_max_ms": c.spin_velocidad.value(),
             "presion_entrada_max_m": c.spin_presion_max.value(),
@@ -397,6 +431,9 @@ class DialogoBloque(QDialog):
                                ("cabecera_m", self.spin_cabecera), ("costados_m", self.spin_costados),
                                ("distancia_portalateral_m", self.spin_distancia),
                                ("porcentaje_valvula", self.spin_porcentaje),
+                               ("prolongacion_extremo_m", self.spin_prolongacion_extremo),
+                               ("prolongacion_valvula_m", self.spin_prolongacion_valvula),
+                               ("ramal_valvula_m", self.spin_ramal_valvula),
                                ("variacion_caudal_pct", c.spin_variacion), ("velocidad_max_ms", c.spin_velocidad),
                                ("presion_entrada_max_m", c.spin_presion_max),
                                ("intensidad_max_mmh", self.spin_intensidad), ("lamina_mm", self.spin_lamina)):
@@ -412,6 +449,8 @@ class DialogoBloque(QDialog):
             _elegir_por_dato(self.combo_valvula, v["valvula"])
         if "punto_valvula" in v:
             self.punto_valvula = tuple(v["punto_valvula"]) if v["punto_valvula"] else None
+        if "puntos_portalateral" in v:
+            self.puntos_portalateral = [tuple(p) for p in v["puntos_portalateral"]] if v["puntos_portalateral"] else None
         if "tuberia_portalateral" in v:
             if v["tuberia_portalateral"] is None:
                 self.combo_tuberia_porta.setCurrentIndex(0)
@@ -489,10 +528,12 @@ class DialogoBloque(QDialog):
         from ..integracion.bloque_mapa import quitar_vista_previa
         quitar_vista_previa()
         self.capa, self.entidad, self.bloque = capa, entidad, None
-        self.punto_valvula = None  # el de otro lote no sirve
+        self.punto_valvula = self.puntos_portalateral = None  # los de otro lote no sirven
         guardados = parametros_guardados(entidad)
         if guardados:
             self.poner_valores(guardados)
+        if self.combo_porta.currentData() == PORTA_MANUAL and not self.puntos_portalateral:
+            _elegir_por_dato(self.combo_porta, PORTA_INICIO)  # la línea dibujada era de otro lote
         nombre = entidad[CAMPO_NOMBRE] or f"Lote {entidad.id()}"
         self.edit_nombre.setText(str(nombre))
         if self.combo_dem.currentLayer() is None:
@@ -602,6 +643,9 @@ class DialogoBloque(QDialog):
                                 f" · desnivel entre extremos {abs(b.desnivel_portalateral_m):.2f} m")),
             ("Válvula", _texto_valvula(b, extremo_1, extremo_2)),
         ]
+        if b.conexiones:
+            filas.append(("Tramos de conexión", f"{b.longitud_conexiones_m:.1f} m (prolongaciones y ramal de la "
+                                                "válvula; no entran en el cálculo)"))
         if b.pendiente_laterales is not None:
             filas.append(("Pendiente de los laterales", f"{b.pendiente_laterales:+.2%} desde el portalateral"))
         lamina = self.spin_lamina.value()
@@ -766,7 +810,7 @@ class DialogoBloque(QDialog):
         if not self._ejecutar(hacer):
             return None
         if self.capa is capa and self.entidad is not None and self.entidad.id() == entidad.id():
-            self.bloque = self.punto_valvula = None
+            self.bloque = self.punto_valvula = self.puntos_portalateral = None
             if con_lote:
                 self.capa = self.entidad = None
                 self.etiqueta_lote.setText("Haga clic en un lote con la herramienta «Bloque de goteo».")
@@ -876,8 +920,21 @@ class DialogoBloque(QDialog):
 
         self._marcar(1, ["Válvula: haga clic donde va (queda sobre el portalateral)"], listo, con_portalateral=True)
 
+    def dibujar_portalateral(self):
+        """Portalateral dibujado con clics en el mapa («Manual» de IRRICAD)."""
+        def listo(puntos):
+            self.puntos_portalateral = [(p[0], p[1]) for p in puntos]
+            _elegir_por_dato(self.combo_porta, PORTA_MANUAL)
+            self.vista_previa()
+
+        self._marcar(None, ["Portalateral: haga clic en el primer vértice",
+                            "Portalateral: haga clic en el siguiente vértice"], listo)
+
     def _marcar(self, cuantos, mensajes, listo, con_portalateral=False):
-        """Esconde la ventana y pide los puntos en el mapa; `listo` los recibe en el SRC de la capa de lotes."""
+        """Esconde la ventana y pide los puntos en el mapa; `listo` los recibe en el SRC de la capa de lotes.
+
+        Con `cuantos=None` se dibuja una línea y `listo` recibe la lista de puntos.
+        """
         from qgis.core import QgsCoordinateTransform
         from .herramienta_puntos import HerramientaPuntos
         entidad = self._ejecutar(self._lote)
@@ -905,7 +962,8 @@ class DialogoBloque(QDialog):
 
         def terminar(puntos):
             volver()
-            listo(*[al_lote.transform(p) for p in puntos])
+            transformados = [al_lote.transform(p) for p in puntos]
+            listo(transformados) if cuantos is None else listo(*transformados)
 
         barra = self.iface.statusBarIface()
         self._herramienta_puntos = HerramientaPuntos(canvas, cuantos, geometrias, mensajes, terminar, volver,
@@ -923,10 +981,13 @@ class DialogoBloque(QDialog):
 
 
 def _sin_punto_de_valvula(valores):
-    """Valores para otros lotes: el punto de la válvula es de un solo lote; en ellos va automática."""
-    if valores.get("valvula") != VALV_PUNTO:
-        return valores
-    return dict(valores, valvula=VALV_AUTO, punto_valvula=None)
+    """Valores para otros lotes: el punto de la válvula y el portalateral dibujado son de un solo lote; en los
+    demás la válvula va automática y el portalateral al inicio de los laterales."""
+    if valores.get("valvula") == VALV_PUNTO:
+        valores = dict(valores, valvula=VALV_AUTO, punto_valvula=None)
+    if valores.get("portalateral") == PORTA_MANUAL:  # la línea dibujada es de un solo lote
+        valores = dict(valores, portalateral=PORTA_INICIO, puntos_portalateral=None)
+    return valores
 
 
 def _texto_portalateral(diseno):

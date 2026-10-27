@@ -27,6 +27,8 @@ def _tipo(capa):
         return "laterales"
     if {"rama", "desde_m", "hasta_m", "tuberia"} <= campos:
         return "portalateral"
+    if {"conexion_tipo", "longitud", "tuberia"} <= campos:
+        return "conexiones"
     if {"tramo", "tuberia", "dn_mm"} <= campos:
         return "red"
     if "cdt_m" in campos:
@@ -73,6 +75,9 @@ def partidas_del_proyecto(proyecto=None):
         elif tipo == "portalateral":
             for f in capa.getFeatures():
                 sumar("Portalaterales", f["tuberia"], f.geometry().length())
+        elif tipo == "conexiones":  # prolongaciones y ramal de la válvula: la tubería del portalateral
+            for f in capa.getFeatures():
+                sumar("Portalaterales", f["tuberia"] or f"Portalateral {SIN_IDENTIFICAR}", f.geometry().length())
         elif tipo == "red":
             resumen["red"] = True
             for f in capa.getFeatures():

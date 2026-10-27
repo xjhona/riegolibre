@@ -255,8 +255,14 @@ def _capa(tipo_geometria, campos, nombre, crs):
     return capa
 
 
-def capas_resultado(diseno, modelo, portalateral, distancia_entrada_m, crs, nombre):
-    """Crea las capas de resultado: laterales, tramos del portalateral y válvula."""
+def capas_resultado(diseno, modelo, portalateral, distancia_entrada_m, crs, nombre, conexiones=(),
+                    punto_valvula=None):
+    """Crea las capas de resultado: válvula, tramos del portalateral y laterales (y, si hay, conexiones).
+
+    `conexiones`: tramos [(tipo, [(x, y), …])] que solo se dibujan y entran en el metrado, con la tubería del
+    portalateral en el punto donde conectan. `punto_valvula`: dónde se dibuja la válvula si no está sobre el
+    portalateral (la válvula con ramal).
+    """
     r = diseno.resultado
     tuberia = diseno.tuberia
 
@@ -344,7 +350,8 @@ def capas_resultado(diseno, modelo, portalateral, distancia_entrada_m, crs, nomb
             tramo.setAttribute("rotulo", texto)
 
     punto = QgsFeature(valvula.fields())
-    punto.setGeometry(portalateral.interpolate(distancia_entrada_m))
+    punto.setGeometry(portalateral.interpolate(distancia_entrada_m) if punto_valvula is None
+                      else QgsGeometry.fromPointXY(QgsPointXY(*punto_valvula)))
     punto.setAttributes([round(r.presion_entrada_m, 3), round(r.caudal_total_lh, 1),
                          round(r.caudal_total_lh / 3600, 3), tuberia.nombre])
 
@@ -357,7 +364,38 @@ def capas_resultado(diseno, modelo, portalateral, distancia_entrada_m, crs, nomb
     _estilos_tuberia_y_presion(tramos, [c[0] for c in corridas], "p_fin", 1.8, 1.2, 0.012, PALETA)
     valvula.setRenderer(QgsSingleSymbolRenderer(QgsMarkerSymbol.createSimple(
         {"name": "circle", "color": "#c62828", "size": "4", "outline_color": "#ffffff"})))
-    return [valvula, tramos, laterales]
+    resultado = [valvula, tramos, laterales]
+    if conexiones:
+        resultado.append(_capa_conexiones(conexiones, entidades_tramo, [c[0] for c in corridas], crs, nombre))
+    return resultado
+
+
+def _capa_conexiones(conexiones, entidades_tramo, tuberias, crs, nombre):
+    """Capa «Conexiones · nombre» con las prolongaciones del portalateral y el ramal de la válvula."""
+    capa = _capa("LineString", "field=conexion_tipo:string(30)&field=longitud:double&field=tuberia:string(80)"
+                 "&field=rotulo:string(80)", f"Conexiones · {nombre}", crs)
+    por_nombre = {t.nombre: t for t in tuberias}
+    entidades, usadas = [], {}
+    for tipo, puntos in conexiones:
+        geometria = QgsGeometry.fromPolylineXY([QgsPointXY(*p) for p in puntos])
+        # La tubería del tramo del portalateral más cercano al punto donde conecta
+        base = QgsGeometry.fromPointXY(QgsPointXY(*puntos[0]))
+        cercano = min(entidades_tramo, key=lambda e: e.geometry().distance(base), default=None)
+        tuberia = por_nombre.get(cercano["tuberia"]) if cercano is not None else None
+        entidad = QgsFeature(capa.fields())
+        entidad.setGeometry(geometria)
+        longitud = geometria.length()
+        entidad.setAttributes([tipo, round(longitud, 3), tuberia.nombre if tuberia else "",
+                               f"{longitud:g} m" + (chr(10) + rotulo_corto(tuberia) if tuberia else "")])
+        entidades.append(entidad)
+        if tuberia is not None:
+            usadas[tuberia.nombre] = tuberia
+    capa.dataProvider().addFeatures(entidades)
+    capa.updateExtents()
+    if usadas:
+        estilo_por_tuberia(capa, usadas.values(), 1.2, 0.012, PALETA)
+    rotular_tuberia(capa, unir=False)
+    return capa
 
 
 def rotular_tuberia(capa, campo="rotulo", color="#1565c0", tamano=8, unir=True):

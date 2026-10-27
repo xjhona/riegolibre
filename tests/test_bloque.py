@@ -3,10 +3,11 @@
 import math
 import unittest
 
-from riegolibre.nucleo.bloque import (PORTA_ALTO, PORTA_BAJO, PORTA_CENTRO, PORTA_DISTANCIA, PORTA_FINAL,
-                                      VALV_ALTO, VALV_BAJO, VALV_CENTRO, VALV_PORCENTAJE, VALV_PUNTO,
-                                      ParametrosBloque, azimut_entre, distancia_sobre_polilinea, punto_en,
-                                      trazar_bloque)
+from riegolibre.nucleo.bloque import (CONEXION_EXTREMO, CONEXION_LADO_VALVULA, CONEXION_RAMAL_VALVULA, PORTA_ALTO,
+                                      PORTA_BAJO, PORTA_CENTRO, PORTA_DISTANCIA, PORTA_FINAL, PORTA_MANUAL,
+                                      VALV_ALTO, VALV_BAJO, VALV_CENTRO, VALV_FINAL, VALV_INICIO, VALV_PORCENTAJE,
+                                      VALV_PUNTO, ParametrosBloque, azimut_entre, distancia_sobre_polilinea,
+                                      punto_en, trazar_bloque)
 from riegolibre.nucleo.subdivision import (AUTO_AREA, AUTO_CAUDAL, AUTO_NUMERO, DISTANCIA, HILERAS, NUMERO,
                                            ParametrosSubdivision, subdividir)
 from tests.test_trazado import dentro, girar, puntos_del_lateral, rectangulo
@@ -164,6 +165,120 @@ class PruebasBloque(unittest.TestCase):
         b = trazar_bloque(self.lote, ParametrosBloque(**base, valvula=VALV_PUNTO), fuente=(0.0, 200.0))
         self.assertAlmostEqual(b.valvula_m, b.longitud_portalateral_m)
         self.assertTrue(any("No se ha marcado" in a for a in b.avisos))
+
+    def test_tramos_de_conexion_con_la_valvula_en_un_extremo(self):
+        # Portalateral por x = 0 de y = 1 a y = 79, hacia +y; válvula en su inicio (y = 1)
+        base = dict(separacion_m=2.0, cabecera_m=0.0, angulo_deg=0.0, valvula=VALV_INICIO)
+        b = trazar_bloque(self.lote, ParametrosBloque(**base))
+        self.assertEqual(b.conexiones, [])
+        self.assertIsNone(b.valvula_final)
+        self.assertEqual(b.punto_de_la_valvula, b.valvula)
+        b = trazar_bloque(self.lote, ParametrosBloque(**base, prolongacion_extremo_m=1.0, prolongacion_valvula_m=0.5,
+                                                      ramal_valvula_m=2.0))
+        tipos = {tipo: linea for tipo, linea in b.conexiones}
+        self.assertEqual(set(tipos), {CONEXION_EXTREMO, CONEXION_LADO_VALVULA, CONEXION_RAMAL_VALVULA})
+        self.assertAlmostEqual(tipos[CONEXION_LADO_VALVULA][1][1], 0.5)  # más allá del primer lateral
+        self.assertAlmostEqual(tipos[CONEXION_EXTREMO][0][1], 79.0)
+        self.assertAlmostEqual(tipos[CONEXION_EXTREMO][1][1], 80.0)  # más allá del último
+        # El ramal sale del extremo de la prolongación, perpendicular y a la izquierda del sentido (+y → -x)
+        self.assertAlmostEqual(tipos[CONEXION_RAMAL_VALVULA][0][1], 0.5)
+        self.assertAlmostEqual(b.valvula_final[0], -2.0)
+        self.assertAlmostEqual(b.valvula_final[1], 0.5)
+        self.assertEqual(b.punto_de_la_valvula, b.valvula_final)
+        self.assertAlmostEqual(b.longitud_conexiones_m, 0.5 + 1.0 + 2.0)
+        # El cálculo no cambia: el portalateral y la posición de la válvula son los mismos
+        sin = trazar_bloque(self.lote, ParametrosBloque(**base))
+        self.assertEqual(b.portalateral, sin.portalateral)
+        self.assertAlmostEqual(b.valvula_m, sin.valvula_m)
+
+    def test_tramos_de_conexion_con_la_valvula_en_el_final(self):
+        base = dict(separacion_m=2.0, cabecera_m=0.0, angulo_deg=0.0, valvula=VALV_FINAL)
+        b = trazar_bloque(self.lote, ParametrosBloque(**base, prolongacion_extremo_m=1.0, prolongacion_valvula_m=0.5,
+                                                      ramal_valvula_m=2.0))
+        tipos = {tipo: linea for tipo, linea in b.conexiones}
+        self.assertAlmostEqual(tipos[CONEXION_LADO_VALVULA][1][1], 79.5)
+        self.assertAlmostEqual(tipos[CONEXION_EXTREMO][1][1], 0.0)
+        self.assertAlmostEqual(b.valvula_final[0], -2.0)
+        self.assertAlmostEqual(b.valvula_final[1], 79.5)
+
+    def test_tramos_de_conexion_con_la_valvula_al_centro(self):
+        base = dict(separacion_m=2.0, cabecera_m=0.0, angulo_deg=0.0, valvula=VALV_CENTRO)
+        b = trazar_bloque(self.lote, ParametrosBloque(**base, prolongacion_extremo_m=1.0, prolongacion_valvula_m=0.5,
+                                                      ramal_valvula_m=3.0))
+        # La prolongación del extremo va en los dos extremos; la del lado de la válvula no aplica
+        self.assertEqual([t for t, _ in b.conexiones].count(CONEXION_EXTREMO), 2)
+        self.assertNotIn(CONEXION_LADO_VALVULA, [t for t, _ in b.conexiones])
+        self.assertTrue(any("no está en un extremo" in a for a in b.avisos))
+        self.assertAlmostEqual(b.valvula_final[0], -3.0)
+        self.assertAlmostEqual(b.valvula_final[1], 40.0)
+        with self.assertRaises(ValueError):
+            ParametrosBloque(**base, ramal_valvula_m=-1.0)
+
+    def test_tramos_de_conexion_con_portalateral_quebrado(self):
+        base = dict(separacion_m=2.0, cabecera_m=0.0, angulo_deg=0.0, portalateral=PORTA_MANUAL, valvula=VALV_INICIO,
+                    puntos_portalateral=((20.0, 0.0), (20.0, 40.0), (50.0, 40.0), (50.0, 80.0)))
+        b = trazar_bloque(self.lote, ParametrosBloque(**base, prolongacion_extremo_m=2.0))
+        (_, linea), = b.conexiones
+        self.assertAlmostEqual(linea[0][0], b.portalateral[-1][0])
+        self.assertAlmostEqual(math.dist(*linea), 2.0)
+
+    def test_portalateral_dibujado_a_mano(self):
+        base = dict(separacion_m=2.0, cabecera_m=0.0, angulo_deg=0.0, portalateral=PORTA_MANUAL)
+        # Recta vertical por x = 30: laterales a ambos lados, de 30 y 60 m
+        b = trazar_bloque(self.lote, ParametrosBloque(**base, puntos_portalateral=((30.0, 0.0), (30.0, 80.0))))
+        self.assertEqual(b.hileras, 40)
+        self.assertEqual(len(b.laterales), 80)
+        self.assertEqual(sorted({round(lat.longitud_m, 6) for lat in b.laterales}), [30.0, 60.0])
+        self.assertEqual({lat.lado for lat in b.laterales}, {"A", "B"})
+        self.assertAlmostEqual(b.portalateral[0][0], 30.0)
+        self.assertAlmostEqual(b.longitud_portalateral_m, 80.0)
+        self.assertEqual(b.avisos, [])
+        # El sentido del dibujo no importa: se orienta hacia +y
+        b = trazar_bloque(self.lote, ParametrosBloque(**base, puntos_portalateral=((30.0, 80.0), (30.0, 0.0))))
+        self.assertAlmostEqual(b.portalateral[0][1], 0.0)
+        # Con un quiebre: la conexión de cada lateral sigue la línea
+        quebrada = ((20.0, 0.0), (20.0, 40.0), (50.0, 40.0), (50.0, 80.0))
+        b = trazar_bloque(self.lote, ParametrosBloque(**base, puntos_portalateral=quebrada))
+        for lat in b.laterales:
+            self.assertAlmostEqual(lat.inicio[0], 20.0 if lat.inicio[1] < 40.0 else 50.0, delta=0.6)
+
+    def test_portalateral_dibujado_inclinado_deja_la_direccion_automatica(self):
+        # Línea a 90° (hacia +y) → laterales perpendiculares (hacia ±x)
+        base = dict(separacion_m=2.0, cabecera_m=0.0, portalateral=PORTA_MANUAL)
+        b = trazar_bloque(self.lote, ParametrosBloque(**base, puntos_portalateral=((30.0, 0.0), (30.0, 80.0))))
+        self.assertAlmostEqual(math.sin(math.radians(b.angulo_deg)), 0.0, places=6)
+        # El lote girado 30° y el portalateral dibujado a lo largo de su lado corto
+        c, s = math.cos(math.radians(30)), math.sin(math.radians(30))
+        girado = [girar(rectangulo(90, 80), 30.0)]
+        linea = tuple((c * x - s * y, s * x + c * y) for x, y in ((30.0, 0.0), (30.0, 80.0)))
+        b = trazar_bloque(girado, ParametrosBloque(**base, puntos_portalateral=linea))
+        self.assertAlmostEqual(b.angulo_deg, 30.0, places=6)
+        self.assertEqual(len(b.laterales), 80)
+
+    def test_portalateral_dibujado_no_valido(self):
+        base = dict(separacion_m=2.0, cabecera_m=0.0, angulo_deg=0.0, portalateral=PORTA_MANUAL)
+        with self.assertRaises(ValueError):  # sin línea
+            ParametrosBloque(**base)
+        with self.assertRaises(ValueError):  # un solo punto distinto
+            ParametrosBloque(**base, puntos_portalateral=((5.0, 5.0), (5.0, 5.0)))
+        with self.assertRaises(ValueError):  # retrocede en y
+            trazar_bloque(self.lote, ParametrosBloque(
+                **base, puntos_portalateral=((30.0, 0.0), (30.0, 60.0), (40.0, 20.0), (40.0, 80.0))))
+        with self.assertRaises(ValueError):  # paralela a los laterales
+            trazar_bloque(self.lote, ParametrosBloque(**base, puntos_portalateral=((10.0, 40.0), (60.0, 40.0))))
+        # Fuera del lote: avisa
+        with self.assertRaises(ValueError):
+            trazar_bloque(self.lote, ParametrosBloque(**base, puntos_portalateral=((500.0, 0.0), (500.0, 80.0))))
+
+    def test_portalateral_dibujado_parcial_avisa_de_hileras_sin_laterales(self):
+        base = dict(separacion_m=2.0, cabecera_m=0.0, angulo_deg=0.0, portalateral=PORTA_MANUAL)
+        b = trazar_bloque(self.lote, ParametrosBloque(**base, puntos_portalateral=((30.0, 0.0), (30.0, 40.0))))
+        self.assertLessEqual(b.hileras, 21)  # solo la mitad inferior del lote
+        self.assertTrue(all(lat.inicio[1] <= 41.0 for lat in b.laterales))
+        # Válvula en el extremo alto: sigue funcionando con la línea dibujada
+        b = trazar_bloque(self.lote, ParametrosBloque(**base, puntos_portalateral=((30.0, 0.0), (30.0, 80.0)),
+                                                      valvula=VALV_CENTRO))
+        self.assertAlmostEqual(b.valvula[1], 40.0, delta=1.0)
 
     def test_direccion_con_dos_puntos(self):
         self.assertAlmostEqual(azimut_entre((0, 0), (0, 10)), 0.0)

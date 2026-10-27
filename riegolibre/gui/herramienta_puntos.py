@@ -1,7 +1,8 @@
-"""Herramienta de mapa para marcar uno o dos puntos, con imán a los vértices y lados de unas geometrías.
+"""Herramienta de mapa para marcar puntos, con imán a los vértices y lados de unas geometrías.
 
-La usa el bloque de goteo para fijar la dirección de los laterales con dos puntos y para colocar la
-válvula, como IRRICAD («Block Lateral: Enter First Point / Enter Second Point», «Place a Point»).
+La usa el bloque de goteo para fijar la dirección de los laterales con dos puntos, para colocar la
+válvula y para dibujar el portalateral, como IRRICAD («Block Lateral: Enter First Point / Enter Second
+Point», «Place a Point», «Manual»).
 """
 
 from qgis.core import Qgis, QgsGeometry, QgsPointXY
@@ -14,6 +15,9 @@ TOLERANCIA_PX = 12  # radio del imán, en píxeles de la pantalla
 
 class HerramientaPuntos(QgsMapTool):
     """Pide `cuantos` puntos (1 o 2) y llama a `terminar(puntos)` con ellos, en el SRC del mapa.
+
+    Con `cuantos=None` se dibuja una línea de dos o más puntos: termina con clic derecho, doble clic o
+    Intro (el clic derecho antes del segundo punto cancela).
 
     `geometrias`: geometrías (en el SRC del mapa) cuyos vértices y lados atraen al cursor; también se usa
     el imán del proyecto si está activado. `mensajes`: un texto para la barra de estado por cada punto.
@@ -75,7 +79,12 @@ class HerramientaPuntos(QgsMapTool):
         self._estado()
 
     def _estado(self):
-        if self.mostrar_estado is not None and len(self.puntos) < len(self.mensajes):
+        if self.mostrar_estado is None:
+            return
+        if self.cuantos is None:
+            self.mostrar_estado(self.mensajes[min(len(self.puntos), len(self.mensajes) - 1)]
+                                + " · clic derecho, doble clic o Intro para terminar · Esc para cancelar")
+        elif len(self.puntos) < len(self.mensajes):
             self.mostrar_estado(self.mensajes[len(self.puntos)] + " · Esc o clic derecho para cancelar")
 
     def canvasMoveEvent(self, evento):  # noqa: N802 (nombre exigido por Qt)
@@ -90,13 +99,13 @@ class HerramientaPuntos(QgsMapTool):
             self.iman.setCenter(punto)
             self.iman.show()
         if self.puntos:
-            self.linea.setToGeometry(QgsGeometry.fromPolylineXY([self.puntos[0], punto]), None)
+            self.linea.setToGeometry(QgsGeometry.fromPolylineXY(self.puntos + [punto]), None)
 
     def canvasReleaseEvent(self, evento):  # noqa: N802
         if self._acabado:
             return
         if evento.button() == Qt.MouseButton.RightButton:
-            self._salir(cancelado=True)
+            self._salir(cancelado=self.cuantos is not None or len(self.puntos) < 2)
             return
         if evento.button() != Qt.MouseButton.LeftButton:
             return
@@ -104,14 +113,20 @@ class HerramientaPuntos(QgsMapTool):
         if self.puntos and punto == self.puntos[-1]:
             return  # doble clic en el mismo sitio
         self.puntos.append(punto)
-        if len(self.puntos) >= self.cuantos:
+        if self.cuantos is not None and len(self.puntos) >= self.cuantos:
             self._salir(cancelado=False)
         else:
             self._estado()
 
+    def canvasDoubleClickEvent(self, evento):  # noqa: N802
+        if self.cuantos is None and len(self.puntos) >= 2:
+            self._salir(cancelado=False)
+
     def keyPressEvent(self, evento):  # noqa: N802
         if evento.key() == Qt.Key.Key_Escape:
             self._salir(cancelado=True)
+        elif evento.key() in (Qt.Key.Key_Return, Qt.Key.Key_Enter) and self.cuantos is None:
+            self._salir(cancelado=len(self.puntos) < 2)
 
     def deactivate(self):
         self._limpiar()

@@ -36,12 +36,15 @@ class ConfigCalculo:
     entrada_m: Optional[float] = None  # posición de la válvula en el portalateral; None: según `entrada`
     # Diámetros por velocidad (`nucleo.diametros_velocidad`): `tuberias_portalateral` es entonces la serie.
     velocidad: Optional[object] = None
+    # Solo se dibujan y se cuentan en el metrado: [(tipo, [(x, y), …])] y el punto de la válvula con ramal
+    conexiones: Sequence = ()
+    punto_valvula: Optional[tuple] = None
 
 
 @dataclass
 class ResultadoCalculo:
     diseno: object
-    capas: list  # [válvula, tramos del portalateral, laterales]
+    capas: list  # [válvula, tramos del portalateral, laterales y, si hay, conexiones]
     area_m2: float
     avisos: list
 
@@ -107,7 +110,8 @@ def calcular_subunidad(nombre, crs, portalateral, bloque, laterales_mapa, config
     area = bloque.area() if bloque is not None else 0.0
     descartados = {id(lat) for lat in modelo.descartados}
     longitudes = [lat.longitud_m for lat in laterales_mapa if id(lat) not in descartados]
-    capas = mapa.capas_resultado(diseno, modelo, portalateral, entrada, crs, nombre)
+    capas = mapa.capas_resultado(diseno, modelo, portalateral, entrada, crs, nombre,
+                                 conexiones=config.conexiones, punto_valvula=config.punto_valvula)
     guardar_configuracion_laterales(capas[2], config)
     guardar_resumen(capas[0], resumen_subunidad(
         nombre, diseno, config.criterios, metodo, area, longitudes, config.presion_conocida, avisos))

@@ -27,7 +27,9 @@ from .trazado import (EPS, Anillo, LateralTrazado, Punto, _intervalos, _verifica
 # Posición del portalateral respecto de los laterales
 PORTA_INICIO, PORTA_FINAL, PORTA_CENTRO, PORTA_DISTANCIA = "inicio", "final", "centro", "distancia"
 PORTA_ALTO, PORTA_BAJO = "alto", "bajo"  # en el borde más alto (laterales en bajada) o más bajo
-POSICIONES_PORTALATERAL = (PORTA_INICIO, PORTA_FINAL, PORTA_CENTRO, PORTA_DISTANCIA, PORTA_ALTO, PORTA_BAJO)
+PORTA_MANUAL = "manual"  # la línea que dibujó el proyectista en el mapa («Manual» de IRRICAD)
+POSICIONES_PORTALATERAL = (PORTA_INICIO, PORTA_FINAL, PORTA_CENTRO, PORTA_DISTANCIA, PORTA_ALTO, PORTA_BAJO,
+                           PORTA_MANUAL)
 
 # Posición de la válvula a lo largo del portalateral
 VALV_AUTO, VALV_ALTO, VALV_BAJO = "auto", "alto", "bajo"
@@ -35,6 +37,11 @@ VALV_INICIO, VALV_FINAL, VALV_CENTRO, VALV_PORCENTAJE = "inicio", "final", "cent
 VALV_PUNTO = "punto"  # en el punto del portalateral más cercano al que marcó el proyectista
 POSICIONES_VALVULA = (VALV_AUTO, VALV_ALTO, VALV_BAJO, VALV_INICIO, VALV_FINAL, VALV_CENTRO, VALV_PORCENTAJE,
                       VALV_PUNTO)
+
+# Tipos de tramo de conexión
+CONEXION_EXTREMO, CONEXION_LADO_VALVULA, CONEXION_RAMAL_VALVULA = "extremo", "lado_valvula", "ramal_valvula"
+NOMBRES_CONEXION = {CONEXION_EXTREMO: "Prolongación del extremo", CONEXION_LADO_VALVULA: "Prolongación del lado de la válvula",
+                    CONEXION_RAMAL_VALVULA: "Ramal de la válvula"}
 
 TOLERANCIA_PORTALATERAL_M = 1.0  # para enderezar el portalateral que sigue un borde irregular
 
@@ -49,9 +56,14 @@ class ParametrosBloque:
     angulo_deg: Optional[float] = None  # sentido de los laterales, antihorario desde el eje x; None: automático
     portalateral: str = PORTA_INICIO
     distancia_portalateral_m: float = 0.0  # desde el inicio de los laterales, con PORTA_DISTANCIA
+    puntos_portalateral: Tuple[Punto, ...] = ()  # con PORTA_MANUAL: vértices de la línea, en el SRC del lote
     valvula: str = VALV_AUTO
     porcentaje_valvula: float = 50.0  # con VALV_PORCENTAJE, desde el extremo más alto (o el inicio sin cotas)
     punto_valvula: Optional[Punto] = None  # con VALV_PUNTO; sin él, la válvula es automática
+    # Tramos de conexión que solo se dibujan y se cuentan en la lista de materiales (no entran en el cálculo)
+    prolongacion_extremo_m: float = 0.0  # «Stub Length»: el portalateral sigue más allá del último lateral
+    prolongacion_valvula_m: float = 0.0  # «Submain Stub»: lo mismo del lado de la válvula (válvula en un extremo)
+    ramal_valvula_m: float = 0.0  # «Valve Stub»: tubería perpendicular del portalateral a la válvula
     longitud_min_m: float = 1.0  # un lateral más corto no se traza
     # Caudal de un lateral según su longitud. Sin él, el «caudal» es la longitud en metros.
     caudal_lateral: Optional[Callable[[float], float]] = field(default=None, compare=False)
@@ -70,8 +82,12 @@ class ParametrosBloque:
             raise ValueError("La cabecera y los costados no pueden ser negativos.")
         if self.portalateral not in POSICIONES_PORTALATERAL:
             raise ValueError(f"Posición del portalateral no válida: {self.portalateral!r}.")
+        if self.portalateral == PORTA_MANUAL and len({tuple(p) for p in self.puntos_portalateral}) < 2:
+            raise ValueError("Dibuje el portalateral en el mapa: hacen falta al menos dos puntos distintos.")
         if self.valvula not in POSICIONES_VALVULA:
             raise ValueError(f"Posición de la válvula no válida: {self.valvula!r}.")
+        if min(self.prolongacion_extremo_m, self.prolongacion_valvula_m, self.ramal_valvula_m) < 0:
+            raise ValueError("Los tramos de conexión no pueden ser negativos.")
         if not 0 <= self.porcentaje_valvula <= 100:
             raise ValueError("El porcentaje de la válvula debe estar entre 0 y 100.")
 
@@ -98,6 +114,13 @@ class Bloque:
     pendiente_laterales: Optional[float] = None  # media desde el portalateral, m/m; positiva si suben
     avisos: List[str] = field(default_factory=list)
     laterales_por_hilera: int = 1
+    # Tramos de conexión: (tipo, polilínea) y dónde queda la válvula si tiene ramal (ver `conectar_valvula`)
+    conexiones: List[Tuple[str, List[Punto]]] = field(default_factory=list)
+    valvula_final: Optional[Punto] = None
+
+    @property
+    def longitud_conexiones_m(self):
+        return sum(_longitud(linea) for _, linea in self.conexiones)
 
     @property
     def longitud_portalateral_m(self):
@@ -119,6 +142,11 @@ class Bloque:
     @property
     def valvula(self) -> Punto:
         return punto_en(self.portalateral, self.valvula_m)
+
+    @property
+    def punto_de_la_valvula(self) -> Punto:
+        """Donde se dibuja la válvula: al final de su ramal, o sobre el portalateral si no tiene."""
+        return self.valvula_final if self.valvula_final is not None else self.valvula
 
     @property
     def azimut_laterales_grados(self):
@@ -158,6 +186,70 @@ def distancia_sobre_polilinea(puntos, p) -> Tuple[float, float]:
             mejor = (recorrido + t * math.sqrt(tramo2), separacion)
         recorrido += math.sqrt(tramo2)
     return mejor
+
+
+def direccion_en(puntos, distancia) -> Punto:
+    """Vector unitario del sentido de la polilínea en el punto a la distancia dada (en un vértice, el del
+    tramo que sigue; en el final, el del último tramo)."""
+    restante = max(0.0, distancia)
+    for a, b in zip(puntos, puntos[1:]):
+        tramo = math.dist(a, b)
+        if tramo > EPS and restante < tramo - EPS:
+            return ((b[0] - a[0]) / tramo, (b[1] - a[1]) / tramo)
+        restante -= tramo
+    for a, b in zip(reversed(puntos[:-1]), reversed(puntos[1:])):
+        tramo = math.dist(a, b)
+        if tramo > EPS:
+            return ((b[0] - a[0]) / tramo, (b[1] - a[1]) / tramo)
+    raise ValueError("El portalateral no tiene largo.")
+
+
+def conectar_valvula(portalateral, valvula_m, params: ParametrosBloque, avisos=None):
+    """Tramos de conexión del portalateral y dónde queda la válvula. Devuelve (conexiones, punto de la válvula).
+
+    Con la válvula en un extremo del portalateral, `prolongacion_valvula_m` lo alarga por ese lado y
+    `prolongacion_extremo_m` por el otro. Con la válvula en medio, solo vale `prolongacion_extremo_m`, en
+    los dos extremos. El ramal de la válvula sale perpendicular desde donde conecta la válvula, hacia la
+    izquierda del sentido del portalateral (del extremo 1 al 2). Punto de la válvula: None si no hay ramal.
+    """
+    avisos = avisos if avisos is not None else []
+    largo = _longitud(portalateral)
+    inicio, final = portalateral[0], portalateral[-1]
+    d_inicio = direccion_en(portalateral, 0.0)
+    d_final = direccion_en(portalateral, largo)
+    salida_inicio = (-d_inicio[0], -d_inicio[1])  # sentido hacia fuera en cada extremo
+    salida_final = d_final
+
+    def alargar(punto, salida, longitud):
+        return (punto[0] + salida[0] * longitud, punto[1] + salida[1] * longitud)
+
+    conexiones = []
+    en_inicio, en_final = valvula_m <= EPS, valvula_m >= largo - EPS
+    conexion = punto_en(portalateral, valvula_m)
+    direccion = direccion_en(portalateral, valvula_m)
+    if en_inicio or en_final:
+        valvula_extremo, otro_extremo = (inicio, final) if en_inicio else (final, inicio)
+        salida_valvula, salida_otro = (salida_inicio, salida_final) if en_inicio else (salida_final, salida_inicio)
+        if params.prolongacion_valvula_m > 0:
+            conexion = alargar(valvula_extremo, salida_valvula, params.prolongacion_valvula_m)
+            conexiones.append((CONEXION_LADO_VALVULA, [valvula_extremo, conexion]))
+            direccion = d_inicio if en_inicio else d_final
+        if params.prolongacion_extremo_m > 0:
+            conexiones.append((CONEXION_EXTREMO, [otro_extremo, alargar(otro_extremo, salida_otro,
+                                                                       params.prolongacion_extremo_m)]))
+    else:
+        if params.prolongacion_valvula_m > 0:
+            avisos.append("La válvula no está en un extremo del portalateral: no se agrega la prolongación del "
+                          "lado de la válvula.")
+        if params.prolongacion_extremo_m > 0:
+            conexiones.append((CONEXION_EXTREMO, [inicio, alargar(inicio, salida_inicio, params.prolongacion_extremo_m)]))
+            conexiones.append((CONEXION_EXTREMO, [final, alargar(final, salida_final, params.prolongacion_extremo_m)]))
+    valvula = None
+    if params.ramal_valvula_m > 0:
+        valvula = (conexion[0] - direccion[1] * params.ramal_valvula_m,
+                   conexion[1] + direccion[0] * params.ramal_valvula_m)
+        conexiones.append((CONEXION_RAMAL_VALVULA, [conexion, valvula]))
+    return conexiones, valvula
 
 
 def azimut_entre(desde: Punto, hacia: Punto) -> float:
@@ -292,17 +384,56 @@ def _anclas(plano, ejes, params, cota):
     return anclas, avisos
 
 
+def angulo_para_portalateral(puntos: Sequence[Punto]) -> float:
+    """Sentido de los laterales (grados, antihorario desde +x) perpendicular a la cuerda de un portalateral
+    dibujado: del primer al último punto, el portalateral avanza hacia +y del plano."""
+    p, q = puntos[0], puntos[-1]
+    if math.dist(p, q) < EPS:
+        raise ValueError("El primer y el último punto del portalateral coinciden.")
+    return (math.degrees(math.atan2(q[1] - p[1], q[0] - p[0])) - 90.0) % 360.0
+
+
+def _portalateral_manual(plano, params):
+    """La línea dibujada, en el plano y orientada hacia +y. Devuelve (puntos, avisos)."""
+    puntos = []
+    for p in params.puntos_portalateral:
+        q = plano.al_plano(p)
+        if not puntos or math.dist(q, puntos[-1]) > EPS:
+            puntos.append(q)
+    if len(puntos) < 2:
+        raise ValueError("Dibuje el portalateral en el mapa: hacen falta al menos dos puntos distintos.")
+    if puntos[0][1] > puntos[-1][1]:
+        puntos.reverse()
+    if any(b[1] < a[1] - EPS for a, b in zip(puntos, puntos[1:])):
+        raise ValueError("El portalateral dibujado vuelve atrás respecto de la dirección perpendicular a los "
+                         "laterales: dibújelo de un extremo al otro sin retroceder, o cambie la dirección de los "
+                         "laterales.")
+    if puntos[-1][1] - puntos[0][1] < EPS:
+        raise ValueError("El portalateral dibujado es paralelo a los laterales: cámbielo o cambie su dirección.")
+    return puntos, []
+
+
 def _disponer(plano, params, cota=None):
     """Portalateral y laterales en el plano. Devuelve (portalateral, laterales, hileras, avisos).
 
     Cada lateral es (y, x_portalateral, x_extremo, índice de hilera).
     """
     ejes = ejes_de_hileras(plano.y_min, plano.y_max, params.separacion_m, params.costados)
-    anclas, avisos = _anclas(plano, ejes, params, cota)
-    if len(anclas) == 0:
-        return [], [], 0, avisos
     tolerancia = min(TOLERANCIA_PORTALATERAL_M, params.separacion_m / 2)
-    portalateral = _simplificar(anclas, tolerancia)
+    manual = params.portalateral == PORTA_MANUAL
+    if manual:
+        portalateral, avisos = _portalateral_manual(plano, params)
+        # Solo llevan laterales las hileras que quedan a lo largo de la línea (con media separación de holgura)
+        holgura = params.separacion_m / 2
+        ejes = [y for y in ejes if portalateral[0][1] - holgura <= y <= portalateral[-1][1] + holgura]
+        if not ejes:
+            avisos.append("El portalateral dibujado no pasa por ninguna hilera de laterales.")
+            return [], [], 0, avisos
+    else:
+        anclas, avisos = _anclas(plano, ejes, params, cota)
+        if len(anclas) == 0:
+            return [], [], 0, avisos
+        portalateral = _simplificar(anclas, tolerancia)
     desplazamientos = _desplazamientos(params)
     laterales, hileras = [], set()
     for k, y_eje in enumerate(ejes):
@@ -318,6 +449,9 @@ def _disponer(plano, params, cota=None):
                 if abs(extremo - xp) >= max(params.longitud_min_m, EPS):
                     laterales.append((y, xp, extremo, k))
                     hileras.add(k)
+    if manual and laterales and len(hileras) < len(ejes):
+        avisos.append(f"En {len(ejes) - len(hileras)} hileras el portalateral dibujado queda fuera del lote: "
+                      "allí no hay laterales.")
     if len(desplazamientos) > 1 and laterales:
         # El portalateral llega hasta los laterales de las hileras de los extremos.
         y_bajo = min(lat[0] for lat in laterales)
@@ -372,8 +506,11 @@ def trazar_bloque(anillos: Sequence[Anillo], params: ParametrosBloque,
     _verificar(anillos)
     area = area_anillos(anillos)
     avisos = []
-    if params.angulo_deg is not None:
-        angulo = params.angulo_deg % 360.0
+    angulo_fijo = params.angulo_deg
+    if angulo_fijo is None and params.portalateral == PORTA_MANUAL:
+        angulo_fijo = angulo_para_portalateral(params.puntos_portalateral)  # laterales perpendiculares a la línea
+    if angulo_fijo is not None:
+        angulo = angulo_fijo % 360.0
         plano = _Plano(anillos, angulo)
         portalateral, laterales, hileras, avisos_disp = _disponer(plano, params, cota)
     else:
@@ -435,9 +572,10 @@ def trazar_bloque(anillos: Sequence[Anillo], params: ParametrosBloque,
                 subidas.append((zb - za) / lat.longitud_m)
         if subidas:
             pendiente_lat = sum(subidas) / len(subidas)
+    conexiones, valvula_final = conectar_valvula(portalateral_terreno, valvula_m, params, avisos)
     return Bloque(angulo, portalateral_terreno, resultado, valvula_m, hileras, area, params.separacion_m, caudal,
                   None if z1 is None else z2 - z1, pendiente_lat, avisos,
-                  params.laterales_por_hilera)
+                  params.laterales_por_hilera, conexiones, valvula_final)
 
 
 def _posicion_valvula(params, largo, extremo_1, extremo_2, z1, z2, fuente, peso_subida, avisos):

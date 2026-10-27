@@ -285,6 +285,159 @@ class PruebasLotesYBloque(unittest.TestCase):
             self.assertIsNone(dialogo.punto_valvula)
         canvas.unsetMapTool(anterior)
 
+    def test_portalateral_dibujado_en_el_mapa(self):
+        """Como el «Manual» de IRRICAD: clics en los vértices del portalateral; clic derecho termina."""
+        from qgis.gui import QgsMapCanvas, QgsMapMouseEvent
+        from qgis.PyQt.QtCore import QEvent, QPoint, Qt
+        from riegolibre.gui import dialogo_bloque
+        from riegolibre.gui.herramienta_puntos import HerramientaPuntos
+        from riegolibre.integracion.lotes import parametros_guardados
+        from riegolibre.nucleo.bloque import PORTA_INICIO, PORTA_MANUAL
+
+        _, capa = self._importar("manual.gpkg")
+        lote_a = next(e for e in capa.getFeatures() if e["nombre"] == "Lote 1")
+        canvas = QgsMapCanvas()
+        canvas.resize(800, 600)
+        canvas.setDestinationCrs(capa.crs())
+        canvas.setExtent(capa.extent().buffered(10))
+        anterior = HerramientaPuntos(canvas, 1, [], [""], lambda p: None, lambda: None)
+        canvas.setMapTool(anterior)
+
+        def clic(x, y, boton=Qt.MouseButton.LeftButton):
+            pantalla = canvas.getCoordinateTransform().transform(QgsPointXY(X0 + x, Y0 + y))
+            posicion = QPoint(round(pantalla.x()), round(pantalla.y()))
+            evento = QgsMapMouseEvent(canvas, QEvent.Type.MouseButtonRelease, posicion, boton)
+            canvas.mapTool().canvasReleaseEvent(evento)
+
+        iface = mock.MagicMock()
+        iface.mapCanvas.return_value = canvas
+        clase = dialogo_bloque.DialogoBloque
+        with mock.patch.object(dialogo_bloque.QMessageBox, "warning", side_effect=_fallar), \
+                mock.patch.object(clase, "_leer_ultimos", return_value={}), \
+                mock.patch.object(clase, "_guardar_ultimos"):
+            dialogo = clase(iface)
+            dialogo.spin_separacion.setValue(2.0)
+            dialogo.spin_costados.setValue(1.0)
+            dialogo.spin_cabecera.setValue(0.0)
+            dialogo.combo_porta.setCurrentIndex(dialogo.combo_porta.findData(PORTA_INICIO))
+            dialogo.combo_dem.setLayer(None)
+            dialogo.abrir_lote(capa, lote_a)
+
+            # Un solo punto y clic derecho: se cancela
+            dialogo.dibujar_portalateral()
+            self.assertIsInstance(canvas.mapTool(), HerramientaPuntos)
+            self.assertIsNone(canvas.mapTool().cuantos)
+            self.assertTrue(dialogo.isHidden())
+            clic(50.0, -45.0)
+            clic(0, 0, Qt.MouseButton.RightButton)
+            self.assertIs(canvas.mapTool(), anterior)
+            self.assertFalse(dialogo.isHidden())
+            self.assertIsNone(dialogo.puntos_portalateral)
+            self.assertNotEqual(dialogo.combo_porta.currentData(), PORTA_MANUAL)
+
+            # Línea vertical por x = 50 de sur a norte
+            dialogo.dibujar_portalateral()
+            clic(50.0, -44.0)
+            clic(50.0, -6.0)
+            clic(0, 0, Qt.MouseButton.RightButton)
+            self.assertIs(canvas.mapTool(), anterior)
+            self.assertEqual(dialogo.combo_porta.currentData(), PORTA_MANUAL)
+            self.assertEqual(len(dialogo.puntos_portalateral), 2)
+            b = dialogo.bloque
+            self.assertIsNotNone(b)
+            # Laterales perpendiculares a la línea (los clics caen en píxeles enteros: casi vertical)
+            self.assertLess(min(b.angulo_deg % 180.0, 180.0 - b.angulo_deg % 180.0), 1.0)
+            self.assertEqual({lat.lado for lat in b.laterales}, {"A", "B"})
+            self.assertTrue(all(abs(lat.inicio[0] - (X0 + 50.0)) < 0.6 for lat in b.laterales))
+            self.assertAlmostEqual(b.longitud_portalateral_m, 40.0, delta=0.6)  # el imán la lleva a los bordes
+
+            dialogo.edit_nombre.setText("A-manual")
+            dialogo.aplicar()
+            datos = parametros_guardados(capa.getFeature(lote_a.id()))
+            self.assertEqual(datos["portalateral"], PORTA_MANUAL)
+            self.assertEqual(len(datos["puntos_portalateral"]), 2)
+            # Otros lotes no heredan la línea
+            otros = dialogo_bloque._sin_punto_de_valvula(datos)
+            self.assertEqual(otros["portalateral"], PORTA_INICIO)
+            self.assertIsNone(otros["puntos_portalateral"])
+            lote_b = next(e for e in capa.getFeatures() if e["nombre"] == "M7. 6")
+            dialogo.abrir_lote(capa, lote_b)
+            self.assertIsNone(dialogo.puntos_portalateral)
+            # Volver al primero recupera su línea
+            dialogo.abrir_lote(capa, capa.getFeature(lote_a.id()))
+            self.assertEqual(len(dialogo.puntos_portalateral), 2)
+        canvas.unsetMapTool(anterior)
+
+    def test_tramos_de_conexion_en_el_mapa(self):
+        """«Stub Length», «Submain Stub» y «Valve Stub»: se dibujan y entran en el metrado, sin cambiar el cálculo."""
+        from riegolibre.gui import dialogo_bloque
+        from riegolibre.integracion import materiales_mapa
+        from riegolibre.integracion.lotes import parametros_guardados
+        from riegolibre.nucleo.bloque import CONEXION_RAMAL_VALVULA, PORTA_INICIO, VALV_CENTRO, VALV_INICIO
+
+        _, capa = self._importar("conexiones.gpkg")
+        lote_a = next(e for e in capa.getFeatures() if e["nombre"] == "Lote 1")
+        clase = dialogo_bloque.DialogoBloque
+        raiz = QgsProject.instance().layerTreeRoot()
+
+        def capas_del_grupo():
+            return {n.layer().name().split(" · ")[0]: n.layer()
+                    for n in raiz.findGroup("RiegoLibre · A-conex").findLayers()}
+
+        def metros_portalateral():
+            partidas, _ = materiales_mapa.partidas_del_proyecto()
+            return sum(p.cantidad for p in partidas if p.categoria == "Portalaterales")
+
+        with mock.patch.object(dialogo_bloque.QMessageBox, "warning", side_effect=_fallar), \
+                mock.patch.object(clase, "_leer_ultimos", return_value={}), \
+                mock.patch.object(clase, "_guardar_ultimos"):
+            dialogo = clase(None)
+            dialogo.spin_separacion.setValue(2.0)
+            dialogo.spin_costados.setValue(1.0)
+            dialogo.spin_cabecera.setValue(0.0)
+            dialogo.radio_usuario.setChecked(True)
+            dialogo.spin_azimut.setValue(0.0)  # laterales al norte: el portalateral va por el este
+            dialogo.combo_porta.setCurrentIndex(dialogo.combo_porta.findData(PORTA_INICIO))
+            dialogo.combo_valvula.setCurrentIndex(dialogo.combo_valvula.findData(VALV_INICIO))
+            dialogo.combo_dem.setLayer(None)
+            dialogo.abrir_lote(capa, lote_a)
+            dialogo.edit_nombre.setText("A-conex")
+            dialogo.aplicar()
+            self.assertNotIn("Conexiones", capas_del_grupo())
+            presion = next(capas_del_grupo()["Válvula"].getFeatures())["presion"]
+            sin_tramos = metros_portalateral()
+            valvula_sin = next(capas_del_grupo()["Válvula"].getFeatures()).geometry().asPoint()
+
+            dialogo.spin_prolongacion_extremo.setValue(1.0)
+            dialogo.spin_prolongacion_valvula.setValue(0.5)
+            dialogo.spin_ramal_valvula.setValue(2.0)
+            dialogo.aplicar()
+            capas = capas_del_grupo()
+            self.assertIn("Conexiones", capas)
+            self.assertEqual(materiales_mapa._tipo(capas["Conexiones"]), "conexiones")
+            conexiones = list(capas["Conexiones"].getFeatures())
+            self.assertEqual(len(conexiones), 3)
+            self.assertAlmostEqual(sum(f["longitud"] for f in conexiones), 3.5, places=3)
+            self.assertTrue(all(f["tuberia"] for f in conexiones))
+            ramal = next(f for f in conexiones if f["conexion_tipo"] == CONEXION_RAMAL_VALVULA)
+            # Con los laterales al norte, el portalateral va de este (extremo 1, donde está la válvula) a oeste: la
+            # prolongación sale hacia el este y el ramal hacia la izquierda del sentido, el sur
+            valvula = next(capas["Válvula"].getFeatures()).geometry().asPoint()
+            self.assertAlmostEqual(valvula.y(), valvula_sin.y() - 2.0, places=3)
+            self.assertAlmostEqual(valvula.x(), valvula_sin.x() + 0.5, places=3)
+            self.assertAlmostEqual(ramal.geometry().length(), 2.0, places=3)
+            # No cambia el cálculo y sí el metrado
+            self.assertAlmostEqual(next(capas["Válvula"].getFeatures())["presion"], presion, places=6)
+            self.assertAlmostEqual(metros_portalateral() - sin_tramos, 3.5, places=3)
+            datos = parametros_guardados(capa.getFeature(lote_a.id()))
+            self.assertEqual(datos["ramal_valvula_m"], 2.0)
+            # Con la válvula al centro, la prolongación del lado de la válvula no aplica
+            dialogo.combo_valvula.setCurrentIndex(dialogo.combo_valvula.findData(VALV_CENTRO))
+            dialogo._actualizar()
+            self.assertFalse(dialogo.spin_prolongacion_valvula.isEnabled())
+            dialogo.aplicar()
+            self.assertEqual(len(list(capas_del_grupo()["Conexiones"].getFeatures())), 3)  # 2 extremos + ramal
+
     def test_eliminar_bloque_con_ctrl_clic(self):
         """Como en IRRICAD: Ctrl + clic en el lote elimina su bloque; un clic normal lo abre."""
         from qgis.gui import QgsMapCanvas, QgsMapMouseEvent

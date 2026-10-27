@@ -5,6 +5,7 @@ El motor (`nucleo.bloque`, `nucleo.subdivision`) trabaja con listas de puntos; a
 geometrías de QGIS, se leen las cotas del DEM y se crean las capas.
 """
 
+import math
 from dataclasses import dataclass
 from typing import List, Optional
 
@@ -43,6 +44,10 @@ def trazar_en_lote(geometria, params: ParametrosBloque, crs, capa_dem=None, fuen
     return bloque
 
 
+def _longitud_linea(linea):
+    return sum(math.dist(a, b) for a, b in zip(linea, linea[1:]))
+
+
 def geometria_portalateral(bloque: Bloque) -> QgsGeometry:
     return QgsGeometry.fromPolylineXY([_punto(p) for p in bloque.portalateral])
 
@@ -79,8 +84,13 @@ def vista_previa(bloques, crs):
         e.setGeometry(geometria_portalateral(b))
         e.setAttributes([nombre, round(b.longitud_portalateral_m, 2)])
         ent_porta.append(e)
+        for _, linea in b.conexiones:
+            e = QgsFeature(portas.fields())
+            e.setGeometry(QgsGeometry.fromPolylineXY([_punto(p) for p in linea]))
+            e.setAttributes([nombre, round(_longitud_linea(linea), 2)])
+            ent_porta.append(e)
         e = QgsFeature(valvulas.fields())
-        e.setGeometry(QgsGeometry.fromPointXY(_punto(b.valvula)))
+        e.setGeometry(QgsGeometry.fromPointXY(_punto(b.punto_de_la_valvula)))
         e.setAttributes([nombre])
         ent_valv.append(e)
     for capa, entidades in ((laterales, ent_lat), (portas, ent_porta), (valvulas, ent_valv)):
@@ -254,7 +264,8 @@ def calcular_bloque(nombre, crs, bloque: Bloque, geometria_lote, config, avisos=
     from dataclasses import replace
 
     from .calculo_subunidad import calcular_subunidad
-    config = replace(config, entrada_m=bloque.valvula_m)
+    config = replace(config, entrada_m=bloque.valvula_m, conexiones=tuple(bloque.conexiones),
+                     punto_valvula=bloque.valvula_final)
     return calcular_subunidad(nombre, crs, geometria_portalateral(bloque), geometria_lote, laterales_mapa(bloque),
                               config, list(avisos or []) + list(bloque.avisos))
 
@@ -351,6 +362,10 @@ def parametros_de(v: dict, emisor) -> ParametrosBloque:
         angulo_deg=None if automatica else (90.0 - float(v.get("azimut_deg", 0.0))) % 360.0,
         portalateral=v.get("portalateral", "inicio"),
         distancia_portalateral_m=float(v.get("distancia_portalateral_m", 0.0)),
+        puntos_portalateral=tuple(tuple(p) for p in v.get("puntos_portalateral") or ()),
+        prolongacion_extremo_m=float(v.get("prolongacion_extremo_m") or 0.0),
+        prolongacion_valvula_m=float(v.get("prolongacion_valvula_m") or 0.0),
+        ramal_valvula_m=float(v.get("ramal_valvula_m") or 0.0),
         valvula=v.get("valvula", "auto"), porcentaje_valvula=float(v.get("porcentaje_valvula", 50.0)),
         punto_valvula=tuple(v["punto_valvula"]) if v.get("punto_valvula") else None,
         caudal_lateral=funcion_caudal(emisor, float(v["espaciamiento_m"]), float(v["primer_emisor_m"])))
