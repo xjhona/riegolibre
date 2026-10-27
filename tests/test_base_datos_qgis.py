@@ -47,6 +47,78 @@ class PruebasBaseDatosQgis(unittest.TestCase):
         self.assertTrue(dialogo.boton_generico.isEnabled())
         self.assertIn("Pumps (bombas): 1 registros", dialogo._informe(resultado))
 
+    def test_editar_duplicar_y_eliminar(self):
+        from qgis.PyQt.QtWidgets import QMessageBox
+        from riegolibre.gui.dialogo_base_datos import DialogoRegistro
+        dialogo, _, avisos = self._importar()
+        dialogo.pestanas.setCurrentIndex(2)  # válvulas
+        tabla = dialogo.tabla_valvulas
+
+        tabla.selectRow(0)
+        antes = len(avisos)
+        dialogo.duplicar_seleccion()
+        self.assertEqual(len(base_activa().valvulas), 3)
+        self.assertEqual(sum("(copia)" in v.nombre for v in base_activa().valvulas), 1)
+        self.assertEqual(len(avisos), antes + 1)
+
+        # editar el primer registro con el formulario
+        formulario = DialogoRegistro("valvulas", base_activa().valvulas[0], base_activa())
+        formulario.controles["precio"].setText("12,5")
+        formulario.controles["seleccionable"].setChecked(False)
+        formulario.controles["caudal_max_m3h"].setText("")
+        formulario.accept()
+        self.assertIsNotNone(formulario.registro)
+        self.assertEqual((formulario.registro.precio, formulario.registro.seleccionable,
+                          formulario.registro.caudal_max_m3h), (12.5, False, None))
+
+        # número mal escrito y nombre repetido: no se acepta
+        formulario = DialogoRegistro("valvulas", base_activa().valvulas[0], base_activa())
+        formulario.controles["k"].setText("abc")
+        formulario.accept()
+        self.assertIsNone(formulario.registro)
+        self.assertIn("no es un número", formulario.etiqueta_error.text())
+        formulario = DialogoRegistro("valvulas", base_activa().valvulas[0], base_activa())
+        formulario.controles["nombre"].setText(base_activa().valvulas[1].nombre)
+        formulario.accept()
+        self.assertIsNone(formulario.registro)
+
+        # guardar la edición y borrar
+        def aceptar(self):
+            self.controles["precio"].setText("99")
+            DialogoRegistro.accept(self)
+            return True
+        tabla.selectRow(0)
+        nombre = base_activa().valvulas[0].nombre
+        with mock.patch.object(DialogoRegistro, "exec", aceptar):
+            dialogo.editar()
+        self.assertEqual(base_activa().valvulas[0].precio, 99.0)
+        self.assertEqual(base_activa().valvulas[0].nombre, nombre)
+        self.assertEqual(len(base_activa().valvulas), 3)
+        tabla.selectRow(0)
+        with mock.patch("riegolibre.gui.dialogo_base_datos.QMessageBox.question",
+                        return_value=QMessageBox.StandardButton.Yes):
+            dialogo.eliminar()
+        self.assertEqual(len(base_activa().valvulas), 2)
+
+    def test_agregar_sin_base_la_crea(self):
+        from riegolibre.gui.dialogo_base_datos import DialogoBaseDatos, DialogoRegistro
+        self.assertIsNone(base_activa())
+        dialogo = DialogoBaseDatos(iface=None)
+        dialogo.pestanas.setCurrentIndex(3)
+
+        def aceptar(self):
+            self.controles["nombre"].setText("Filtro de malla 120")
+            self.controles["k"].setText("0.0005")
+            self.controles["precio"].setText("80")
+            DialogoRegistro.accept(self)
+            return True
+        with mock.patch.object(DialogoRegistro, "exec", aceptar):
+            dialogo.agregar()
+        base = base_activa()
+        self.assertEqual([h.nombre for h in base.hidraulicos], ["Filtro de malla 120"])
+        self.assertEqual(base.origen, "Creada en RiegoLibre")
+        self.assertEqual(dialogo.pestanas.tabText(3), "Otros hidráulicos (1)")
+
     def test_buscar(self):
         dialogo, _, _ = self._importar()
         dialogo.pestanas.setCurrentIndex(3)

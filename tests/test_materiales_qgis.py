@@ -96,6 +96,30 @@ class PruebasMaterialesQgis(unittest.TestCase):
         subtotales = [f[9] for f in filas[inicio:-1] if f[9] is not None]
         self.assertAlmostEqual(sum(subtotales), esperado, places=1)
 
+    def test_precios_de_la_base_de_datos_en_la_ventana(self):
+        from unittest import mock
+
+        from riegolibre.gui.dialogo_materiales import DialogoMateriales
+        from riegolibre.nucleo.base_datos import (VARIABLE_RUTA, BaseDatos, RegistroTuberia,
+                                                  guardar_base)
+        porta = self.diseno.tuberia
+        ruta = os.path.join(self.carpeta.name, "base_datos.json")
+        guardar_base(BaseDatos(tuberias=[RegistroTuberia(porta.nombre, 50.0, "PVC", ["portalateral"],
+                                                          precio_m=3.0, codigo="MIA")]), ruta)
+        with mock.patch.dict(os.environ, {VARIABLE_RUTA: ruta}):
+            dialogo = DialogoMateriales(iface=None)  # sin lista CSV: solo la base
+            self.assertTrue(dialogo.check_base.isChecked())
+            partida = next(p for p in dialogo.partidas if p.material == porta.nombre)
+            self.assertEqual((partida.articulo.codigo, partida.automatico), ("MIA", True))
+            self.assertAlmostEqual(partida.costo(0.0), partida.cantidad * 3.0)
+            dialogo.check_base.setChecked(False)
+            self.assertIsNone(partida.articulo)
+
+            from riegolibre.integracion.materiales_mapa import precios_de_tuberias
+            precios, _moneda, nombre = precios_de_tuberias([porta])
+            self.assertIn("base de datos", nombre)  # y la lista CSV, si otra prueba la dejó abierta
+            self.assertAlmostEqual(precios[porta.nombre], 3.0 * 1.05)
+
 
 if __name__ == "__main__":
     unittest.main()

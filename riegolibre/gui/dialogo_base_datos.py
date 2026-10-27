@@ -1,16 +1,22 @@
 """Base de datos de materiales: importación desde IRRICAD y consulta por pestañas."""
 
+import copy
 import os
 
 from qgis.core import QgsSettings
 from qgis.PyQt.QtCore import Qt, QUrl, pyqtSignal
 from qgis.PyQt.QtGui import QDesktopServices
-from qgis.PyQt.QtWidgets import (QAbstractItemView, QApplication, QDialog, QDialogButtonBox,
-                                 QFileDialog, QHBoxLayout, QHeaderView, QLabel, QLineEdit,
-                                 QMessageBox, QPushButton, QTableWidget, QTableWidgetItem,
-                                 QTabWidget, QVBoxLayout)
+from qgis.PyQt.QtWidgets import (QAbstractItemView, QApplication, QCheckBox, QDialog,
+                                 QDialogButtonBox, QFileDialog, QFormLayout, QHBoxLayout,
+                                 QHeaderView, QLabel, QLineEdit, QMessageBox, QPushButton,
+                                 QScrollArea, QTableWidget, QTableWidgetItem, QTabWidget,
+                                 QVBoxLayout, QWidget)
 
-from ..nucleo.base_datos import base_activa, desactivar_base, guardar_base, ruta_base_usuario
+from ..nucleo.base_datos import (base_activa, desactivar_base, guardar_base, recargar_base,
+                                 ruta_base_usuario)
+from ..nucleo.edicion_base import (CAMPOS, CATEGORIAS, NUMERO_OPCIONAL, NUMERO, SI_NO, TEXTO, TITULOS,
+                                   USOS, USOS_TUBERIA, base_nueva, duplicar, eliminar_registros,
+                                   guardar_registro, registro_nuevo, validar)
 from ..nucleo.importar_irricad import importar_irricad
 from ..nucleo.mdb import ErrorMdb
 
@@ -77,12 +83,103 @@ def _tabla(columnas):
 
 def _llenar(tabla, registros):
     tabla.setSortingEnabled(False)
+    tabla.registros = list(registros)  # la fila i es el registro i
     tabla.setRowCount(len(registros))
     for fila, registro in enumerate(registros):
         for columna, (_, valor) in enumerate(tabla.columnas):
             tabla.setItem(fila, columna, QTableWidgetItem(valor(registro)))
     tabla.resizeColumnsToContents()
     tabla.setColumnWidth(0, min(tabla.columnWidth(0), 320))
+
+
+class DialogoRegistro(QDialog):
+    """Formulario de un registro de la base (se arma con `edicion_base.CAMPOS`)."""
+
+    def __init__(self, categoria, registro, base, parent=None, nuevo=False):
+        super().__init__(parent)
+        self.categoria, self.base, self.original = categoria, base, registro
+        self.registro = None  # el registro editado, solo si se aceptó
+        self.setWindowTitle(f"RiegoLibre · {'Nuevo registro' if nuevo else 'Editar registro'} "
+                            f"({TITULOS[categoria]})")
+        self.resize(520, 640)
+        self.controles = {}
+        formulario = QFormLayout()
+        for campo in CAMPOS[categoria]:
+            valor = getattr(registro, campo.nombre)
+            if campo.tipo == SI_NO:
+                control = QCheckBox()
+                control.setChecked(bool(valor))
+            elif campo.tipo == USOS:
+                control = QWidget()
+                fila = QHBoxLayout(control)
+                fila.setContentsMargins(0, 0, 0, 0)
+                for uso in USOS_TUBERIA:
+                    caja = QCheckBox(uso)
+                    caja.setChecked(uso in valor)
+                    fila.addWidget(caja)
+                fila.addStretch()
+            else:
+                control = QLineEdit("" if valor is None else
+                                    valor if campo.tipo == TEXTO else f"{valor:.10g}")
+                if campo.tipo == NUMERO_OPCIONAL:
+                    control.setPlaceholderText("vacío")
+            if campo.ayuda:
+                control.setToolTip(campo.ayuda)
+            self.controles[campo.nombre] = control
+            formulario.addRow(campo.etiqueta + ":", control)
+        contenido = QWidget()
+        contenido.setLayout(formulario)
+        zona = QScrollArea()
+        zona.setWidgetResizable(True)
+        zona.setWidget(contenido)
+
+        self.etiqueta_error = QLabel()
+        self.etiqueta_error.setStyleSheet("color: #c62828")
+        self.etiqueta_error.setWordWrap(True)
+        botones = QDialogButtonBox(QDialogButtonBox.StandardButton.Ok | QDialogButtonBox.StandardButton.Cancel)
+        botones.button(QDialogButtonBox.StandardButton.Ok).setText("Guardar")
+        botones.button(QDialogButtonBox.StandardButton.Cancel).setText("Cancelar")
+        botones.accepted.connect(self.accept)
+        botones.rejected.connect(self.reject)
+        principal = QVBoxLayout(self)
+        principal.addWidget(zona, 1)
+        principal.addWidget(self.etiqueta_error)
+        principal.addWidget(botones)
+
+    def _leer(self):
+        """Copia del registro con lo escrito en el formulario, y los errores de formato."""
+        copia = copy.deepcopy(self.original)
+        errores = []
+        for campo in CAMPOS[self.categoria]:
+            control = self.controles[campo.nombre]
+            if campo.tipo == SI_NO:
+                valor = control.isChecked()
+            elif campo.tipo == USOS:
+                valor = [c.text() for c in control.findChildren(QCheckBox) if c.isChecked()]
+            elif campo.tipo == TEXTO:
+                valor = control.text().strip()
+            else:
+                texto = control.text().strip().replace(",", ".")
+                try:
+                    valor = float(texto) if texto else None
+                except ValueError:
+                    errores.append(f"«{campo.etiqueta}» no es un número.")
+                    continue
+                if valor is None and campo.tipo == NUMERO:
+                    errores.append(f"Escriba «{campo.etiqueta}».")
+                    continue
+            setattr(copia, campo.nombre, valor)
+        return copia, errores
+
+    def accept(self):
+        copia, errores = self._leer()
+        if not errores:
+            errores = validar(self.base, self.categoria, copia, self.original)
+        if errores:
+            self.etiqueta_error.setText("\n".join(errores))
+            return
+        self.registro = copia
+        super().accept()
 
 
 class DialogoBaseDatos(QDialog):
@@ -110,6 +207,19 @@ class DialogoBaseDatos(QDialog):
         fila_botones.addWidget(self.boton_generico)
         fila_botones.addStretch()
 
+        self.boton_agregar = QPushButton("Agregar…")
+        self.boton_agregar.clicked.connect(self.agregar)
+        self.boton_editar = QPushButton("Editar…")
+        self.boton_editar.clicked.connect(self.editar)
+        self.boton_duplicar = QPushButton("Duplicar")
+        self.boton_duplicar.clicked.connect(self.duplicar_seleccion)
+        self.boton_eliminar = QPushButton("Eliminar")
+        self.boton_eliminar.clicked.connect(self.eliminar)
+        fila_edicion = QHBoxLayout()
+        for boton in (self.boton_agregar, self.boton_editar, self.boton_duplicar, self.boton_eliminar):
+            fila_edicion.addWidget(boton)
+        fila_edicion.addStretch()
+
         self.edit_buscar = QLineEdit()
         self.edit_buscar.setPlaceholderText("Buscar en la pestaña (descripción, código, proveedor…)")
         self.edit_buscar.setClearButtonEnabled(True)
@@ -122,6 +232,7 @@ class DialogoBaseDatos(QDialog):
         self.tabla_hidraulicos = _tabla(COLUMNAS_HIDRAULICOS)
         for tabla in (self.tabla_tuberias, self.tabla_cintas, self.tabla_valvulas, self.tabla_hidraulicos):
             self.pestanas.addTab(tabla, "")
+            tabla.cellDoubleClicked.connect(lambda _fila, _columna: self.editar())
         self.pestanas.currentChanged.connect(lambda _i: self._filtrar())
 
         botones = QDialogButtonBox(QDialogButtonBox.StandardButton.Close)
@@ -130,6 +241,7 @@ class DialogoBaseDatos(QDialog):
         principal = QVBoxLayout(self)
         principal.addWidget(self.etiqueta_estado)
         principal.addLayout(fila_botones)
+        principal.addLayout(fila_edicion)
         principal.addWidget(self.edit_buscar)
         principal.addWidget(self.pestanas, 1)
         principal.addWidget(botones)
@@ -219,6 +331,74 @@ class DialogoBaseDatos(QDialog):
         desactivar_base()
         self.actualizar()
         self.base_cambiada.emit()
+
+    # ---------------------------------------------------------------- edición
+
+    def _seleccionados(self):
+        """(categoría, registros seleccionados) de la pestaña actual."""
+        tabla = self.pestanas.currentWidget()
+        filas = sorted({indice.row() for indice in tabla.selectionModel().selectedRows()})
+        return CATEGORIAS[self.pestanas.currentIndex()], [tabla.registros[f] for f in filas]
+
+    def _base_para_editar(self):
+        """La base activa, o una vacía si todavía no hay (se crea al guardar el primer registro)."""
+        try:
+            return base_activa() or base_nueva()
+        except (OSError, ValueError, TypeError):
+            return base_nueva()
+
+    def _guardar(self, base):
+        try:
+            guardar_base(base, ruta_base_usuario())
+        except OSError as error:
+            recargar_base()  # descarta los cambios hechos en memoria
+            QMessageBox.warning(self, "RiegoLibre", f"No se pudo guardar la base de datos:\n{error}")
+        self.actualizar()
+        self.base_cambiada.emit()
+
+    def agregar(self):
+        categoria = CATEGORIAS[self.pestanas.currentIndex()]
+        base = self._base_para_editar()
+        dialogo = DialogoRegistro(categoria, registro_nuevo(categoria, base), base, self, nuevo=True)
+        if dialogo.exec() and dialogo.registro is not None:
+            guardar_registro(base, categoria, dialogo.registro)
+            self._guardar(base)
+
+    def editar(self):
+        categoria, elegidos = self._seleccionados()
+        if len(elegidos) != 1:
+            QMessageBox.information(self, "RiegoLibre", "Elija un solo registro para editarlo.")
+            return
+        base = self._base_para_editar()
+        dialogo = DialogoRegistro(categoria, elegidos[0], base, self)
+        if dialogo.exec() and dialogo.registro is not None:
+            guardar_registro(base, categoria, dialogo.registro, original=elegidos[0])
+            self._guardar(base)
+
+    def duplicar_seleccion(self):
+        categoria, elegidos = self._seleccionados()
+        if not elegidos:
+            QMessageBox.information(self, "RiegoLibre", "Elija los registros que quiere duplicar.")
+            return
+        base = self._base_para_editar()
+        for registro in elegidos:
+            guardar_registro(base, categoria, duplicar(base, categoria, registro))
+        self._guardar(base)
+
+    def eliminar(self):
+        categoria, elegidos = self._seleccionados()
+        if not elegidos:
+            QMessageBox.information(self, "RiegoLibre", "Elija los registros que quiere eliminar.")
+            return
+        respuesta = QMessageBox.question(
+            self, "RiegoLibre",
+            f"Se eliminarán {len(elegidos)} registro(s) de «{TITULOS[categoria]}».\n"
+            "La base anterior queda guardada como copia de respaldo (.bak).\n\n¿Continuar?")
+        if respuesta != QMessageBox.StandardButton.Yes:
+            return
+        base = self._base_para_editar()
+        eliminar_registros(base, categoria, elegidos)
+        self._guardar(base)
 
     @staticmethod
     def _informe(resultado):

@@ -57,15 +57,29 @@ def clave_articulo(articulo):
     return f"{articulo.codigo}|{articulo.descripcion}"
 
 
-def asignar_articulos(partidas, articulos, tuberias_por_nombre, elegidos: Dict[str, str]):
+def articulos_de_base(base) -> Dict[str, Articulo]:
+    """Artículos con el precio de venta por metro de las tuberías y laterales de la base de datos.
+
+    Devuelve {clave de partida «tuberia:nombre»: artículo}; los registros sin precio no aparecen.
+    """
+    if base is None:
+        return {}
+    registros = list(base.tuberias) + list(base.cintas)
+    return {f"tuberia:{r.nombre}": Articulo(r.codigo or "BASE", r.nombre, "m", r.precio_m)
+            for r in registros if r.precio_m > 0}
+
+
+def asignar_articulos(partidas, articulos, tuberias_por_nombre, elegidos: Dict[str, str], propios=None):
     """Asigna a cada partida su artículo de la lista de precios.
 
     Primero se respeta la elección guardada (elegidos: clave de partida -> clave de
-    artículo). Si no la hay, las tuberías del catálogo se buscan en la lista por
-    material, diámetro y clase, y los conectores iniciales por el diámetro de la
+    artículo). Si no la hay, se usa el precio de la base de datos del usuario (`propios`,
+    ver `articulos_de_base`); si tampoco, las tuberías del catálogo se buscan en la lista
+    por material, diámetro y clase, y los conectores iniciales por el diámetro de la
     manguera; entre varios equivalentes se toma el de precio central.
     """
-    por_clave = {clave_articulo(a): a for a in articulos}
+    propios = propios or {}
+    por_clave = {clave_articulo(a): a for a in list(articulos) + list(propios.values())}
     for partida in partidas:
         partida.articulo, partida.automatico = None, False
         elegido = elegidos.get(partida.clave)
@@ -73,6 +87,9 @@ def asignar_articulos(partidas, articulos, tuberias_por_nombre, elegidos: Dict[s
             partida.articulo = por_clave.get(elegido)
             if partida.articulo is not None:
                 continue
+        if partida.clave in propios:
+            partida.articulo, partida.automatico = propios[partida.clave], True
+            continue
         tipo, _, nombre = partida.clave.partition(":")
         tuberia = tuberias_por_nombre.get(nombre)
         if tuberia is None:
@@ -175,12 +192,12 @@ def resumen_por_categoria(partidas, desperdicio=0.0) -> List[tuple]:
             if c in resumen]
 
 
-def precios_por_metro(tuberias, articulos, elegidos: Dict[str, str], desperdicio=0.0):
+def precios_por_metro(tuberias, articulos, elegidos: Dict[str, str], desperdicio=0.0, propios=None):
     """Precio por metro de cada tubería, con el artículo que le daría la lista de materiales.
 
     Devuelve {nombre de la tubería: precio por metro con desperdicio}; las
     tuberías sin artículo equivalente no aparecen.
     """
     partidas = [Partida("", t.nombre, 1.0, "m", f"tuberia:{t.nombre}") for t in tuberias]
-    asignar_articulos(partidas, articulos, {t.nombre: t for t in tuberias}, elegidos)
+    asignar_articulos(partidas, articulos, {t.nombre: t for t in tuberias}, elegidos, propios)
     return {p.material: p.articulo.precio_m * (1 + desperdicio) for p in partidas if p.articulo is not None}

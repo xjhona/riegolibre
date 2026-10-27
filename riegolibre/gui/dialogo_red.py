@@ -5,8 +5,8 @@ from qgis.gui import QgsMapLayerComboBox
 from qgis.PyQt.QtCore import Qt
 from qgis.PyQt.QtWidgets import (QAbstractItemView, QApplication, QCheckBox, QComboBox,
                                  QDialog, QDialogButtonBox, QFormLayout,
-                                 QGroupBox, QHeaderView, QMessageBox,
-                                 QPushButton, QScrollArea, QSpinBox, QSplitter,
+                                 QGroupBox, QHeaderView, QListWidget, QListWidgetItem,
+                                 QMessageBox, QPushButton, QScrollArea, QSpinBox, QSplitter,
                                  QTableWidget, QTableWidgetItem, QTabWidget,
                                  QTextBrowser, QVBoxLayout, QWidget)
 
@@ -353,15 +353,20 @@ class DialogoRed(QDialog):
     def _grupo_bomba(self):
         grupo = QGroupBox("Cabezal y bomba")
         formulario = QFormLayout(grupo)
-        self.combo_hidraulico_cabezal = QComboBox()
-        self.combo_hidraulico_cabezal.addItem("Ninguno (usar solo pérdida fija)", None)
+        self.lista_hidraulicos_cabezal = QListWidget()
         for h in hidraulicos_activos():
-            self.combo_hidraulico_cabezal.addItem(f"{h.nombre}{_texto_rango(h)}", h)
-        self.combo_hidraulico_cabezal.setToolTip(
-            "Elemento del cabezal de la base de datos (filtro, hidrociclón… con H = K·Q^n + C). "
-            "Su pérdida según el caudal de cada turno se suma a las pérdidas fijas del cabezal.")
-        if self.combo_hidraulico_cabezal.count() > 1:
-            formulario.addRow("Equipo de cabezal (base):", self.combo_hidraulico_cabezal)
+            item = QListWidgetItem(f"{h.nombre}{_texto_rango(h)}")
+            item.setFlags(item.flags() | Qt.ItemFlag.ItemIsUserCheckable)
+            item.setCheckState(Qt.CheckState.Unchecked)
+            item.setData(Qt.ItemDataRole.UserRole, h)
+            self.lista_hidraulicos_cabezal.addItem(item)
+        self.lista_hidraulicos_cabezal.setMaximumHeight(110)
+        self.lista_hidraulicos_cabezal.setToolTip(
+            "Equipos del cabezal de la base de datos (filtros, hidrociclón, reguladora… con "
+            "H = K·Q^n + C). Marque los que van en serie: la pérdida de cada uno según el caudal de "
+            "cada turno se suma a las pérdidas fijas del cabezal.")
+        if self.lista_hidraulicos_cabezal.count():
+            formulario.addRow("Equipos de cabezal (base):", self.lista_hidraulicos_cabezal)
         self.spin_cabezal = spin(0, 50, 7.0, 0.5, sufijo="m")
         self.spin_cabezal.setToolTip("Filtros, fertirriego, medidor y válvulas del cabezal.")
         formulario.addRow("Pérdidas en el cabezal:", self.spin_cabezal)
@@ -514,11 +519,13 @@ class DialogoRed(QDialog):
         )
 
     def datos_bomba(self):
-        elemento = self.combo_hidraulico_cabezal.currentData()
+        marcados = [self.lista_hidraulicos_cabezal.item(i).data(Qt.ItemDataRole.UserRole)
+                    for i in range(self.lista_hidraulicos_cabezal.count())
+                    if self.lista_hidraulicos_cabezal.item(i).checkState() == Qt.CheckState.Checked]
         return DatosBomba(perdidas_cabezal_m=self.spin_cabezal.value(),
                           altura_succion_m=self.spin_succion.value(),
                           eficiencia=self.spin_eficiencia.value() / 100,
-                          elementos_cabezal=(elemento,) if elemento is not None else ())
+                          elementos_cabezal=tuple(marcados))
 
     def economicos(self):
         return DatosEconomicos(precio_energia_kwh=self.spin_energia.value(),

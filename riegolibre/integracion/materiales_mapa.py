@@ -5,8 +5,9 @@ import os
 
 from qgis.core import QgsProject, QgsSettings, QgsVectorLayer
 
-from ..nucleo.materiales import (Partida, asignar_articulos, clave_articulo, ordenar,
-                                 precios_por_metro)
+from ..nucleo.base_datos import base_activa
+from ..nucleo.materiales import (Partida, articulos_de_base, asignar_articulos, clave_articulo,
+                                 ordenar, precios_por_metro)
 from ..nucleo.memoria import Presupuesto
 from ..nucleo.precios import cargar_lista_precios
 from .subunidad_mapa import PROPIEDAD
@@ -135,16 +136,15 @@ def presupuesto_del_proyecto(tuberias_por_nombre, proyecto=None):
     Usa la moneda, el desperdicio y los artículos elegidos en la ventana de materiales.
     """
     ajustes = QgsSettings()
-    ruta = ajustes.value(AJUSTE_LISTA, "")
-    if not ruta or not os.path.exists(ruta):
+    articulos, propios, nombre_lista = _fuentes_de_precios(ajustes)
+    if not articulos and not propios:
         return None
     partidas, _resumen = partidas_del_proyecto(proyecto)
     if not partidas:
         return None
-    asignar_articulos(partidas, cargar_lista_precios(ruta), tuberias_por_nombre,
-                      elecciones_del_proyecto(proyecto))
+    asignar_articulos(partidas, articulos, tuberias_por_nombre, elecciones_del_proyecto(proyecto), propios)
     return Presupuesto(partidas, float(ajustes.value(AJUSTE_DESPERDICIO, 5.0, type=float)) / 100,
-                       ajustes.value(AJUSTE_MONEDA, "USD"), os.path.basename(ruta))
+                       ajustes.value(AJUSTE_MONEDA, "USD"), nombre_lista)
 
 
 def precios_de_tuberias(tuberias, proyecto=None):
@@ -155,10 +155,18 @@ def precios_de_tuberias(tuberias, proyecto=None):
     None si no hay lista de precios.
     """
     ajustes = QgsSettings()
-    ruta = ajustes.value(AJUSTE_LISTA, "")
-    if not ruta or not os.path.exists(ruta):
+    articulos, propios, nombre_lista = _fuentes_de_precios(ajustes)
+    if not articulos and not propios:
         return None
     desperdicio = float(ajustes.value(AJUSTE_DESPERDICIO, 5.0, type=float)) / 100
-    precios = precios_por_metro(tuberias, cargar_lista_precios(ruta), elecciones_del_proyecto(proyecto),
-                                desperdicio)
-    return precios, ajustes.value(AJUSTE_MONEDA, "USD"), os.path.basename(ruta)
+    precios = precios_por_metro(tuberias, articulos, elecciones_del_proyecto(proyecto), desperdicio, propios)
+    return precios, ajustes.value(AJUSTE_MONEDA, "USD"), nombre_lista
+
+
+def _fuentes_de_precios(ajustes):
+    """(artículos de la última lista abierta, precios de la base de datos, nombre para mostrar)."""
+    ruta = ajustes.value(AJUSTE_LISTA, "")
+    articulos = cargar_lista_precios(ruta) if ruta and os.path.exists(ruta) else []
+    propios = articulos_de_base(base_activa())
+    partes = ([os.path.basename(ruta)] if articulos else []) + (["base de datos"] if propios else [])
+    return articulos, propios, " + ".join(partes)

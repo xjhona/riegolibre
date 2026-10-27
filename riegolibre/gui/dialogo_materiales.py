@@ -6,7 +6,7 @@ from datetime import date
 from qgis.core import QgsProject, QgsSettings
 from qgis.PyQt.QtCore import Qt
 from qgis.PyQt.QtGui import QBrush, QColor
-from qgis.PyQt.QtWidgets import (QAbstractItemView, QDialog, QDialogButtonBox,
+from qgis.PyQt.QtWidgets import (QAbstractItemView, QCheckBox, QDialog, QDialogButtonBox,
                                  QFileDialog, QFormLayout, QHBoxLayout,
                                  QHeaderView, QLabel, QLineEdit, QListWidget,
                                  QListWidgetItem, QMessageBox, QPushButton,
@@ -16,8 +16,9 @@ from ..integracion.materiales_mapa import (AJUSTE_DESPERDICIO, AJUSTE_LISTA,
                                            AJUSTE_MONEDA, elecciones_del_proyecto,
                                            guardar_eleccion)
 from ..nucleo import cargar_catalogo_tuberias
-from ..nucleo.materiales import (asignar_articulos, exportar_csv, exportar_excel,
-                                 resumen_por_categoria, total)
+from ..nucleo.base_datos import base_activa
+from ..nucleo.materiales import (articulos_de_base, asignar_articulos, exportar_csv,
+                                 exportar_excel, resumen_por_categoria, total)
 from ..nucleo.precios import buscar, cargar_lista_precios
 from .comunes import spin
 
@@ -88,6 +89,12 @@ class DialogoMateriales(QDialog):
         fila_lista.addWidget(self.etiqueta_lista, 1)
         fila_lista.addWidget(boton_lista)
         cabecera.addRow("Lista de precios:", fila_lista)
+        self.check_base = QCheckBox("Usar los precios de venta de mi base de datos de materiales")
+        self.check_base.setToolTip("Las tuberías y laterales que tengan precio en la base usan ese precio, "
+                                   "antes que la lista de precios (CSV). Una elección hecha a mano manda.")
+        self.check_base.setChecked(bool(articulos_de_base(base_activa())))
+        self.check_base.toggled.connect(lambda _marcado: self._asignar())
+        cabecera.addRow("", self.check_base)
         fila_opciones = QHBoxLayout()
         self.edit_moneda = QLineEdit(ajustes.value(AJUSTE_MONEDA, "USD"))
         self.edit_moneda.setMaximumWidth(80)
@@ -177,19 +184,27 @@ class DialogoMateriales(QDialog):
         self.partidas, self.resumen = partidas_del_proyecto()
         self._asignar()
 
+    def _propios(self):
+        """Precios de la base de datos del usuario, si se pidió usarlos."""
+        if not self.check_base.isChecked():
+            return {}
+        return articulos_de_base(base_activa())
+
     def _asignar(self):
-        asignar_articulos(self.partidas, self.articulos, self.tuberias, elecciones_del_proyecto())
+        asignar_articulos(self.partidas, self.articulos, self.tuberias, elecciones_del_proyecto(),
+                          self._propios())
         self._actualizar_tabla()
 
     def elegir_articulo(self, fila):
         if not 0 <= fila < len(self.partidas):
             return
-        if not self.articulos:
+        disponibles = self.articulos + list(self._propios().values())
+        if not disponibles:
             QMessageBox.information(self, "RiegoLibre", "Abra primero una lista de precios.")
             return
         partida = self.partidas[fila]
         sugerencia = partida.articulo.descripcion if partida.articulo else ""
-        dialogo = DialogoArticulo(self.articulos, sugerencia, self)
+        dialogo = DialogoArticulo(disponibles, sugerencia, self)
         if dialogo.exec() and dialogo.elegido is not None:
             self.asignar(fila, dialogo.elegido)
 

@@ -249,6 +249,8 @@ class PruebasRedMapa(unittest.TestCase):
         # La base importada de IRRICAD puede traer el caudal mínimo vacío: la ventana no debe caerse.
         from unittest import mock
 
+        from qgis.PyQt.QtCore import Qt
+
         from riegolibre.gui.dialogo_red import DialogoRed, _texto_rango
         from riegolibre.nucleo.base_datos import (VARIABLE_RUTA, BaseDatos, ElementoHidraulico,
                                                   guardar_base)
@@ -265,17 +267,22 @@ class PruebasRedMapa(unittest.TestCase):
             with mock.patch.dict(os.environ, {VARIABLE_RUTA: ruta}):
                 dialogo = DialogoRed(iface=None)
                 self.assertEqual(dialogo.combo_valvula_base.itemText(1), 'Válvula 2" (0–25 m³/h)')
-                self.assertEqual(dialogo.combo_hidraulico_cabezal.itemText(1), "Filtro anillas (5–25 m³/h)")
-                self.assertEqual(dialogo.combo_hidraulico_cabezal.itemText(2), "Hidrociclón")
+                lista = dialogo.lista_hidraulicos_cabezal
+                self.assertEqual(lista.item(0).text(), "Filtro anillas (5–25 m³/h)")
+                self.assertEqual(lista.item(1).text(), "Hidrociclón")
+                self.assertEqual(dialogo.datos_bomba().elementos_cabezal, ())
                 dialogo.combo_valvula_base.setCurrentIndex(1)
-                dialogo.combo_hidraulico_cabezal.setCurrentIndex(1)
+                lista.item(0).setCheckState(Qt.CheckState.Checked)
+                lista.item(1).setCheckState(Qt.CheckState.Checked)  # dos equipos en serie
+                self.assertEqual([e.nombre for e in dialogo.datos_bomba().elementos_cabezal],
+                                 ["Filtro anillas", "Hidrociclón"])
                 dialogo.combo_tuberias.setLayer(self.tuberias)
                 dialogo.combo_fuente.setLayer(self.fuente)
                 dialogo.combo_dem.setLayer(self.dem)
                 dialogo.buscar_valvulas()
                 dialogo.calcular()
                 critico = dialogo.resultado.turno_critico
-                cabezal = 7.0 + 0.002 * (critico.caudal_total_lh / 1000) ** 2 + 1.0
+                cabezal = 7.0 + (0.002 + 0.001) * (critico.caudal_total_lh / 1000) ** 2 + 1.0
                 self.assertIn(f"cabezal {cabezal:.1f}", dialogo.texto.toPlainText())
 
 

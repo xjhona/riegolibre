@@ -253,6 +253,11 @@ def base_activa() -> Optional[BaseDatos]:
     return _cache["base"]
 
 
+def recargar_base():
+    """Descarta la base en memoria; la próxima consulta la lee otra vez del archivo."""
+    _cache.clear()
+
+
 def cintas_activas():
     """Laterales con gotero de la base activa, por nombre ({} si no hay base)."""
     base = base_activa()

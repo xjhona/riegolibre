@@ -154,6 +154,38 @@ class PruebasMateriales(unittest.TestCase):
         resumen = dict((c, (s, n)) for c, s, n in resumen_por_categoria(partidas))
         self.assertEqual(resumen["Emisores"], (0.0, 1))
 
+    def test_precios_de_la_base_de_datos(self):
+        from riegolibre.nucleo.base_datos import BaseDatos, Cinta, RegistroTuberia
+        from riegolibre.nucleo.materiales import articulos_de_base
+        base = BaseDatos(
+            tuberias=[RegistroTuberia(PVC63.nombre, 59.0, "PVC", ["principal"], precio_m=0.9, codigo="P63"),
+                      RegistroTuberia("Sin precio", 59.0)],
+            cintas=[Cinta(MANGUERA16.nombre, 14.0, 2.0, 0.0, 0.5, precio_m=0.25)])
+        propios = articulos_de_base(base)
+        self.assertEqual(sorted(propios), [f"tuberia:{MANGUERA16.nombre}", f"tuberia:{PVC63.nombre}"])
+        self.assertEqual((propios[f"tuberia:{PVC63.nombre}"].codigo, propios[f"tuberia:{PVC63.nombre}"].precio_m),
+                         ("P63", 0.9))
+        self.assertEqual(articulos_de_base(None), {})
+
+        partidas = [Partida("Red principal", PVC63.nombre, 60.0, "m", f"tuberia:{PVC63.nombre}"),
+                    Partida("Laterales", MANGUERA16.nombre, 500.0, "m", f"tuberia:{MANGUERA16.nombre}"),
+                    Partida("Emisores", "Gotero", 300, "und", "emisor:g")]
+        tuberias = {t.nombre: t for t in (PVC63, MANGUERA16)}
+        asignar_articulos(partidas, self.articulos, tuberias, {}, propios)
+        self.assertEqual(partidas[0].articulo.codigo, "P63")  # la base manda sobre la lista CSV
+        self.assertTrue(partidas[0].automatico)
+        self.assertAlmostEqual(partidas[1].costo(), 500 * 0.25)
+        self.assertIsNone(partidas[2].articulo)
+        # una elección manual manda sobre la base; si su lista no está cargada, se vuelve a la base
+        amnon = next(a for a in self.articulos if a.codigo == "101089516")
+        elegido = {f"tuberia:{PVC63.nombre}": clave_articulo(amnon)}
+        asignar_articulos(partidas, self.articulos, tuberias, elegido, propios)
+        self.assertIs(partidas[0].articulo, amnon)
+        asignar_articulos(partidas, [], tuberias, elegido, propios)
+        self.assertEqual(partidas[0].articulo.codigo, "P63")
+        precios = precios_por_metro([PVC63, MANGUERA16], [], {}, 0.1, propios)
+        self.assertAlmostEqual(precios[PVC63.nombre], 0.99)
+
     def test_precios_por_metro(self):
         pvc63_75 = Tuberia("Tubería PVC 63 mm C-7.5", 59.0, material="PVC", diametro_nominal_mm=63,
                            presion_nominal_m=75)
