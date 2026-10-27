@@ -3,6 +3,7 @@
 from qgis.core import Qgis, QgsProject, QgsVectorLayer
 from qgis.gui import QgsMapLayerComboBox
 from qgis.PyQt.QtCore import Qt
+from qgis.PyQt.QtGui import QColor
 from qgis.PyQt.QtWidgets import (QAbstractItemView, QApplication, QCheckBox, QComboBox,
                                  QDialog, QDialogButtonBox, QFormLayout,
                                  QGroupBox, QHBoxLayout, QHeaderView, QLabel, QListWidget,
@@ -18,6 +19,7 @@ from ..nucleo.graficos import dibujar_perfil_red
 from ..nucleo.memoria import avisos_red, resumen_economia, resumen_red
 from ..nucleo.red import bomba_critica, perfil_ruta_critica
 from ..nucleo.trazado_red import DIRECTO, ORTOGONAL
+from ..nucleo.turnos import TURNO_MAXIMO, color_de_turno, resumen_turnos, texto_balance
 from .comunes import (M_POR_BAR, Figure, FigureCanvasQTAgg, html_avisos, html_estado,
                       html_tabla, spin)
 
@@ -72,6 +74,7 @@ class DialogoRed(QDialog):
         self.resize(1250, 800)
         self.tuberias = cargar_catalogo_tuberias(uso="principal")
         self.valvulas = []  # ValvulaMapa encontradas en el proyecto
+        self.abrir_turnos = None  # lo pone el complemento: activa la herramienta «Turnos de riego»
         self.resultado = None
         self.optimizacion = None  # si los diámetros se eligieron por costo total
         self.economia = None
@@ -198,7 +201,15 @@ class DialogoRed(QDialog):
         boton.setToolTip("Busca capas de puntos con los campos «presion» y «caudal_lh», como las "
                          "capas «Válvula · …» que crea el diseño de subunidades.")
         boton.clicked.connect(self.buscar_valvulas)
-        capa.addWidget(boton)
+        fila = QHBoxLayout()
+        fila.addWidget(boton, 1)
+        self.boton_turnos_mapa = QPushButton("Asignar turnos en el mapa…")
+        self.boton_turnos_mapa.setToolTip(
+            "Activa la herramienta de mapa: se marcan bloques con el ratón, se les asigna un turno y se "
+            "pintan con su color. Los turnos quedan en la capa «Turnos de riego» y se copian a esta tabla.")
+        self.boton_turnos_mapa.clicked.connect(self._asignar_turnos_en_mapa)
+        fila.addWidget(self.boton_turnos_mapa)
+        capa.addLayout(fila)
         self.tabla_valvulas = QTableWidget(0, 4)
         self.tabla_valvulas.setHorizontalHeaderLabels(["Válvula", "Caudal (L/h)", "Presión (m)", "Turno"])
         self.tabla_valvulas.verticalHeader().setVisible(False)
@@ -207,6 +218,9 @@ class DialogoRed(QDialog):
         self.tabla_valvulas.horizontalHeader().setStretchLastSection(True)
         self.tabla_valvulas.setMinimumHeight(140)
         capa.addWidget(self.tabla_valvulas)
+        self.etiqueta_turnos = QLabel()
+        self.etiqueta_turnos.setWordWrap(True)
+        capa.addWidget(self.etiqueta_turnos)
         formulario = QFormLayout()
         self.combo_valvula_base = QComboBox()
         self.combo_valvula_base.addItem("Ninguna (usar solo pérdida fija)", None)
@@ -503,23 +517,26 @@ class DialogoRed(QDialog):
 
     def buscar_valvulas(self):
         from ..integracion.red_mapa import capas_de_valvulas, leer_valvulas
+        from ..integracion.turnos_mapa import aplicar_turnos
         capa_tuberias = self.combo_tuberias.currentLayer()
         if capa_tuberias is None:
             QMessageBox.warning(self, "RiegoLibre", "Elija primero la capa de tuberías.")
             return
         turnos = {v.id: v.turno for v in self.valvulas}
         self.valvulas = leer_valvulas(capas_de_valvulas(), capa_tuberias.crs())
-        for v in self.valvulas:
-            v.turno = turnos.get(v.id, 1)
+        aplicar_turnos(self.valvulas, por_defecto=turnos)  # manda lo pintado en el mapa
         tabla = self.tabla_valvulas
         tabla.setRowCount(len(self.valvulas))
         for fila, v in enumerate(self.valvulas):
             for columna, texto in enumerate([v.id, f"{v.caudal_lh:,.0f}", f"{v.presion_m:.2f}"]):
                 tabla.setItem(fila, columna, QTableWidgetItem(texto))
             turno = QSpinBox()
-            turno.setRange(1, 50)
+            turno.setRange(1, TURNO_MAXIMO)
             turno.setValue(v.turno)
+            turno.valueChanged.connect(lambda valor, id_valvula=v.id: self._turno_editado(id_valvula, valor))
             tabla.setCellWidget(fila, 3, turno)
+            self._pintar_fila(fila)
+        self._actualizar_balance()
         if not self.valvulas:
             QMessageBox.information(self, "RiegoLibre",
                                     "No se encontraron válvulas. Diseñe las subunidades en el mapa o "
@@ -529,6 +546,55 @@ class DialogoRed(QDialog):
     def _turnos_de_tabla(self):
         for fila, v in enumerate(self.valvulas):
             v.turno = self.tabla_valvulas.cellWidget(fila, 3).value()
+
+    def _pintar_fila(self, fila):
+        """El nombre de la válvula lleva el color de su turno, el mismo con que se pinta en el mapa."""
+        color = QColor(color_de_turno(self.valvulas[fila].turno))
+        color.setAlpha(140)
+        self.tabla_valvulas.item(fila, 0).setBackground(color)
+
+    def _actualizar_balance(self):
+        self.etiqueta_turnos.setText(texto_balance(resumen_turnos(
+            (v.id, v.caudal_lh, v.turno) for v in self.valvulas)) if self.valvulas else "")
+
+    def _crs_de_turnos(self):
+        capa = self.combo_tuberias.currentLayer()
+        return capa.crs() if capa is not None else QgsProject.instance().crs()
+
+    def _turno_editado(self, id_valvula, turno):
+        """Cambio a mano en la tabla: se refleja en el mapa (se pinta el bloque con el color del turno)."""
+        from ..integracion.turnos_mapa import cambiar_turnos
+        for fila, v in enumerate(self.valvulas):
+            if v.id == id_valvula:
+                v.turno = turno
+                self._pintar_fila(fila)
+        self._actualizar_balance()
+        try:
+            cambiar_turnos({id_valvula: turno}, self._crs_de_turnos())
+        except ValueError as error:
+            QMessageBox.warning(self, "RiegoLibre", str(error))
+        else:
+            if self.iface is not None:
+                self.iface.mapCanvas().refresh()
+
+    def cargar_turnos_del_mapa(self):
+        """Copia a la tabla los turnos pintados en el mapa (las válvulas sin pintar vuelven al turno 1)."""
+        from ..integracion.turnos_mapa import aplicar_turnos
+        aplicar_turnos(self.valvulas)
+        for fila, v in enumerate(self.valvulas):
+            spin = self.tabla_valvulas.cellWidget(fila, 3)
+            spin.blockSignals(True)
+            spin.setValue(v.turno)
+            spin.blockSignals(False)
+            self._pintar_fila(fila)
+        self._actualizar_balance()
+
+    def _asignar_turnos_en_mapa(self):
+        if self.abrir_turnos is None:
+            QMessageBox.information(self, "RiegoLibre", "La herramienta «Turnos de riego» está en la barra de "
+                                                        "RiegoLibre de QGIS.")
+            return
+        self.abrir_turnos()
 
     # --------------------------------------------------------- trazado automático
 

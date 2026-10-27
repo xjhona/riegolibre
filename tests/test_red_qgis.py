@@ -65,6 +65,13 @@ class PruebasRedMapa(unittest.TestCase):
         cls.dem = None
         cls.carpeta.cleanup()
 
+    def tearDown(self):
+        # Los turnos cambiados en la tabla quedan pintados en el mapa: que no pasen a la prueba siguiente.
+        from riegolibre.integracion.turnos_mapa import capa_de_turnos
+        capa = capa_de_turnos()
+        if capa is not None:
+            QgsProject.instance().removeMapLayer(capa.id())
+
     def _red(self, muestreador=True, tolerancia=0.5, turnos=None):
         from riegolibre.integracion.perfil_terreno import MuestreadorDem
         from riegolibre.integracion.red_mapa import capas_de_valvulas, construir_red, leer_valvulas

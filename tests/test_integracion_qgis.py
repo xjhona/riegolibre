@@ -181,7 +181,9 @@ class PruebasIntegracionQgis(unittest.TestCase):
                           "Importar lotes de CAD…",
                           "Bloque de goteo (clic en un lote; Ctrl + clic para eliminar su bloque)",
                           "Zonas: tabla de diseño de los lotes…", "Diámetros de portalaterales por velocidad…",
-                          "Trazado automático de subunidades (goteo)…", "Red principal y bomba…",
+                          "Trazado automático de subunidades (goteo)…",
+                          "Turnos de riego (marcar bloques en el mapa y asignarles un turno)",
+                          "Red principal y bomba…",
                           "Base de datos de materiales…", "Lista de materiales y costos…", "Memoria de cálculo…",
                           "Información del objeto (clic en un lateral, tubería o válvula)"])
         self.assertTrue(all(not a.icon().isNull() for a in iface.menu))
@@ -203,16 +205,27 @@ class PruebasIntegracionQgis(unittest.TestCase):
         self.assertTrue(plugin.dialogos["diametros"].isVisible())
         iface.menu[8].trigger()
         self.assertTrue(plugin.dialogos["trazado"].isVisible())
-        iface.menu[12].trigger()  # sin resultados en el proyecto: la memoria lo indica
+        # La herramienta «Turnos de riego» abre su panel; la ventana de la red la activa con su botón.
+        iface.menu[9].setChecked(True)
+        self.assertIs(iface.mapCanvas().mapTool(), plugin.herramienta_turnos)
+        self.assertTrue(plugin.panel_turnos.isVisible())
+        iface.mapCanvas().unsetMapTool(plugin.herramienta_turnos)
+        self.assertFalse(iface.menu[9].isChecked())
+        iface.menu[10].trigger()
+        self.assertIsNotNone(plugin.dialogos["red"].abrir_turnos)
+        plugin.dialogos["red"].boton_turnos_mapa.click()
+        self.assertIs(iface.mapCanvas().mapTool(), plugin.herramienta_turnos)
+        iface.mapCanvas().unsetMapTool(plugin.herramienta_turnos)
+        iface.menu[13].trigger()  # sin resultados en el proyecto: la memoria lo indica
         self.assertIn("No hay resultados", plugin.dialogos["memoria"].etiqueta_estado.text())
         # La herramienta «Información del objeto» se activa y se desactiva desde su botón.
-        iface.menu[13].setChecked(True)
+        iface.menu[14].setChecked(True)
         self.assertIs(iface.mapCanvas().mapTool(), plugin.herramienta_info)
         iface.mapCanvas().unsetMapTool(plugin.herramienta_info)
-        self.assertFalse(iface.menu[13].isChecked())
+        self.assertFalse(iface.menu[14].isChecked())
         # Al cambiar la base de datos, las ventanas se rehacen para leer los catálogos nuevos:
         # las cerradas de inmediato y las abiertas cuando se vuelven a abrir.
-        iface.menu[10].trigger()
+        iface.menu[11].trigger()
         base = plugin.dialogos["base_datos"]
         plugin.dialogos["topografia"].hide()
         subunidad = plugin.dialogos["subunidad"]

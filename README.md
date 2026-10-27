@@ -38,11 +38,12 @@ riegolibre/                 Complemento de QGIS (esta carpeta es la que se insta
 │   ├── info_objeto.py      Busca el objeto calculado bajo el cursor y arma su ficha
 │   ├── trazado_mapa.py     Trazado automático: geometrías, pendiente del DEM, alcance de laterales y capas
 │   ├── red_mapa.py         Topología de la red principal dibujada y capas de resultado
+│   ├── turnos_mapa.py      Turnos de riego pintados en el mapa (capa «Turnos de riego»)
 │   ├── materiales_mapa.py  Metrado a partir de las capas de resultado del proyecto
 │   └── memoria_mapa.py     Resúmenes guardados en las capas y plano general
 └── gui/                    Ventanas: lateral, subunidad, diseño en el mapa, trazado automático, red, base de datos,
 │                           materiales, memoria
-│                           y la herramienta «Información del objeto»
+│                           y las herramientas «Información del objeto» y «Turnos de riego»
 tests/                      Pruebas automáticas
 scripts/                    Utilidades de desarrollo
 ```
@@ -115,7 +116,17 @@ Menú **Complementos → RiegoLibre → Red principal y bomba**:
 
 1. Cada subunidad diseñada en el mapa deja una capa *Válvula · nombre* con su caudal y presión requerida. También sirve cualquier capa de puntos con los campos `presion` (m) y `caudal_lh` (L/h).
 2. Dibuje la **fuente** (punto de la bomba y el cabezal) y las **tuberías** hasta cada válvula. No hace falta cortar las líneas en las uniones: los extremos, las uniones en T, la fuente y las válvulas se detectan dentro de una tolerancia.
-3. Pulse **Buscar válvulas**, asigne el **turno** de riego de cada una y pulse **Calcular**.
+3. Pulse **Buscar válvulas**, asigne el **turno** de riego de cada una y pulse **Calcular**. Los turnos se asignan en la tabla o, más cómodo, en el mapa (siguiente sección).
+
+### Turnos de riego en el mapa
+
+El botón **Turnos de riego** de la barra de RiegoLibre (o **Asignar turnos en el mapa…** en la ventana de la red) abre un panel flotante y activa una herramienta de mapa, como el reparto de turnos de IRRICAD:
+
+1. **Clic** en un bloque (un lote, un bloque del trazado automático o una válvula suelta) lo marca en rojo; otro clic lo desmarca. **Arrastrar** un rectángulo marca todos los bloques que toca.
+2. Elija el **turno** en el panel y pulse **Asignar** (o Intro): los bloques se pintan con el color del turno y llevan su etiqueta «T1», «T2»… El panel deja elegido el turno siguiente para el próximo grupo; Esc limpia la selección.
+3. Repita con otro grupo y otro turno. Un clic en un turno de la tabla del panel lo elige para añadirle más bloques; volver a marcar un bloque ya pintado y asignarlo le cambia el turno.
+
+El panel muestra por turno las válvulas y el caudal, y el **desbalance** entre turnos (el turno de mayor caudal es el que manda los diámetros de la red y la bomba). Los turnos quedan en la capa *Turnos de riego* (se guarda con el proyecto) y la ventana de la red los toma al pulsar **Buscar válvulas**; si la ventana ya está abierta, la tabla se actualiza sola. Cambiar un turno en la tabla también pinta el bloque en el mapa. Las válvulas sin turno se calculan en el turno 1.
 
 Qué hace el cálculo:
 - **Turnos**: en cada turno funcionan solo sus válvulas.

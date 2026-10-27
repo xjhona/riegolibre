@@ -20,6 +20,9 @@ class RiegoLibrePlugin:
         self.dialogo_info = None
         self.accion_bloque = None
         self.herramienta_bloque = None
+        self.accion_turnos = None
+        self.herramienta_turnos = None
+        self.panel_turnos = None
         self.guardado_pendiente = False
         self.reescribiendo = False
 
@@ -33,6 +36,7 @@ class RiegoLibrePlugin:
         self._agregar_accion("icon_zonas.svg", "Zonas: tabla de diseño de los lotes…", "zonas")
         self._agregar_accion("icon_diametros.svg", "Diámetros de portalaterales por velocidad…", "diametros")
         self._agregar_accion("icon_trazado.svg", "Trazado automático de subunidades (goteo)…", "trazado")
+        self._agregar_herramienta_turnos()
         self._agregar_accion("icon_red.svg", "Red principal y bomba…", "red")
         self._agregar_accion("icon_base_datos.svg", "Base de datos de materiales…", "base_datos")
         self._agregar_accion("icon_materiales.svg", "Lista de materiales y costos…", "materiales")
@@ -103,6 +107,36 @@ class RiegoLibrePlugin:
         self.accion_bloque = accion
         self.acciones.append(accion)
 
+    def _agregar_herramienta_turnos(self):
+        accion = QAction(QIcon(os.path.join(CARPETA, "icon_turnos.svg")),
+                         "Turnos de riego (marcar bloques en el mapa y asignarles un turno)",
+                         self.iface.mainWindow())
+        accion.setCheckable(True)
+        accion.toggled.connect(self._activar_turnos)
+        self.iface.addPluginToMenu(MENU, accion)
+        self.iface.addToolBarIcon(accion)
+        self.accion_turnos = accion
+        self.acciones.append(accion)
+
+    def _activar_turnos(self, activa):
+        canvas = self.iface.mapCanvas()
+        if activa:
+            from .gui.herramienta_turnos import HerramientaTurnos, PanelTurnos
+            if self.herramienta_turnos is None:
+                self.panel_turnos = PanelTurnos(self.iface.mainWindow())
+                self.panel_turnos.cambio.connect(self._turnos_cambiaron)
+                self.herramienta_turnos = HerramientaTurnos(canvas, self.panel_turnos)
+                self.herramienta_turnos.deactivated.connect(lambda: self.accion_turnos.setChecked(False))
+            canvas.setMapTool(self.herramienta_turnos)
+        elif self.herramienta_turnos is not None and canvas.mapTool() is self.herramienta_turnos:
+            canvas.unsetMapTool(self.herramienta_turnos)
+
+    def _turnos_cambiaron(self):
+        """Se pintaron turnos en el mapa: la ventana de la red, si está abierta, los toma."""
+        dialogo = self.dialogos.get("red")
+        if dialogo is not None:
+            dialogo.cargar_turnos_del_mapa()
+
     def _activar_bloque(self, activa):
         canvas = self.iface.mapCanvas()
         if activa:
@@ -157,6 +191,13 @@ class RiegoLibrePlugin:
             self.herramienta_bloque = None
         from .integracion.bloque_mapa import olvidar_eliminaciones
         olvidar_eliminaciones()  # suelta las capas guardadas para deshacer
+        if self.herramienta_turnos is not None:
+            self.iface.mapCanvas().unsetMapTool(self.herramienta_turnos)
+            self.herramienta_turnos = None
+        if self.panel_turnos is not None:
+            self.panel_turnos.close()
+            self.panel_turnos.deleteLater()
+            self.panel_turnos = None
         if self.herramienta_info is not None:
             self.iface.mapCanvas().unsetMapTool(self.herramienta_info)
             self.herramienta_info = None
@@ -223,6 +264,8 @@ class RiegoLibrePlugin:
                 dialogo.base_cambiada.connect(self._base_cambiada)
             elif nombre == "zonas":
                 dialogo.abrir_lote = self._abrir_lote
+            elif nombre == "red":
+                dialogo.abrir_turnos = lambda: self.accion_turnos.setChecked(True)
         if not mostrar:
             return
         dialogo.show()
