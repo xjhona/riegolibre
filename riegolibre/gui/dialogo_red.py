@@ -56,6 +56,14 @@ def _llenar(tabla, filas):
             tabla.setItem(f, c, item)
 
 
+def _texto_rango(elemento):
+    """« (mín–máx m³/h)» de un elemento de la base; vacío si no tiene caudal máximo."""
+    if not elemento.caudal_max_m3h:
+        return ""
+    minimo = elemento.caudal_min_m3h or 0.0  # el mínimo puede venir vacío en la base
+    return f" ({minimo:g}–{elemento.caudal_max_m3h:g} m³/h)"
+
+
 class DialogoRed(QDialog):
     def __init__(self, iface, parent=None):
         super().__init__(parent)
@@ -203,8 +211,7 @@ class DialogoRed(QDialog):
         self.combo_valvula_base = QComboBox()
         self.combo_valvula_base.addItem("Ninguna (usar solo pérdida fija)", None)
         for v in valvulas_activas():
-            rango = f" ({v.caudal_min_m3h:g}–{v.caudal_max_m3h:g} m³/h)" if v.caudal_max_m3h else ""
-            self.combo_valvula_base.addItem(f"{v.nombre}{rango}", v)
+            self.combo_valvula_base.addItem(f"{v.nombre}{_texto_rango(v)}", v)
         self.combo_valvula_base.setToolTip(
             "Válvula de la base de datos (H = K·Q^n + C). Su pérdida para el caudal de cada "
             "subunidad se suma a la pérdida fija indicada abajo.")
@@ -349,8 +356,7 @@ class DialogoRed(QDialog):
         self.combo_hidraulico_cabezal = QComboBox()
         self.combo_hidraulico_cabezal.addItem("Ninguno (usar solo pérdida fija)", None)
         for h in hidraulicos_activos():
-            rango = f" ({h.caudal_min_m3h:g}–{h.caudal_max_m3h:g} m³/h)" if h.caudal_max_m3h else ""
-            self.combo_hidraulico_cabezal.addItem(f"{h.nombre}{rango}", h)
+            self.combo_hidraulico_cabezal.addItem(f"{h.nombre}{_texto_rango(h)}", h)
         self.combo_hidraulico_cabezal.setToolTip(
             "Elemento del cabezal de la base de datos (filtro, hidrociclón… con H = K·Q^n + C). "
             "Su pérdida según el caudal de cada turno se suma a las pérdidas fijas del cabezal.")

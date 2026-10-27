@@ -245,6 +245,39 @@ class PruebasRedMapa(unittest.TestCase):
         self.assertAlmostEqual(min(excesos.values()), 0.0, places=2)
         self.assertIn("Punto de diseño de la bomba", dialogo.texto.toPlainText())
 
+    def test_dialogo_con_equipos_de_la_base_sin_caudal_minimo(self):
+        # La base importada de IRRICAD puede traer el caudal mínimo vacío: la ventana no debe caerse.
+        from unittest import mock
+
+        from riegolibre.gui.dialogo_red import DialogoRed, _texto_rango
+        from riegolibre.nucleo.base_datos import (VARIABLE_RUTA, BaseDatos, ElementoHidraulico,
+                                                  guardar_base)
+        valvula = ElementoHidraulico('Válvula 2"', k=0.004, n=2.0, c=1.5, caudal_max_m3h=25.0)
+        filtro = ElementoHidraulico("Filtro anillas", k=0.002, n=2.0, c=1.0,
+                                    caudal_min_m3h=5.0, caudal_max_m3h=25.0)
+        sin_rango = ElementoHidraulico("Hidrociclón", k=0.001, n=2.0)
+        self.assertEqual(_texto_rango(valvula), " (0–25 m³/h)")
+        self.assertEqual(_texto_rango(filtro), " (5–25 m³/h)")
+        self.assertEqual(_texto_rango(sin_rango), "")
+        with tempfile.TemporaryDirectory() as carpeta:
+            ruta = os.path.join(carpeta, "base_datos.json")
+            guardar_base(BaseDatos(valvulas=[valvula], hidraulicos=[filtro, sin_rango]), ruta)
+            with mock.patch.dict(os.environ, {VARIABLE_RUTA: ruta}):
+                dialogo = DialogoRed(iface=None)
+                self.assertEqual(dialogo.combo_valvula_base.itemText(1), 'Válvula 2" (0–25 m³/h)')
+                self.assertEqual(dialogo.combo_hidraulico_cabezal.itemText(1), "Filtro anillas (5–25 m³/h)")
+                self.assertEqual(dialogo.combo_hidraulico_cabezal.itemText(2), "Hidrociclón")
+                dialogo.combo_valvula_base.setCurrentIndex(1)
+                dialogo.combo_hidraulico_cabezal.setCurrentIndex(1)
+                dialogo.combo_tuberias.setLayer(self.tuberias)
+                dialogo.combo_fuente.setLayer(self.fuente)
+                dialogo.combo_dem.setLayer(self.dem)
+                dialogo.buscar_valvulas()
+                dialogo.calcular()
+                critico = dialogo.resultado.turno_critico
+                cabezal = 7.0 + 0.002 * (critico.caudal_total_lh / 1000) ** 2 + 1.0
+                self.assertIn(f"cabezal {cabezal:.1f}", dialogo.texto.toPlainText())
+
 
 if __name__ == "__main__":
     unittest.main()
