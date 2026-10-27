@@ -7,7 +7,7 @@ cada línea se divide en tramos allí donde la toca un nodo (uniones en T).
 
 import json
 import math
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from typing import Dict, List, Optional
 
 from qgis.core import (Qgis, QgsFeature, QgsGeometry,
@@ -148,11 +148,34 @@ PROPIEDAD_AUTOMATICA = "red_automatica"
 NOMBRE_CAPA_AUTOMATICA = "Red principal · trazado automático"
 
 
+NOMBRE_CAPA_BLOQUES = "Bloques"
+
+
+@dataclass
+class ZonaEvitar:
+    """Una capa de polígonos que conviene evitar, con su propio factor de costo."""
+    capa: QgsVectorLayer
+    factor: Optional[float] = 5.0  # cuántas veces cuesta más tender en ella; None = no se cruza
+
+
+def capas_de_bloques(proyecto=None):
+    """Capas de polígonos «Bloques» del diseño: la dibujada a mano y las «Bloques · nombre» del trazado."""
+    proyecto = proyecto or QgsProject.instance()
+    capas = []
+    for capa in proyecto.mapLayers().values():
+        if (isinstance(capa, QgsVectorLayer) and capa.geometryType() == Qgis.GeometryType.Polygon
+                and capa.customProperty(PROPIEDAD) in ("dibujo", "trazado")
+                and (capa.name() == NOMBRE_CAPA_BLOQUES or capa.name().startswith(NOMBRE_CAPA_BLOQUES + " · "))):
+            capas.append(capa)
+    return sorted(capas, key=lambda c: c.name())
+
+
 @dataclass
 class RestriccionesTrazado:
     """Capas del proyecto que condicionan el trazado automático de la red."""
     capa_zonas: Optional[QgsVectorLayer] = None  # polígonos que conviene evitar
     factor_zonas: Optional[float] = 5.0  # cuántas veces cuesta más tender en ellas; None = no se cruzan
+    zonas: List[ZonaEvitar] = field(default_factory=list)  # más capas de zonas, cada una con su factor
     capa_caminos: Optional[QgsVectorLayer] = None  # líneas a seguir: caminos, zanjas existentes
     factor_caminos: float = 0.5  # fracción del costo normal sobre ellas
     capa_barreras: Optional[QgsVectorLayer] = None  # líneas que cuesta cruzar: canales, cercos
@@ -162,10 +185,14 @@ class RestriccionesTrazado:
     pendiente_duplica: Optional[float] = 0.25
     celda_m: Optional[float] = None  # tamaño de la celda de trabajo; None = automático
 
+    def todas_las_zonas(self) -> List[ZonaEvitar]:
+        zonas = [ZonaEvitar(self.capa_zonas, self.factor_zonas)] if self.capa_zonas is not None else []
+        return zonas + list(self.zonas)
+
     @property
     def activa(self):
-        return any(c is not None for c in (self.capa_zonas, self.capa_caminos, self.capa_barreras,
-                                           self.capa_dem))
+        return bool(self.todas_las_zonas()) or any(
+            c is not None for c in (self.capa_caminos, self.capa_barreras, self.capa_dem))
 
 
 def _poligonos(geometria):
@@ -213,10 +240,10 @@ def construir_terreno(puntos, crs, restricciones: Optional[RestriccionesTrazado]
         return None
     r = restricciones
     terreno = Terreno.cubriendo(puntos, r.celda_m or celda_automatica(puntos))
-    if r.capa_zonas is not None:
-        for entidad in r.capa_zonas.getFeatures():
-            for poligono in _poligonos(geometria_en(r.capa_zonas, entidad, crs)):
-                terreno.penalizar_poligono(poligono, r.factor_zonas)
+    for zona in r.todas_las_zonas():  # donde se juntan varias, manda la de mayor factor
+        for entidad in zona.capa.getFeatures():
+            for poligono in _poligonos(geometria_en(zona.capa, entidad, crs)):
+                terreno.penalizar_poligono(poligono, zona.factor)
     if r.capa_barreras is not None:
         for entidad in r.capa_barreras.getFeatures():
             for linea in _lineas(geometria_en(r.capa_barreras, entidad, crs)):
@@ -231,19 +258,24 @@ def construir_terreno(puntos, crs, restricciones: Optional[RestriccionesTrazado]
 
 
 def trazar_red_en_mapa(punto_fuente, valvulas: List[ValvulaMapa], crs, modo=ORTOGONAL, angulo_grados=None,
-                       proyecto=None, restricciones: Optional[RestriccionesTrazado] = None):
+                       proyecto=None, restricciones: Optional[RestriccionesTrazado] = None,
+                       ajuste_costo=None):
     """Traza la red principal de la fuente a las válvulas y la deja en una capa de líneas editable.
 
     La capa de un trazado anterior (la que lleva la propiedad `red_automatica`) se reutiliza y
     se vacía; si no existe se crea y se agrega al proyecto. Con `restricciones`, el trazado evita
     las zonas, sigue los caminos, cruza las barreras donde cuesta menos y esquiva el relieve.
-    Devuelve (capa, RedTrazada).
+    Con `ajuste_costo` (un `AjusteCosto`) el costo por metro sigue la lista de precios en vez de los
+    valores por defecto. Devuelve (capa, RedTrazada).
     """
     proyecto = proyecto or QgsProject.instance()
     destinos = [ValvulaDestino(v.id, v.punto.x(), v.punto.y(), v.caudal_lh, v.turno) for v in valvulas]
     fuente = (punto_fuente.x(), punto_fuente.y())
     terreno = construir_terreno([fuente] + [(d.x, d.y) for d in destinos], crs, restricciones)
     parametros = ParametrosRed(modo=modo, angulo_grados=angulo_grados)
+    if ajuste_costo is not None:
+        parametros.costo_fijo = ajuste_costo.costo_fijo
+        parametros.exponente = ajuste_costo.exponente
     if restricciones is not None:
         parametros.costo_subida = restricciones.costo_subida
         parametros.pendiente_duplica = restricciones.pendiente_duplica

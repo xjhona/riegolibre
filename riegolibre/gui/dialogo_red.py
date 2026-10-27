@@ -5,8 +5,8 @@ from qgis.gui import QgsMapLayerComboBox
 from qgis.PyQt.QtCore import Qt
 from qgis.PyQt.QtWidgets import (QAbstractItemView, QApplication, QCheckBox, QComboBox,
                                  QDialog, QDialogButtonBox, QFormLayout,
-                                 QGroupBox, QHeaderView, QListWidget, QListWidgetItem,
-                                 QMessageBox, QPushButton, QScrollArea, QSpinBox, QSplitter,
+                                 QGroupBox, QHBoxLayout, QHeaderView, QLabel, QListWidget,
+                                 QListWidgetItem, QMessageBox, QPushButton, QScrollArea, QSpinBox, QSplitter,
                                  QTableWidget, QTableWidgetItem, QTabWidget,
                                  QTextBrowser, QVBoxLayout, QWidget)
 
@@ -241,18 +241,45 @@ class DialogoRed(QDialog):
             "se prueban varias y se elige la de menor costo.")
         formulario.addRow("Ángulo de los ejes:", self.spin_angulo_red)
 
-        self.combo_zonas = _combo_capas(Qgis.LayerFilter.PolygonLayer, "Ninguna")
-        self.combo_zonas.setLayer(None)
-        self.combo_zonas.setToolTip("Polígonos por los que conviene no pasar: terrenos de otro dueño, "
-                                    "edificios, lagunas, cultivos que no se deben abrir.")
-        formulario.addRow("Zonas a evitar (polígonos):", self.combo_zonas)
-        self.check_zonas_prohibidas = QCheckBox("No cruzarlas nunca")
-        self.check_zonas_prohibidas.toggled.connect(self._actualizar_restricciones)
-        formulario.addRow("", self.check_zonas_prohibidas)
-        self.spin_factor_zonas = spin(1, 100, 5, 1, decimales=1, sufijo="veces")
-        self.spin_factor_zonas.setToolTip("Cuánto más cuesta tender tubería dentro de la zona (1 = igual "
-                                          "que fuera). La red las cruza solo si rodearlas sale más caro.")
-        formulario.addRow("Costo dentro de la zona:", self.spin_factor_zonas)
+        self.check_evitar_bloques = QCheckBox("Evitar los bloques del diseño (capa «Bloques»)")
+        self.check_evitar_bloques.setChecked(True)
+        self.check_evitar_bloques.setToolTip(
+            "Busca solas las capas «Bloques» del proyecto (la dibujada a mano y las «Bloques · nombre» "
+            "del trazado automático) y las trata como zonas a evitar: la red principal las cruza solo si "
+            "rodearlas sale más caro.")
+        self.check_evitar_bloques.toggled.connect(self._actualizar_restricciones)
+        formulario.addRow(self.check_evitar_bloques)
+        self.spin_factor_bloques = spin(1, 100, 5, 1, decimales=1, sufijo="veces")
+        self.spin_factor_bloques.setToolTip("Cuánto más cuesta tender tubería dentro de un bloque (1 = igual "
+                                            "que fuera).")
+        formulario.addRow("Costo dentro de los bloques:", self.spin_factor_bloques)
+        self.etiqueta_bloques = QLabel()
+        self.etiqueta_bloques.setWordWrap(True)
+        formulario.addRow("", self.etiqueta_bloques)
+
+        self.tabla_zonas = QTableWidget(0, 3)
+        self.tabla_zonas.setHorizontalHeaderLabels(["Capa de zonas a evitar", "Costo dentro", "Cruce"])
+        self.tabla_zonas.verticalHeader().setVisible(False)
+        self.tabla_zonas.setSelectionBehavior(QAbstractItemView.SelectionBehavior.SelectRows)
+        self.tabla_zonas.setSelectionMode(QAbstractItemView.SelectionMode.SingleSelection)
+        encabezado = self.tabla_zonas.horizontalHeader()
+        encabezado.setSectionResizeMode(0, QHeaderView.ResizeMode.Stretch)
+        encabezado.setSectionResizeMode(1, QHeaderView.ResizeMode.ResizeToContents)
+        encabezado.setSectionResizeMode(2, QHeaderView.ResizeMode.ResizeToContents)
+        self.tabla_zonas.setMaximumHeight(130)
+        self.tabla_zonas.setToolTip(
+            "Capas de polígonos por los que conviene no pasar (terrenos de otro dueño, edificios, lagunas, "
+            "cultivos que no se deben abrir), cada una con su propio costo. Donde se juntan varias manda "
+            "la de mayor costo.")
+        formulario.addRow("Zonas a evitar (polígonos):", self.tabla_zonas)
+        botones_zonas = QHBoxLayout()
+        self.boton_agregar_zona = QPushButton("Agregar capa de zonas")
+        self.boton_agregar_zona.clicked.connect(lambda: self.agregar_zona())
+        self.boton_quitar_zona = QPushButton("Quitar la seleccionada")
+        self.boton_quitar_zona.clicked.connect(self.quitar_zona)
+        botones_zonas.addWidget(self.boton_agregar_zona)
+        botones_zonas.addWidget(self.boton_quitar_zona)
+        formulario.addRow("", botones_zonas)
         self.combo_caminos = _combo_capas(Qgis.LayerFilter.LineLayer, "Ninguna")
         self.combo_caminos.setLayer(None)
         self.combo_caminos.setToolTip("Caminos, linderos o zanjas existentes: la red tiende a seguirlos.")
@@ -287,6 +314,19 @@ class DialogoRed(QDialog):
         self.spin_celda.setToolTip("Tamaño de la cuadrícula en que se busca el recorrido. Más pequeña "
                                    "sigue mejor los detalles, pero tarda más.")
         formulario.addRow("Tamaño de celda:", self.spin_celda)
+        self.check_costo_lista = QCheckBox("Ajustar el costo de la tubería a la lista de precios")
+        self.check_costo_lista.setToolTip(
+            "En vez del costo por defecto (0.2 + (q/Q)^0.7), ajusta la curva de costo por metro a los precios "
+            "de las tuberías de la red: para cada caudal usa la más barata que cumple la velocidad máxima de "
+            "los criterios de diseño. Hace falta haber abierto una lista de precios en la ventana de materiales.")
+        self.check_costo_lista.toggled.connect(self._actualizar_restricciones)
+        formulario.addRow(self.check_costo_lista)
+        self.spin_zanja = spin(0, 100000, 0, 1, decimales=2, sufijo="por metro")
+        self.spin_zanja.setToolTip("Zanja, tapado y montaje por metro, que la lista de precios no trae. Se suma "
+                                   "al precio de cualquier tubería: cuanto mayor, más conviene compartir tramos.")
+        formulario.addRow("Costo de la zanja:", self.spin_zanja)
+        self.agregar_zona()
+        self._actualizar_bloques()
         self._actualizar_restricciones()
 
         self.boton_trazar = QPushButton("Trazar la red automáticamente")
@@ -301,18 +341,72 @@ class DialogoRed(QDialog):
         self.spin_angulo_red.setEnabled(self.combo_modo_trazado.currentData() == ORTOGONAL)
 
     def _actualizar_restricciones(self):
-        self.spin_factor_zonas.setEnabled(not self.check_zonas_prohibidas.isChecked())
+        for fila in range(self.tabla_zonas.rowCount()):
+            self.tabla_zonas.cellWidget(fila, 1).setEnabled(not self.tabla_zonas.cellWidget(fila, 2).isChecked())
+        self.spin_factor_bloques.setEnabled(self.check_evitar_bloques.isChecked())
         self.spin_cruce.setEnabled(not self.check_barreras_prohibidas.isChecked())
         self.spin_subida.setEnabled(self.check_relieve.isChecked())
         self.spin_pendiente.setEnabled(self.check_relieve.isChecked())
+        self.spin_zanja.setEnabled(self.check_costo_lista.isChecked())
+
+    def agregar_zona(self, capa=None, factor=5.0, prohibida=False):
+        """Agrega una fila a la tabla de zonas a evitar (con la capa dada o la primera de polígonos)."""
+        tabla = self.tabla_zonas
+        fila = tabla.rowCount()
+        tabla.insertRow(fila)
+        combo = _combo_capas(Qgis.LayerFilter.PolygonLayer, "Ninguna")
+        combo.setLayer(capa)
+        valor = spin(1, 100, factor, 1, decimales=1, sufijo="veces")
+        valor.setToolTip("Cuánto más cuesta tender tubería dentro de la zona (1 = igual que fuera). "
+                         "La red las cruza solo si rodearlas sale más caro.")
+        nunca = QCheckBox("Nunca")
+        nunca.setToolTip("Prohibir que la red cruce esta capa.")
+        nunca.setChecked(prohibida)
+        nunca.toggled.connect(self._actualizar_restricciones)
+        tabla.setCellWidget(fila, 0, combo)
+        tabla.setCellWidget(fila, 1, valor)
+        tabla.setCellWidget(fila, 2, nunca)
+        self._actualizar_restricciones()
+        return fila
+
+    def quitar_zona(self):
+        fila = self.tabla_zonas.currentRow()
+        if fila >= 0:
+            self.tabla_zonas.removeRow(fila)
+
+    def zonas_elegidas(self):
+        """Las capas de la tabla con su factor (None si no se deben cruzar)."""
+        from ..integracion.red_mapa import ZonaEvitar
+        zonas = []
+        for fila in range(self.tabla_zonas.rowCount()):
+            capa = self.tabla_zonas.cellWidget(fila, 0).currentLayer()
+            if capa is None:
+                continue
+            prohibida = self.tabla_zonas.cellWidget(fila, 2).isChecked()
+            zonas.append(ZonaEvitar(capa, None if prohibida else self.tabla_zonas.cellWidget(fila, 1).value()))
+        return zonas
+
+    def _actualizar_bloques(self):
+        from ..integracion.red_mapa import capas_de_bloques
+        capas = capas_de_bloques()
+        self.etiqueta_bloques.setText(
+            "Se evitarán: " + ", ".join(c.name() for c in capas) if capas
+            else "No hay capas «Bloques» en el proyecto.")
+
+    def zonas_a_evitar(self):
+        """Las capas de la tabla y, si se pide, las capas «Bloques» del diseño."""
+        from ..integracion.red_mapa import ZonaEvitar, capas_de_bloques
+        zonas = self.zonas_elegidas()
+        if self.check_evitar_bloques.isChecked():
+            zonas += [ZonaEvitar(c, self.spin_factor_bloques.value()) for c in capas_de_bloques()]
+        return zonas
 
     def restricciones_de_trazado(self):
         """Las capas y valores elegidos para condicionar el trazado (None si no se eligió ninguna capa)."""
         from ..integracion.red_mapa import RestriccionesTrazado
         dem = self.combo_dem.currentLayer() if self.check_relieve.isChecked() else None
         restricciones = RestriccionesTrazado(
-            capa_zonas=self.combo_zonas.currentLayer(),
-            factor_zonas=None if self.check_zonas_prohibidas.isChecked() else self.spin_factor_zonas.value(),
+            zonas=self.zonas_a_evitar(),
             capa_caminos=self.combo_caminos.currentLayer(),
             factor_caminos=self.spin_factor_caminos.value() / 100,
             capa_barreras=self.combo_barreras.currentLayer(),
@@ -458,9 +552,12 @@ class DialogoRed(QDialog):
             angulo = self.spin_angulo_red.value()
             if self.check_relieve.isChecked() and self.combo_dem.currentLayer() is None:
                 raise ValueError("Para tener en cuenta el relieve elija arriba el DEM.")
+            self._actualizar_bloques()
+            ajuste = self._ajuste_de_costo(valvulas)
+            restricciones = self.restricciones_de_trazado()
             capa, red = trazar_red_en_mapa(fuente, valvulas, crs, self.combo_modo_trazado.currentData(),
                                            angulo if angulo >= 0 else None,
-                                           restricciones=self.restricciones_de_trazado())
+                                           restricciones=restricciones, ajuste_costo=ajuste)
             self.combo_tuberias.setLayer(capa)
             if self.iface is not None:
                 self.iface.mapCanvas().refresh()
@@ -471,7 +568,26 @@ class DialogoRed(QDialog):
         if error:
             QMessageBox.warning(self, "RiegoLibre", error)
             return
-        self._mostrar_trazado(red)
+        self._mostrar_trazado(red, ajuste, restricciones)
+
+    def _ajuste_de_costo(self, valvulas):
+        """Costo por metro ajustado a la lista de precios (None si la casilla está apagada)."""
+        if not self.check_costo_lista.isChecked():
+            return None
+        from ..integracion.materiales_mapa import precios_de_tuberias
+        from ..nucleo.costo_red import ajustar_costo_de_valvulas
+        from ..nucleo.trazado_red import ValvulaDestino
+        datos = precios_de_tuberias(self.tuberias)
+        if datos is None:
+            raise ValueError("Para ajustar el costo a la lista de precios ábrala en la ventana de materiales, "
+                             "o desmarque la casilla.")
+        destinos = [ValvulaDestino(v.id, v.punto.x(), v.punto.y(), v.caudal_lh, v.turno) for v in valvulas]
+        try:
+            return ajustar_costo_de_valvulas(destinos, self.tuberias, datos[0], self.spin_velocidad.value(),
+                                             self.spin_zanja.value())
+        except ValueError as error:
+            raise ValueError(f"{error} Desmarque «Ajustar el costo de la tubería a la lista de precios» "
+                             "para usar el costo por defecto.") from None
 
     def _valvulas_en(self, crs):
         """Las válvulas encontradas (con sus turnos actuales), con sus puntos en el SRC dado."""
@@ -482,7 +598,7 @@ class DialogoRed(QDialog):
             v.turno = turnos.get(v.id, 1)
         return valvulas
 
-    def _mostrar_trazado(self, red):
+    def _mostrar_trazado(self, red, ajuste=None, restricciones=None):
         forma = ("ortogonal, ejes a " + f"{red.angulo_grados:.0f}°") if red.modo == ORTOGONAL else "directo"
         filas = [
             ("Forma", forma),
@@ -497,6 +613,17 @@ class DialogoRed(QDialog):
                               "(rodearlas costaba más)"))
             if red.m_descontados > red.celda_m:
                 filas.append(("Sobre caminos o zanjas", f"{red.m_descontados:,.0f} m"))
+        if restricciones is not None and restricciones.todas_las_zonas():
+            filas.append(("Zonas a evitar", "<br>".join(
+                f"{z.capa.name()} ({'no se cruza' if z.factor is None else f'×{z.factor:g}'})"
+                for z in restricciones.todas_las_zonas())))
+        if ajuste is not None:
+            menor, mayor = ajuste.muestras[0][0], ajuste.muestras[-1][0]
+            filas.append(("Costo de la tubería", (
+                f"ajustado a la lista de precios: {ajuste.precio_m(menor):,.2f} por metro con "
+                f"{menor / 3600:,.1f} L/s hasta {ajuste.precio_m(mayor):,.2f} con "
+                f"{mayor / 3600:,.1f} L/s (parte fija {ajuste.costo_fijo:.2f}, exponente "
+                f"{ajuste.exponente:.2f}, error medio {ajuste.error_relativo:.0%})")))
         self.texto.setHtml(
             "<h3>Red principal trazada</h3>" + html_tabla(filas)
             + "<p>Las tuberías están en la capa temporal <b>Red principal · trazado automático</b>, que ya "

@@ -187,8 +187,8 @@ class PruebasRedMapa(unittest.TestCase):
             dialogo = DialogoRed(iface=None)
             dialogo.combo_fuente.setLayer(self.fuente)
             dialogo.combo_tuberias.setLayer(self.tuberias)
-            dialogo.combo_zonas.setLayer(zona)
-            dialogo.check_zonas_prohibidas.setChecked(True)
+            dialogo.tabla_zonas.cellWidget(0, 0).setLayer(zona)
+            dialogo.tabla_zonas.cellWidget(0, 2).setChecked(True)
             dialogo.combo_dem.setLayer(self.dem)
             dialogo.check_relieve.setChecked(True)
             dialogo.buscar_valvulas()
@@ -203,6 +203,123 @@ class PruebasRedMapa(unittest.TestCase):
             QgsProject.instance().removeMapLayer(capa.id())
         finally:
             QgsProject.instance().removeMapLayer(zona.id())
+
+    @staticmethod
+    def _capa_bloques(nombre, propiedad, x0, y0, x1, y1):
+        from riegolibre.integracion.subunidad_mapa import PROPIEDAD
+        capa = PruebasRedMapa._capa_zona(x0, y0, x1, y1)
+        capa.setName(nombre)
+        if propiedad:
+            capa.setCustomProperty(PROPIEDAD, propiedad)
+        return capa
+
+    def test_capas_de_bloques_se_encuentran_solas(self):
+        from riegolibre.integracion.red_mapa import capas_de_bloques
+        capas = [self._capa_bloques("Bloques", "dibujo", 0, 0, 1, 1),
+                 self._capa_bloques("Bloques · Norte", "trazado", 0, 0, 1, 1),
+                 self._capa_bloques("Bloques", None, 0, 0, 1, 1),  # sin la marca de RiegoLibre
+                 self._capa_bloques("Lotes", "dibujo", 0, 0, 1, 1),
+                 self._capa_bloques("Laterales · Norte", "trazado", 0, 0, 1, 1)]
+        QgsProject.instance().addMapLayers(capas)
+        self.addCleanup(lambda: [QgsProject.instance().removeMapLayer(c.id()) for c in capas])
+        self.assertEqual([c.name() for c in capas_de_bloques()], ["Bloques", "Bloques · Norte"])
+        self.assertEqual({c.customProperty("riegolibre/tipo") for c in capas_de_bloques()}, {"dibujo", "trazado"})
+
+    def test_dialogo_evita_los_bloques_sin_elegirlos(self):
+        from riegolibre.gui.dialogo_red import DialogoRed
+        bloques = self._capa_bloques("Bloques", "dibujo", 40, -60, 100, -30)  # tapa el paso de la fuente
+        QgsProject.instance().addMapLayer(bloques)
+        self.addCleanup(QgsProject.instance().removeMapLayer, bloques.id())
+        poligono = next(bloques.getFeatures()).geometry()
+        dialogo = DialogoRed(iface=None)
+        dialogo.combo_fuente.setLayer(self.fuente)
+        dialogo.combo_tuberias.setLayer(self.tuberias)
+        dialogo.buscar_valvulas()
+        dialogo.spin_factor_bloques.setValue(100)
+        self.assertEqual(dialogo.etiqueta_bloques.text(), "Se evitarán: Bloques")
+        dialogo.check_evitar_bloques.setChecked(False)
+        self.assertIsNone(dialogo.restricciones_de_trazado())
+        dialogo.trazar_red_automatica()
+        libre = dialogo.combo_tuberias.currentLayer()
+        cruzado = sum(e.geometry().intersection(poligono).length() for e in libre.getFeatures())
+        self.assertGreater(cruzado, 10)
+        dialogo.check_evitar_bloques.setChecked(True)
+        self.assertEqual([z.capa for z in dialogo.restricciones_de_trazado().todas_las_zonas()], [bloques])
+        dialogo.trazar_red_automatica()
+        evitado = sum(e.geometry().intersection(poligono).length()
+                      for e in dialogo.combo_tuberias.currentLayer().getFeatures())
+        self.assertLess(evitado, 3)
+        self.assertIn("Bloques", dialogo.texto.toPlainText())
+        QgsProject.instance().removeMapLayer(dialogo.combo_tuberias.currentLayer().id())
+
+    def test_varias_capas_de_zonas_con_factores_distintos(self):
+        from riegolibre.integracion.red_mapa import RestriccionesTrazado, ZonaEvitar, construir_terreno
+        from riegolibre.nucleo.terreno import INFINITO
+        prohibida = self._capa_zona(20, -44, 30, -36)
+        barata = self._capa_zona(100, -30, 130, -20)
+        cara = self._capa_zona(115, -35, 140, -15)
+        restricciones = RestriccionesTrazado(
+            zonas=[ZonaEvitar(prohibida, None), ZonaEvitar(barata, 2.0), ZonaEvitar(cara, 8.0)])
+        self.assertTrue(restricciones.activa)
+        crs = self.tuberias.crs()
+        terreno = construir_terreno([(X0 + 5, Y0 - 45), (X0 + 150, Y0 - 10)], crs, restricciones)
+        self.assertEqual(terreno.factor_en(X0 + 25, Y0 - 40), INFINITO)
+        self.assertEqual(terreno.factor_en(X0 + 105, Y0 - 25), 2.0)
+        self.assertEqual(terreno.factor_en(X0 + 135, Y0 - 17), 8.0)
+        self.assertEqual(terreno.factor_en(X0 + 122, Y0 - 25), 8.0)  # donde se juntan manda la mayor
+        self.assertEqual(terreno.factor_en(X0 + 60, Y0 - 25), 1.0)
+        # La capa suelta de antes sigue valiendo como una zona más.
+        con_suelta = RestriccionesTrazado(capa_zonas=barata, factor_zonas=3.0, zonas=[ZonaEvitar(cara, 8.0)])
+        self.assertEqual([z.factor for z in con_suelta.todas_las_zonas()], [3.0, 8.0])
+
+    def test_dialogo_con_dos_capas_de_zonas(self):
+        from riegolibre.gui.dialogo_red import DialogoRed
+        a = self._capa_zona(40, -60, 100, -30)
+        b = self._capa_zona(110, -30, 140, -5)
+        QgsProject.instance().addMapLayers([a, b])
+        self.addCleanup(lambda: [QgsProject.instance().removeMapLayer(c.id()) for c in (a, b)])
+        dialogo = DialogoRed(iface=None)
+        dialogo.combo_dem.setLayer(None)
+        dialogo.check_evitar_bloques.setChecked(False)
+        dialogo.tabla_zonas.cellWidget(0, 0).setLayer(a)
+        dialogo.tabla_zonas.cellWidget(0, 2).setChecked(True)
+        fila = dialogo.agregar_zona(b, 3.0)
+        self.assertEqual(fila, 1)
+        zonas = dialogo.restricciones_de_trazado().todas_las_zonas()
+        self.assertEqual([(z.capa, z.factor) for z in zonas], [(a, None), (b, 3.0)])
+        self.assertFalse(dialogo.tabla_zonas.cellWidget(0, 1).isEnabled())  # prohibida: el factor no cuenta
+        self.assertTrue(dialogo.tabla_zonas.cellWidget(1, 1).isEnabled())
+        dialogo.tabla_zonas.selectRow(0)
+        dialogo.quitar_zona()
+        self.assertEqual([(z.capa, z.factor) for z in dialogo.restricciones_de_trazado().todas_las_zonas()],
+                         [(b, 3.0)])
+
+    def test_trazado_con_costo_ajustado_a_la_lista_de_precios(self):
+        from unittest import mock
+        from riegolibre.gui.dialogo_red import DialogoRed
+        from riegolibre.nucleo.tuberias import Tuberia
+        dialogo = DialogoRed(iface=None)
+        dialogo.combo_dem.setLayer(None)
+        dialogo.check_evitar_bloques.setChecked(False)
+        dialogo.combo_fuente.setLayer(self.fuente)
+        dialogo.combo_tuberias.setLayer(self.tuberias)
+        dialogo.buscar_valvulas()
+        dialogo.tuberias = [Tuberia(f"PVC {d}", d, "PVC", ["principal"], d) for d in (57, 69, 84, 103, 150, 190)]
+        precios = {"PVC 57": 3.0, "PVC 69": 4.2, "PVC 84": 6.0, "PVC 103": 9.0, "PVC 150": 18.0, "PVC 190": 28.0}
+        dialogo.check_costo_lista.setChecked(True)
+        dialogo.spin_zanja.setValue(5)
+        with mock.patch("riegolibre.integracion.materiales_mapa.precios_de_tuberias",
+                        return_value=(precios, "USD", "lista de prueba")):
+            dialogo.trazar_red_automatica()
+        capa = dialogo.combo_tuberias.currentLayer()
+        self.assertGreater(capa.featureCount(), 1)
+        self.assertIn("ajustado a la lista de precios", dialogo.texto.toPlainText())
+        QgsProject.instance().removeMapLayer(capa.id())
+        # Sin lista de precios avisa en vez de trazar con el costo por defecto.
+        with mock.patch("riegolibre.integracion.materiales_mapa.precios_de_tuberias", return_value=None), \
+                mock.patch("riegolibre.gui.dialogo_red.QMessageBox.warning") as aviso:
+            dialogo.trazar_red_automatica()
+        self.assertIn("lista de precios", aviso.call_args[0][2])
 
     def test_dialogo_sin_capas_no_hay_restricciones(self):
         from riegolibre.gui.dialogo_red import DialogoRed
