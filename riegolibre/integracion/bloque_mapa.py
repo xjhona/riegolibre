@@ -17,8 +17,8 @@ from ..nucleo.bloque import Bloque, ParametrosBloque, trazar_bloque
 from ..nucleo.subdivision import ParametrosSubdivision, subdividir
 from .lotes import CAMPO_AREA, CAMPO_NOMBRE
 from .subunidad_mapa import PROPIEDAD, LateralMapa, reemplazar_grupo
-from .trazado_mapa import (anillos_de_geometria, funcion_cota, gradiente_del_terreno,
-                           pendiente_a_lo_largo)
+from .trazado_mapa import (anillos_de_geometria, funcion_cota, pendiente_a_lo_largo,
+                           relieve_del_terreno)
 
 GRUPO_VISTA_PREVIA = "RiegoLibre · Vista previa del bloque"
 
@@ -34,10 +34,10 @@ def trazar_en_lote(geometria, params: ParametrosBloque, crs, capa_dem=None, fuen
     cota = pendiente = None
     if capa_dem is not None:
         cota = funcion_cota(capa_dem, crs)
-        gradiente = gradiente_del_terreno(geometria, capa_dem, crs)
-        if gradiente is not None:
+        relieve = relieve_del_terreno(geometria, capa_dem, crs)  # relieve real, no un plano
+        if relieve is not None:
             def pendiente(angulo):
-                return pendiente_a_lo_largo(gradiente, angulo)
+                return pendiente_a_lo_largo(relieve, angulo)
     bloque = trazar_bloque(anillos, params, cota=cota, fuente=fuente, pendiente=pendiente, alcance_m=alcance_m)
     if capa_dem is not None and bloque.desnivel_portalateral_m is None:
         bloque.avisos.append("El DEM no cubre los extremos del portalateral.")

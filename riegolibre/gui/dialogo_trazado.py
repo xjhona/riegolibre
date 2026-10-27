@@ -15,13 +15,15 @@ from qgis.PyQt.QtWidgets import (QAbstractItemView, QApplication, QCheckBox, QCo
 from ..integracion.calculo_subunidad import ENTRADA_CENTRO, ENTRADA_INICIO
 from ..nucleo import PresionInsuficiente, cargar_catalogo_emisores, cargar_catalogo_tuberias
 from ..nucleo.subunidad import incumplimientos
-from ..nucleo.trazado import (LADOS_AMBOS, LADOS_UNO, ParametrosTrazado, buscar_trazados)
+from ..nucleo.trazado import (LADOS_AMBOS, LADOS_UNO, ParametrosTrazado, buscar_trazados, trazar)
 from ..nucleo.tuberias import clave_economica
 from .comunes import (ComboDiametros, ComboTuberiaPortalateral, GrupoCriterios,
                       GrupoLaterales, html_avisos, html_estado, html_tabla, spin)
 
 ALCANCE_HIDRAULICO, ALCANCE_FIJO = "hidraulico", "fijo"
-COLUMNAS = ["#", "Dirección de laterales", "Subunidades", "Laterales (m)", "Portalaterales (m)",
+ORIGEN_SUGERIDA, ORIGEN_PROPIO = "Sugerida", "Su azimut"
+SEPARACION_MIN_DEG = 8.0  # dos direcciones más cerca que esto cuentan como la misma
+COLUMNAS = ["#", "Origen", "Dirección de laterales", "Subunidades", "Laterales (m)", "Portalaterales (m)",
             "Sin regar", "Pendiente de laterales", "Puntuación"]
 
 
@@ -34,6 +36,11 @@ def _combo_capas(filtro, vacia=None):
         except TypeError:  # versiones de QGIS sin texto para la opción vacía
             control.setAllowEmptyLayer(True)
     return control
+
+
+def _distancia_angular(a, b):
+    d = abs(a - b) % 180.0
+    return min(d, 180.0 - d)
 
 
 def eliminar_grupos(patron):
@@ -92,7 +99,8 @@ class DialogoTrazado(QDialog):
             "y cualquier forma; seleccione una entidad si la capa tiene varias).</li>"
             "<li>Indique la separación entre laterales, el emisor y los criterios, y pulse "
             "<b>Buscar trazado</b>. Se prueban varias direcciones de laterales y se ordenan de "
-            "mejor a peor.</li>"
+            "mejor a peor: son <b>sugerencias</b>. Si prefiere otra dirección, marque «Fijar yo la "
+            "dirección» y escriba el azimut; su trazado aparece primero, para compararlo.</li>"
             "<li>Elija una alternativa en la tabla (se dibuja en el mapa) y pulse "
             "<b>Aplicar y calcular</b>: se crean las capas del trazado y se calcula cada subunidad.</li></ol>"
             "<p>La capa debe estar en un sistema de coordenadas proyectado en metros (UTM).</p>")
@@ -189,6 +197,18 @@ class DialogoTrazado(QDialog):
         self.check_curvas = QCheckBox("Probar también laterales siguiendo las curvas de nivel")
         self.check_curvas.setChecked(True)
         formulario.addRow(self.check_curvas)
+        self.check_azimut = QCheckBox("Fijar yo la dirección de los laterales (azimut)")
+        self.check_azimut.setToolTip(
+            "El programa solo sugiere direcciones; la decisión es suya. Con esta casilla se traza con "
+            "el azimut indicado (desde el norte, en sentido horario) y se muestra primero en la tabla, "
+            "seguido de las mejores sugerencias para compararlas. Al elegir una fila de la tabla, su "
+            "azimut pasa a este cuadro para que lo ajuste.")
+        self.check_azimut.toggled.connect(self._actualizar_azimut)
+        formulario.addRow(self.check_azimut)
+        self.spin_azimut = spin(0, 179, 0, 1, decimales=0, sufijo="°")
+        self.spin_azimut.setToolTip("0° = laterales de norte a sur; 90° = de oeste a este.")
+        formulario.addRow("Azimut de los laterales:", self.spin_azimut)
+        self._actualizar_azimut()
         self.check_emisores = QCheckBox("Crear la capa de emisores (puede ser pesada)")
         formulario.addRow(self.check_emisores)
         return grupo
@@ -201,6 +221,9 @@ class DialogoTrazado(QDialog):
         self.combo_diametros = ComboDiametros()
         formulario.addRow("Diámetros:", self.combo_diametros)
         return grupo
+
+    def _actualizar_azimut(self):
+        self.spin_azimut.setEnabled(self.check_azimut.isChecked())
 
     def _actualizar_alcance(self):
         self.spin_alcance.setEnabled(self.combo_alcance.currentData() == ALCANCE_FIJO)
@@ -232,15 +255,17 @@ class DialogoTrazado(QDialog):
         if resultado is None:
             return
         self.trazados, self.contexto = resultado
+        self.tabla.setRowCount(0)  # suelta la selección anterior para que la fila 0 se vuelva a dibujar
         self.tabla.setRowCount(len(self.trazados))
         for fila, t in enumerate(self.trazados):
             valores = [
-                str(fila + 1), f"{t.azimut_laterales_grados:.0f}°", str(t.numero_subunidades),
+                str(fila + 1), self.contexto["origenes"][fila], f"{t.azimut_laterales_grados:.0f}°",
+                str(t.numero_subunidades),
                 f"{t.longitud_laterales_m:,.0f}", f"{t.longitud_portalaterales_m:,.0f}",
                 f"{t.fraccion_sin_cubrir:.1%}", f"{t.orientacion.pendiente:.1%}", f"{t.puntuacion:,.0f}"]
             for columna, valor in enumerate(valores):
                 item = QTableWidgetItem(valor)
-                if columna:
+                if columna > 1:
                     item.setTextAlignment(Qt.AlignmentFlag.AlignRight | Qt.AlignmentFlag.AlignVCenter)
                 if fila == 0:
                     item.setBackground(QBrush(QColor(46, 125, 50, 40)))
@@ -270,10 +295,10 @@ class DialogoTrazado(QDialog):
         avisos = []
 
         dem = self.combo_dem.currentLayer()
-        gradiente = None
+        relieve = None  # relieve real del DEM (no un plano): la pendiente se mide en cada dirección
         if dem is not None:
-            gradiente = tm.gradiente_del_terreno(geometria, dem, crs)
-            if gradiente is None:
+            relieve = tm.relieve_del_terreno(geometria, dem, crs)
+            if relieve is None:
                 avisos.append("El DEM no cubre el terreno: se trazó como si fuera plano.")
 
         if self.combo_alcance.currentData() == ALCANCE_FIJO:
@@ -284,7 +309,7 @@ class DialogoTrazado(QDialog):
                 grupo.tuberia(), grupo.emisor(), e, d1, criterios.variacion_caudal_max,
                 self.grupo_criterios.metodo(), criterios.presion_entrada_max_m)
         orientaciones = tm.construir_orientaciones(
-            anillos, gradiente, alcance, usar_curvas_de_nivel=self.check_curvas.isChecked())
+            anillos, relieve, alcance, usar_curvas_de_nivel=self.check_curvas.isChecked())
 
         caudal_max = self.spin_caudal_max.value() * 1000 or None  # m³/h → L/h
         params = ParametrosTrazado(
@@ -302,8 +327,17 @@ class DialogoTrazado(QDialog):
         if dem is not None and self.combo_entrada.currentData() == ENTRADA_INICIO:
             cota = tm.funcion_cota(dem, crs)  # la válvula entra por el extremo que conviene según el relieve
         trazados = buscar_trazados(anillos, params, orientaciones, fuente=fuente, cota=cota)
+        origenes = [ORIGEN_SUGERIDA] * len(trazados)
+        if self.check_azimut.isChecked():
+            # El usuario manda: su azimut va primero y las sugerencias quedan para compararlo.
+            propia = tm.orientacion_del_usuario(self.spin_azimut.value(), relieve, alcance)
+            elegido = trazar(anillos, params, propia, fuente=fuente, cota=cota)
+            sugeridas = [t for t in trazados
+                         if _distancia_angular(t.orientacion.angulo_deg, propia.angulo_deg) >= SEPARACION_MIN_DEG]
+            trazados = [elegido] + sugeridas
+            origenes = [ORIGEN_PROPIO] + [ORIGEN_SUGERIDA] * len(sugeridas)
         return trazados, {"crs": crs, "geometria": geometria, "params": params, "avisos": avisos,
-                          "gradiente": gradiente, "fuente": fuente}
+                          "relieve": relieve, "fuente": fuente, "origenes": origenes}
 
     def _seleccion_cambiada(self):
         fila = self._fila()
@@ -311,6 +345,8 @@ class DialogoTrazado(QDialog):
             return
         from ..integracion import trazado_mapa as tm
         trazado = self.trazados[fila]
+        # El azimut de la fila elegida pasa al cuadro, para que el usuario lo ajuste si quiere.
+        self.spin_azimut.setValue(round(trazado.azimut_laterales_grados) % 180)
         self._ejecutar(lambda: tm.vista_previa(trazado, self.contexto["crs"],
                                                f"RiegoLibre · Vista previa del trazado · {self.nombre()}"))
         self._resumen_trazado(trazado)
@@ -330,6 +366,7 @@ class DialogoTrazado(QDialog):
                           "huecos o subunidades con menos laterales que el mínimo).")
         if not t.subunidades:
             avisos.append("Este trazado no tiene subunidades.")
+        avisos.extend(self._comparacion_con_sugerida(t))
         filas = [
             ("Dirección de los laterales", f"azimut {t.azimut_laterales_grados:.0f}° "
                                            f"(pendiente a lo largo de ellos: {t.orientacion.pendiente:.1%})"),
@@ -344,6 +381,19 @@ class DialogoTrazado(QDialog):
         ]
         self.texto.setHtml("<h3>Trazado propuesto</h3>" + html_tabla(filas) + html_avisos(avisos)
                            + "<p>Pulse <b>Aplicar y calcular</b> para crear las capas y calcular cada subunidad.</p>")
+
+    def _comparacion_con_sugerida(self, t):
+        """Aviso informativo si el azimut del usuario puntúa peor que la mejor sugerencia."""
+        origenes = self.contexto["origenes"]
+        if ORIGEN_PROPIO not in origenes or t is not self.trazados[origenes.index(ORIGEN_PROPIO)]:
+            return []
+        mejor = next((s for s, o in zip(self.trazados, origenes) if o == ORIGEN_SUGERIDA), None)
+        if mejor is None or mejor.puntuacion >= t.puntuacion or t.puntuacion <= 0:
+            return []
+        menos = 1 - mejor.puntuacion / t.puntuacion
+        return [f"Con su azimut de {t.azimut_laterales_grados:.0f}° la puntuación es {menos:.0%} peor que con "
+                f"la mejor sugerencia ({mejor.azimut_laterales_grados:.0f}°). Es solo una sugerencia: "
+                "puede aplicar el azimut que prefiera."]
 
     @staticmethod
     def _texto_desnivel(t):

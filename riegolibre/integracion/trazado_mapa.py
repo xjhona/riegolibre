@@ -13,6 +13,7 @@ from qgis.core import (Qgis, QgsFeature, QgsFillSymbol, QgsGeometry, QgsMarkerSy
 from qgis.PyQt.QtGui import QColor
 
 from ..nucleo import longitud_maxima
+from ..nucleo.relieve import Relieve, relieve_desde_rejilla
 from ..nucleo.trazado import Orientacion, orientaciones_candidatas
 from .perfil_terreno import MuestreadorDem
 from .subunidad_mapa import PROPIEDAD, LateralMapa
@@ -22,6 +23,7 @@ PROPIEDAD_TRAZADO = "trazado"
 # portalateral. Es la regla práctica corriente (55 % laterales, 45 % portalateral).
 REPARTO_VARIACION_LATERAL = 0.55
 PENDIENTE_MINIMA_CONTORNO = 0.003  # por debajo, el terreno se considera plano
+COHERENCIA_MINIMA_CURVAS = 0.3  # por debajo, el relieve no tiene una dirección de curvas dominante
 
 
 # ------------------------------------------------------------- geometrías
@@ -91,12 +93,54 @@ def gradiente_del_terreno(geometria, capa_dem, crs, lado_rejilla=25) -> Optional
     return (sxz * syy - syz * sxy) / det, (syz * sxx - sxz * sxy) / det
 
 
+def relieve_del_terreno(geometria, capa_dem, crs, lado_rejilla=40) -> Optional[Relieve]:
+    """Relieve real del terreno: el gradiente local del DEM en una rejilla sobre el polígono.
+
+    A diferencia del plano de `gradiente_del_terreno`, conserva las ondulaciones. Devuelve
+    None si el DEM no cubre el terreno.
+    """
+    muestreador = MuestreadorDem(capa_dem, crs)
+    caja = geometria.boundingBox()
+    paso_x, paso_y = caja.width() / lado_rejilla, caja.height() / lado_rejilla
+    if paso_x <= 0 or paso_y <= 0:
+        return None
+    # Se muestrea una celda más allá de la caja para tener vecinos en el borde.
+    cotas, dentro = {}, {}
+    for i in range(-1, lado_rejilla + 1):
+        for j in range(-1, lado_rejilla + 1):
+            p = QgsPointXY(caja.xMinimum() + paso_x * (i + 0.5), caja.yMinimum() + paso_y * (j + 0.5))
+            z = muestreador.cota(p)
+            if z is not None:
+                cotas[(i, j)] = z
+                dentro[(i, j)] = geometria.contains(QgsGeometry.fromPointXY(p))
+    return relieve_desde_rejilla(cotas, paso_x, paso_y, interior=lambda i, j: dentro[(i, j)])
+
+
 def pendiente_a_lo_largo(gradiente, angulo_deg):
-    """Pendiente (m/m, valor absoluto) del terreno en la dirección dada (antihoraria desde el eje x)."""
+    """Pendiente (m/m, valor absoluto) del terreno en la dirección dada (antihoraria desde el eje x).
+
+    `gradiente` es un `Relieve`, un gradiente (dz/dx, dz/dy) de un plano, o None (terreno plano).
+    """
     if gradiente is None:
         return 0.0
+    if isinstance(gradiente, Relieve):
+        return gradiente.pendiente_a_lo_largo(angulo_deg)
     a = math.radians(angulo_deg)
     return abs(gradiente[0] * math.cos(a) + gradiente[1] * math.sin(a))
+
+
+def _direccion_de_curvas(gradiente):
+    """Dirección (grados) de las curvas de nivel si el terreno tiene pendiente suficiente, o None."""
+    if gradiente is None:
+        return None
+    if isinstance(gradiente, Relieve):
+        if gradiente.pendiente_media < PENDIENTE_MINIMA_CONTORNO:
+            return None
+        curvas = gradiente.direccion_de_curvas()
+        return curvas[0] if curvas and curvas[1] >= COHERENCIA_MINIMA_CURVAS else None
+    if math.hypot(*gradiente) < PENDIENTE_MINIMA_CONTORNO:
+        return None
+    return (math.degrees(math.atan2(gradiente[1], gradiente[0])) + 90.0) % 180.0
 
 
 def funcion_cota(capa_dem, crs) -> Callable[[float, float], Optional[float]]:
@@ -136,10 +180,9 @@ def construir_orientaciones(anillos, gradiente, alcance: Callable[[float], float
     Una orientación en la que ni el lateral más corto cumple se descarta.
     """
     angulos = orientaciones_candidatas(anillos, paso_deg)
-    if usar_curvas_de_nivel and gradiente is not None and math.hypot(*gradiente) >= PENDIENTE_MINIMA_CONTORNO:
-        nivel = (math.degrees(math.atan2(gradiente[1], gradiente[0])) + 90.0) % 180.0
-        if all(min(abs(nivel - a) % 180, 180 - abs(nivel - a) % 180) > 1.0 for a in angulos):
-            angulos.append(nivel)
+    nivel = _direccion_de_curvas(gradiente) if usar_curvas_de_nivel else None
+    if nivel is not None and all(min(abs(nivel - a) % 180, 180 - abs(nivel - a) % 180) > 1.0 for a in angulos):
+        angulos.append(nivel)
     orientaciones = []
     for angulo in angulos:
         pendiente = pendiente_a_lo_largo(gradiente, angulo)
@@ -151,6 +194,24 @@ def construir_orientaciones(anillos, gradiente, alcance: Callable[[float], float
             "Con estos laterales y emisores, ni un lateral corto cumple la variación de caudal "
             "admisible. Pruebe otro emisor, un diámetro de lateral mayor o una variación mayor.")
     return orientaciones
+
+
+def azimut_a_angulo(azimut_deg):
+    """Ángulo antihorario desde el este (el que usa el motor) de una dirección dada como azimut."""
+    return (90.0 - azimut_deg) % 180.0
+
+
+def orientacion_del_usuario(azimut_deg, gradiente, alcance: Callable[[float], float]) -> Orientacion:
+    """Orientación con el azimut (desde el norte, horario) que fija el usuario."""
+    angulo = azimut_a_angulo(azimut_deg)
+    pendiente = pendiente_a_lo_largo(gradiente, angulo)
+    largo = alcance(pendiente)
+    if largo <= 0:
+        raise ValueError(
+            f"Con el azimut {azimut_deg:.0f}° la pendiente a lo largo de los laterales es {pendiente:.1%} y "
+            "ni un lateral corto cumple la variación de caudal admisible. Pruebe otro azimut, otro "
+            "emisor o un diámetro de lateral mayor.")
+    return Orientacion(angulo, largo, pendiente)
 
 
 def funcion_caudal(emisor, espaciamiento_m, primer_emisor_m) -> Callable[[float], float]:

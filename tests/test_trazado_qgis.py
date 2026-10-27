@@ -98,6 +98,37 @@ class PruebasUtilidades(unittest.TestCase):
         with self.assertRaises(ValueError):
             construir_orientaciones(anillos, None, lambda p: 0.0)
 
+    def test_relieve_del_terreno_coincide_con_el_plano_en_un_dem_plano(self):
+        from riegolibre.integracion.trazado_mapa import (construir_orientaciones, pendiente_a_lo_largo,
+                                                         relieve_del_terreno)
+        capa = _capa_poligono(TERRENO_L, "t")
+        geometria = next(capa.getFeatures()).geometry()
+        relieve = relieve_del_terreno(geometria, self.dem, capa.crs())
+        self.assertAlmostEqual(pendiente_a_lo_largo(relieve, 0), PENDIENTE_ESTE, delta=0.001)
+        self.assertAlmostEqual(pendiente_a_lo_largo(relieve, 90), 0.0, delta=0.001)
+        angulo, coherencia = relieve.direccion_de_curvas()
+        self.assertAlmostEqual(angulo, 90.0, delta=0.5)
+        self.assertGreater(coherencia, 0.99)
+        lejos = QgsGeometry.fromPolygonXY([[_punto(1000, 0), _punto(1100, 0), _punto(1100, 50)]])
+        self.assertIsNone(relieve_del_terreno(lejos, self.dem, self.dem.crs()))
+        # Las orientaciones candidatas incluyen las curvas de nivel con el relieve real.
+        anillos = [[(0, 0), (100, 0), (100, 50), (0, 50)]]
+        por_angulo = {round(o.angulo_deg): o for o in construir_orientaciones(
+            anillos, relieve, lambda pendiente: 60 - 1000 * pendiente)}
+        self.assertAlmostEqual(por_angulo[90].pendiente, 0.0, delta=0.001)
+        self.assertAlmostEqual(por_angulo[0].pendiente, PENDIENTE_ESTE, delta=0.001)
+
+    def test_orientacion_del_usuario(self):
+        from riegolibre.integracion.trazado_mapa import azimut_a_angulo, orientacion_del_usuario
+        self.assertEqual(azimut_a_angulo(0), 90.0)   # norte-sur: ángulo 90° desde el este
+        self.assertEqual(azimut_a_angulo(90), 0.0)   # este-oeste
+        self.assertEqual(azimut_a_angulo(135), 135.0)
+        o = orientacion_del_usuario(90, (0.02, 0.0), lambda pendiente: 60 - 1000 * pendiente)
+        self.assertAlmostEqual((o.angulo_deg, o.pendiente, o.longitud_max_m), (0.0, 0.02, 40.0))
+        with self.assertRaises(ValueError) as error:
+            orientacion_del_usuario(90, (0.02, 0.0), lambda pendiente: 0.0)
+        self.assertIn("azimut 90°", str(error.exception))
+
     def test_funcion_cota_lee_el_dem_y_la_valvula_va_arriba(self):
         from riegolibre.integracion.trazado_mapa import capas_trazado, funcion_cota
         from riegolibre.nucleo.trazado import Orientacion, ParametrosTrazado, trazar
@@ -176,6 +207,49 @@ class PruebasDialogoTrazado(unittest.TestCase):
         capas = {n.layer().name(): n.layer() for n in grupo.findLayers()}
         laterales = next(c for nombre, c in capas.items() if nombre.startswith("Laterales"))
         self.assertEqual(laterales.featureCount(), sum(len(s.laterales) for s in mejor.subunidades))
+
+    def test_el_usuario_fija_el_azimut_y_las_sugerencias_quedan_para_comparar(self):
+        dialogo = self._dialogo(nombre="Fijado")
+        dialogo.buscar()
+        sugerencias = list(dialogo.trazados)
+        self.assertEqual(set(dialogo.contexto["origenes"]), {"Sugerida"})
+        self.assertEqual(dialogo.tabla.item(0, 1).text(), "Sugerida")
+        # Al elegir una fila, su azimut pasa al cuadro (sin activar la casilla).
+        self.assertFalse(dialogo.check_azimut.isChecked())
+        self.assertEqual(dialogo.spin_azimut.value(), round(sugerencias[0].azimut_laterales_grados) % 180)
+
+        dialogo.check_azimut.setChecked(True)
+        dialogo.spin_azimut.setValue(90)  # laterales de oeste a este, cuesta arriba: lo peor para este DEM
+        dialogo.buscar()
+        propio = dialogo.trazados[0]
+        self.assertEqual(dialogo.contexto["origenes"][0], "Su azimut")
+        self.assertEqual(dialogo.tabla.item(0, 1).text(), "Su azimut")
+        self.assertAlmostEqual(propio.azimut_laterales_grados, 90.0, delta=0.5)
+        self.assertAlmostEqual(propio.orientacion.pendiente, PENDIENTE_ESTE, delta=0.003)
+        # Las sugerencias siguen ahí, sin repetir direcciones cercanas a la del usuario.
+        self.assertEqual(dialogo.contexto["origenes"][1:], ["Sugerida"] * (len(dialogo.trazados) - 1))
+        self.assertTrue(all(abs(t.azimut_laterales_grados - 90) % 180 >= 8 for t in dialogo.trazados[1:]))
+        self.assertAlmostEqual(dialogo.trazados[1].azimut_laterales_grados % 180, 0.0, delta=1.0)
+        # El resumen avisa que es solo una sugerencia, y aplicar usa el azimut del usuario.
+        dialogo.tabla.selectRow(0)
+        self.assertIn("puntuación es", dialogo.texto.toPlainText())
+        self.assertIn("peor", dialogo.texto.toPlainText())
+        dialogo.aplicar()
+        grupo = QgsProject.instance().layerTreeRoot().findGroup("Trazado · Fijado")
+        self.assertIsNotNone(grupo)
+
+    def test_azimut_imposible_se_avisa_sin_romper(self):
+        from unittest import mock
+        dialogo = self._dialogo(nombre="Imposible")
+        dialogo.check_azimut.setChecked(True)
+        dialogo.spin_azimut.setValue(90)
+        dialogo.combo_alcance.setCurrentIndex(dialogo.combo_alcance.findData("hidraulico"))
+        with mock.patch("riegolibre.gui.dialogo_trazado.QMessageBox.warning") as aviso, \
+                mock.patch("riegolibre.integracion.trazado_mapa.orientacion_del_usuario",
+                           side_effect=ValueError("Con el azimut 90° no cumple")):
+            dialogo.buscar()
+        self.assertEqual(dialogo.trazados, [])
+        aviso.assert_called_once()
 
     def test_aplicar_crea_capas_y_calcula_cada_subunidad(self):
         dialogo = self._dialogo(nombre="Aplicada")
