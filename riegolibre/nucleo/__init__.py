@@ -4,6 +4,7 @@ Este paquete es Python puro: no depende de QGIS, de modo que puede usarse y
 probarse por separado (scripts, cuadernos, otras interfaces).
 """
 
+from .base_datos import ElementoHidraulico, hidraulicos_activos, valvulas_activas
 from .emisores import Emisor, cargar_catalogo_emisores
 from .hidraulica import PresionInsuficiente, factor_christiansen
 from .memoria import DatosMemoria, memoria_html, resumen_red, resumen_subunidad
@@ -21,10 +22,12 @@ from .red import (CriteriosRed, DatosBomba, PuntoBomba, Red, ResultadoRed,
 from .terreno import Terreno, celda_automatica
 from .trazado_red import ParametrosRed, RedTrazada, ValvulaDestino, trazar_red
 from .tuberias import Tuberia, cargar_catalogo_tuberias
-from .uniformidad import (coeficiente_uniformidad_christiansen,
-                          uniformidad_emision_keller, variacion_caudal)
+from .uniformidad import (caudal_cuartil_inferior, coeficiente_uniformidad_christiansen,
+                          uniformidad_emision_cuartil, uniformidad_emision_keller,
+                          variacion_caudal)
 
 __all__ = [
+    "ElementoHidraulico", "hidraulicos_activos", "valvulas_activas",
     "Emisor", "cargar_catalogo_emisores",
     "PresionInsuficiente", "factor_christiansen",
     "CRITERIO_CAUDAL_MEDIO", "CRITERIO_PRESION_MINIMA",
@@ -38,5 +41,6 @@ __all__ = [
     "TramoRed", "Valvula", "dimensionar_red", "elegir_tuberia", "punto_bomba",
     "Terreno", "celda_automatica", "ParametrosRed", "RedTrazada", "ValvulaDestino", "trazar_red",
     "Tuberia", "cargar_catalogo_tuberias",
-    "coeficiente_uniformidad_christiansen", "uniformidad_emision_keller", "variacion_caudal",
+    "caudal_cuartil_inferior", "coeficiente_uniformidad_christiansen",
+    "uniformidad_emision_cuartil", "uniformidad_emision_keller", "variacion_caudal",
 ]

@@ -77,11 +77,14 @@ def avisos_subunidad(diseno, criterios, tuberia_lateral, avisos=()):
     return lista
 
 
-def avisos_red(resultado, bombas, sin_dem=False):
+def avisos_red(resultado, bombas, sin_dem=False, datos_bomba=None):
     """Tramos que no cumplen y otros avisos del cálculo de la red principal."""
     avisos = list(resultado.avisos)
     for id_tramo, motivos in resultado.motivos.items():
         avisos.append(f"Tramo {id_tramo}: " + "; ".join(motivos) + ".")
+    if datos_bomba is not None and getattr(datos_bomba, "elementos_cabezal", ()):
+        for b in bombas:
+            avisos.extend(datos_bomba.avisos_cabezal(b.turno, b.caudal_lh))
     if sin_dem:
         avisos.append("Sin DEM: la red se calculó con el terreno plano.")
     critica = bomba_critica(bombas)
@@ -232,6 +235,9 @@ def resumen_red(red, resultado, bombas, datos_bomba, sin_dem=False, economia=Non
     for clave in ("distancias_m", "terreno_m", "piezometrica_m"):
         perfil[clave] = [_r(v) for v in perfil[clave]]
     c = resultado.criterios
+    perdida_cabezal = (_r( datos_bomba.perdida_cabezal(critica.caudal_lh) )
+                       if getattr(datos_bomba, "elementos_cabezal", ())
+                       else datos_bomba.perdidas_cabezal_m)
     return {
         "version": VERSION_RESUMEN,
         "metodo": c.metodo,
@@ -243,7 +249,7 @@ def resumen_red(red, resultado, bombas, datos_bomba, sin_dem=False, economia=Non
             "turno": critica.turno, "caudal_lh": _r(critica.caudal_lh, 1),
             "cdt_m": _r(critica.carga_dinamica_total_m), "potencia_kw": _r(critica.potencia_kw),
             "potencia_hp": _r(critica.potencia_hp), "presion_entrada_red_m": _r(turno.presion_entrada_red_m),
-            "perdidas_cabezal_m": datos_bomba.perdidas_cabezal_m,
+            "perdidas_cabezal_m": perdida_cabezal,
             "altura_succion_m": datos_bomba.altura_succion_m, "eficiencia": datos_bomba.eficiencia,
             "critico": turno.critico, "potencia_comercial_hp": potencia_comercial_hp(critica.potencia_hp),
         },
@@ -254,7 +260,7 @@ def resumen_red(red, resultado, bombas, datos_bomba, sin_dem=False, economia=Non
         "sin_dem": sin_dem,
         "economia": economia,
         "cumple": not resultado.motivos,
-        "avisos": avisos_red(resultado, bombas, sin_dem),
+        "avisos": avisos_red(resultado, bombas, sin_dem, datos_bomba),
     }
 
 
@@ -490,7 +496,7 @@ def _seccion_bases(datos, num):
                if datos.red.get("economia") else
                "El diámetro de cada tramo es el menor que respeta la velocidad máxima (y la pérdida unitaria "
                "máxima, si se fijó) con el caudal máximo de todos los turnos. ")
-            + "La clase de presión se eleva donde la presión máxima de trabajo lo exige. Las "
+            + "La clase de presión se eleva donde la presión máxima de trabajo (o estática) lo exige. Las "
             "pérdidas menores (codos, tes, válvulas) se toman como un porcentaje de la fricción.</p>"
             "<p>La carga necesaria en la fuente es la mayor entre la que requiere la válvula más "
             "desfavorecida (presión de la subunidad + pérdida en la válvula) y la que mantiene la presión "
@@ -543,7 +549,7 @@ def _seccion_subunidades(datos, num, imagenes):
         q = r["caudal_lh"]
         partes.append("<p><b>Resultados</b></p>" + _kv([
             ("Presión en la entrada (válvula)",
-             f"<b>{r['presion_entrada_m']:.2f} m</b> ({r['presion_entrada_m'] / M_POR_BAR:.2f} bar)"),
+            f"<b>{r['presion_entrada_m']:.2f} m</b> ({r['presion_entrada_m'] / M_POR_BAR:.2f} bar)"),
             ("Caudal de la subunidad", f"<b>{q:,.0f} L/h</b> ({q / 3600:.2f} L/s · {q / 1000:.2f} m³/h)"),
             ("Emisores", f"{r['numero_emisores']:,}"),
             ("Precipitación horaria", f"{q / s['area_m2']:.2f} mm/h" if s["area_m2"] else ""),
@@ -628,7 +634,7 @@ def _seccion_red(red, num, imagenes):
               _n(v["perdida_m"]), _n(v["presion_disponible_m"]), _n(v["exceso_m"])] for v in red["valvulas"]]
     partes.append("<p><b>Válvulas de las subunidades</b></p>" + _tabla(
         ["Válvula", "Turno", "Caudal (L/s)", "Presión requerida (m)", "Pérdida en válvula (m)",
-         "Presión disponible (m)", "Exceso (m)"], filas, numericas=(1, 2, 3, 4, 5, 6))
+        "Presión disponible (m)", "Exceso (m)"], filas, numericas=(1, 2, 3, 4, 5, 6))
         + "<p class='nota'>El exceso de presión se disipa con la regulación de la válvula de cada subunidad.</p>")
     perfil = red.get("perfil") or {}
     partes.append(_figura(imagenes, "red_perfil",

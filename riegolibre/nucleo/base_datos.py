@@ -145,9 +145,22 @@ class ElementoHidraulico:
             return 0.0
         return self.k * caudal_m3h ** self.n + self.c
 
+    def perdida_lh(self, caudal_lh):
+        """Pérdida de carga (m) para un caudal en L/h."""
+        return self.perdida(caudal_lh / 1000.0)
+
     def fuera_de_rango(self, caudal_m3h):
         return ((self.caudal_min_m3h is not None and caudal_m3h < self.caudal_min_m3h) or
                 (self.caudal_max_m3h is not None and self.caudal_max_m3h > 0 and caudal_m3h > self.caudal_max_m3h))
+
+    def motivo_rango(self, caudal_m3h) -> Optional[str]:
+        """Descripción si el caudal (m³/h) sale del rango admitido, o None si está en rango."""
+        if self.caudal_min_m3h is not None and caudal_m3h < self.caudal_min_m3h - 1e-9:
+            return f"caudal {caudal_m3h:.2f} m³/h < mínimo {self.caudal_min_m3h:g} m³/h ({self.nombre})"
+        if (self.caudal_max_m3h is not None and self.caudal_max_m3h > 0
+                and caudal_m3h > self.caudal_max_m3h + 1e-9):
+            return f"caudal {caudal_m3h:.2f} m³/h > máximo {self.caudal_max_m3h:g} m³/h ({self.nombre})"
+        return None
 
 
 @dataclass
@@ -244,6 +257,18 @@ def cintas_activas():
     """Laterales con gotero de la base activa, por nombre ({} si no hay base)."""
     base = base_activa()
     return {} if base is None else {c.nombre: c for c in base.cintas if c.seleccionable}
+
+
+def valvulas_activas() -> List[ElementoHidraulico]:
+    """Válvulas seleccionables de la base activa ([] si no hay base)."""
+    base = base_activa()
+    return [] if base is None else [v for v in base.valvulas if v.seleccionable]
+
+
+def hidraulicos_activos() -> List[ElementoHidraulico]:
+    """Otros elementos hidráulicos seleccionables de la base activa ([] si no hay base)."""
+    base = base_activa()
+    return [] if base is None else [h for h in base.hidraulicos if h.seleccionable]
 
 
 def desactivar_base():

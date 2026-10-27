@@ -36,13 +36,33 @@ class TramoRed:
 
 @dataclass
 class Valvula:
-    """Válvula de una subunidad: demanda de caudal y presión en un nodo de la red."""
+    """Válvula de una subunidad: demanda de caudal y presión en un nodo de la red.
+
+    Si se indica `elemento` (un `ElementoHidraulico` de la base de datos con curva
+    H = K·Q^n + C, Q en m³/h), su pérdida para `caudal_lh` se suma a `perdida_m`.
+    """
     id: str
     nodo: str
     caudal_lh: float
     presion_requerida_m: float  # a la entrada de la subunidad (aguas abajo de la válvula)
     turno: int = 1
     perdida_m: float = 0.0  # pérdida en la propia válvula y accesorios
+    elemento: Optional[object] = None  # ElementoHidraulico (H = K·Q^n + C)
+
+    def __post_init__(self):
+        if self.elemento is not None:
+            self.perdida_m = float(self.perdida_m) + self.elemento.perdida(self.caudal_lh / 1000.0)
+
+    def motivo_rango(self) -> Optional[str]:
+        """Descripción si el caudal de la válvula sale del rango de su elemento hidráulico."""
+        if self.elemento is None:
+            return None
+        q_m3h = self.caudal_lh / 1000.0
+        if hasattr(self.elemento, "motivo_rango"):
+            return self.elemento.motivo_rango(q_m3h)
+        if self.elemento.fuera_de_rango(q_m3h):
+            return f"caudal {q_m3h:.2f} m³/h fuera del rango de {self.elemento.nombre}"
+        return None
 
 
 @dataclass
@@ -52,6 +72,7 @@ class CriteriosRed:
     presion_min_m: float = 2.0  # en cualquier punto de la red funcionando
     factor_perdidas_menores: float = 0.10  # fracción de la pérdida por fricción
     metodo: str = "darcy"
+    verificar_presion_estatica: bool = True  # incluir la carga hidrostática desde la fuente (Q = 0)
 
 
 @dataclass
@@ -64,6 +85,7 @@ class ResultadoTramo:
     presion_fin_m: float
     presion_min_m: float  # a lo largo del tramo (con el perfil del terreno, si existe)
     presion_max_m: float
+    presion_estatica_m: float = 0.0  # carga hidrostática máxima desde la fuente (válvulas cerradas)
 
 
 @dataclass
@@ -98,6 +120,10 @@ class Red:
                              + ", ".join(sin_conexion))
         if not self.valvulas:
             raise ValueError("La red no tiene válvulas.")
+        for v in self.valvulas:
+            motivo = v.motivo_rango()
+            if motivo:
+                self.avisos.append(f"Válvula {v.id}: {motivo}.")
 
     def _orientar(self, tramos):
         """Recorre la red desde la fuente y orienta cada tramo en el sentido del flujo."""
@@ -165,6 +191,12 @@ class Red:
                 maximos[id_tramo] = max(maximos[id_tramo], q)
         return maximos
 
+    def presion_estatica_tramo(self, tramo: TramoRed) -> float:
+        """Presión hidrostática máxima (m.c.a.) en el tramo respecto de la cota de la fuente (Q = 0)."""
+        cota_fuente = self.cotas[self.fuente]
+        puntos = [(0.0, self.cotas[tramo.desde])] + list(tramo.perfil or ()) + [(tramo.longitud_m, self.cotas[tramo.hasta])]
+        return max(0.0, max(cota_fuente - z for _, z in puntos))
+
     def calcular_turno(self, asignacion: Dict[str, Tuberia], turno, criterios=CriteriosRed()):
         caudal = self.caudales(turno)
         perdida: Dict[str, float] = {}
@@ -202,6 +234,10 @@ class Red:
             puntos = [(0.0, self.cotas[t.desde])] + list(t.perfil or ()) + [(t.longitud_m, self.cotas[t.hasta])]
             j = perdida[t.id] / t.longitud_m if t.longitud_m else 0.0
             presiones_tramo = [cargas[t.desde] - j * x - z for x, z in puntos]
+            p_estatica = self.presion_estatica_tramo(t)
+            p_max = max(presiones_tramo)
+            if criterios.verificar_presion_estatica:
+                p_max = max(p_max, p_estatica)
             tramos[t.id] = ResultadoTramo(
                 caudal_lh=q,
                 velocidad_ms=tuberia.velocidad(q * LH_A_M3S),
@@ -210,7 +246,8 @@ class Red:
                 presion_inicio_m=presiones[t.desde],
                 presion_fin_m=presiones[t.hasta],
                 presion_min_m=min(presiones_tramo),
-                presion_max_m=max(presiones_tramo),
+                presion_max_m=p_max,
+                presion_estatica_m=p_estatica,
             )
         disponible = {v.id: presiones[v.nodo] - v.perdida_m for v in activas}
         return ResultadoTurno(
@@ -301,7 +338,8 @@ def dimensionar_red(red, candidatas, criterios=CriteriosRed(), max_iteraciones=3
         raise ValueError("No hay tuberías candidatas para la red principal.")
     candidatas_por_tramo = candidatas_por_tramo or {}
     caudal_max = red.caudales_maximos()
-    presion_exigida = {t.id: 0.0 for t in red.tramos}
+    presion_exigida = {t.id: (red.presion_estatica_tramo(t) if criterios.verificar_presion_estatica else 0.0)
+                       for t in red.tramos}
     asignacion: Dict[str, Tuberia] = {}
     resultados = []
     for _ in range(max_iteraciones):
@@ -339,9 +377,26 @@ def dimensionar_red(red, candidatas, criterios=CriteriosRed(), max_iteraciones=3
 
 @dataclass
 class DatosBomba:
-    perdidas_cabezal_m: float = 7.0  # filtros, fertirriego, medidor, válvulas del cabezal
+    perdidas_cabezal_m: float = 7.0  # filtros, fertirriego, medidor, válvulas del cabezal (fija o adicional)
     altura_succion_m: float = 2.0  # desnivel del agua hasta la bomba + pérdidas en la succión
     eficiencia: float = 0.70
+    elementos_cabezal: Sequence[object] = ()  # ElementoHidraulico en serie en el cabezal (H = K·Q^n + C)
+
+    def perdida_cabezal(self, caudal_lh: float) -> float:
+        """Pérdida total en el cabezal (m) para el caudal dado (L/h): fija + elementos H = K·Q^n + C."""
+        q_m3h = caudal_lh / 1000.0
+        return self.perdidas_cabezal_m + sum(e.perdida(q_m3h) for e in self.elementos_cabezal)
+
+    def avisos_cabezal(self, turno: int, caudal_lh: float) -> List[str]:
+        """Avisos si el caudal del turno (L/h) sale del rango de algún elemento del cabezal."""
+        q_m3h = caudal_lh / 1000.0
+        avisos = []
+        for e in self.elementos_cabezal:
+            motivo = e.motivo_rango(q_m3h) if hasattr(e, "motivo_rango") else (
+                f"caudal {q_m3h:.2f} m³/h fuera del rango de {e.nombre}" if e.fuera_de_rango(q_m3h) else None)
+            if motivo:
+                avisos.append(f"Turno {turno}, cabezal: {motivo}.")
+        return avisos
 
 
 @dataclass
@@ -350,6 +405,7 @@ class PuntoBomba:
     caudal_lh: float
     carga_dinamica_total_m: float
     potencia_kw: float
+    perdida_cabezal_m: float = 0.0
 
     @property
     def caudal_ls(self):
@@ -365,10 +421,11 @@ class PuntoBomba:
 
 
 def punto_bomba(resultado_turno, datos=DatosBomba()):
-    cdt = resultado_turno.presion_entrada_red_m + datos.perdidas_cabezal_m + datos.altura_succion_m
+    cabezal = datos.perdida_cabezal(resultado_turno.caudal_total_lh)
+    cdt = resultado_turno.presion_entrada_red_m + cabezal + datos.altura_succion_m
     q = resultado_turno.caudal_total_lh * LH_A_M3S
     potencia = 9.81 * q * cdt / datos.eficiencia  # kW (ρ·g = 9.81 kN/m³)
-    return PuntoBomba(resultado_turno.turno, resultado_turno.caudal_total_lh, cdt, potencia)
+    return PuntoBomba(resultado_turno.turno, resultado_turno.caudal_total_lh, cdt, potencia, cabezal)
 
 
 def bomba_critica(bombas):

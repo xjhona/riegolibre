@@ -8,15 +8,17 @@ que se compara es
 
 La energía de cada turno es la potencia eléctrica (potencia al eje / eficiencia
 del motor) por las horas de bombeo del turno; las horas del año se reparten por
-igual entre los turnos y cada turno se bombea con su propia CDT. El valor
-presente usa el factor de una serie uniforme: (1 − (1 + i)^−n) / i.
+igual entre los turnos (o según `horas_por_turno`) y cada turno se bombea con su
+propia CDT. El valor presente usa el factor de una serie uniforme:
+(1 − (1 + i)^−n) / i.
 
 En una red ramificada los caudales de cada turno no dependen de los diámetros,
 así que cada combinación se evalúa con el cálculo normal de la red. La búsqueda
 parte del diseño por velocidad (el menor diámetro que cumple) y, tramo a tramo,
-prueba el diámetro nominal inmediato superior e inferior; aplica el cambio que
-más reduce el costo total y repite hasta que ningún cambio lo reduce. En cada
-combinación la clase de presión se ajusta como en el dimensionamiento normal.
+prueba el diámetro nominal inmediato superior e inferior; si ningún cambio
+individual mejora, prueba intercambios entre un tramo troncal y sus ramales
+aguas abajo para escapar de óptimos locales. En cada combinación la clase de
+presión se ajusta como en el dimensionamiento normal.
 """
 
 from dataclasses import dataclass, field
@@ -28,10 +30,11 @@ from .red import CriteriosRed, DatosBomba, dimensionar_red, punto_bomba
 @dataclass
 class DatosEconomicos:
     precio_energia_kwh: float = 0.15  # en la moneda de la lista de precios
-    horas_bombeo_anio: float = 2000.0  # de todos los turnos; se reparten por igual entre ellos
+    horas_bombeo_anio: float = 2000.0  # de todos los turnos; se reparten por igual salvo horas_por_turno
     vida_util_anios: int = 20
     tasa_interes: float = 0.10  # anual
     eficiencia_motor: float = 0.90
+    horas_por_turno: Optional[Dict[int, float]] = None  # {turno: horas_anuales} opcional
 
     @property
     def factor_valor_presente(self):
@@ -40,6 +43,12 @@ class DatosEconomicos:
         if i <= 0:
             return float(n)
         return (1 - (1 + i) ** -n) / i
+
+    def horas_turno(self, turno: int, num_turnos: int) -> float:
+        """Horas de bombeo al año correspondientes al turno indicado."""
+        if self.horas_por_turno and turno in self.horas_por_turno:
+            return float(self.horas_por_turno[turno])
+        return self.horas_bombeo_anio / max(1, num_turnos)
 
 
 @dataclass
@@ -69,8 +78,9 @@ def costos_red(resultado, precios_m: Dict[str, float], datos_bomba=DatosBomba(),
             tuberia += precios_m[nombre] * t.longitud_m
         else:
             sin_precio.add(nombre)
-    horas = economicos.horas_bombeo_anio / len(resultado.turnos)
-    kwh = sum(punto_bomba(r, datos_bomba).potencia_kw / economicos.eficiencia_motor * horas
+    n_turnos = len(resultado.turnos)
+    kwh = sum(punto_bomba(r, datos_bomba).potencia_kw / economicos.eficiencia_motor
+              * economicos.horas_turno(r.turno, n_turnos)
               for r in resultado.turnos)
     return CostosRed(tuberia, kwh, kwh * economicos.precio_energia_kwh,
                      economicos.factor_valor_presente, sorted(sin_precio))
@@ -124,6 +134,12 @@ def optimizar_red(red, candidatas, precios_m: Dict[str, float], criterios=Criter
     referencia = dimensionar_red(red, con_precio, criterios)
     caudal_max = red.caudales_maximos()
     variables = [t.id for t in red.tramos if t.tuberia is None and caudal_max[t.id] > 0]
+    conjunto_var = set(variables)
+    pares_padre_hijo = [
+        ( red.padre[t.desde].id, t.id )
+        for t in red.tramos
+        if t.id in conjunto_var and t.desde in red.padre and red.padre[t.desde].id in conjunto_var
+    ]
     actual = {i: dn(referencia.asignacion[i]) for i in variables}
     evaluacion = evaluar(actual)
     for _ in range(max_iteraciones):
@@ -138,6 +154,19 @@ def optimizar_red(red, candidatas, precios_m: Dict[str, float], criterios=Criter
                 candidata = evaluar(prueba)
                 if _mejora(candidata[0], (mejor[1] if mejor else evaluacion)[0]):
                     mejor = (prueba, candidata)
+        if mejor is None and pares_padre_hijo:
+            # Paso conjunto padre-hijo para evitar óptimos locales entre troncal y ramal
+            for id_padre, id_hijo in pares_padre_hijo:
+                kp, kh = diametros.index(actual[id_padre]), diametros.index(actual[id_hijo])
+                for dp, dh in ((1, -1), (-1, 1)):
+                    if not (0 <= kp + dp < len(diametros) and 0 <= kh + dh < len(diametros)):
+                        continue
+                    prueba = dict(actual)
+                    prueba[id_padre] = diametros[kp + dp]
+                    prueba[id_hijo] = diametros[kh + dh]
+                    candidata = evaluar(prueba)
+                    if _mejora(candidata[0], (mejor[1] if mejor else evaluacion)[0]):
+                        mejor = (prueba, candidata)
         if mejor is None:
             break
         actual, evaluacion = mejor

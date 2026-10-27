@@ -42,6 +42,17 @@ class PruebasEconomia(unittest.TestCase):
         self.assertEqual(costos_red(resultado, sin_uno, datos, economicos).sin_precio,
                          [resultado.asignacion["FA"].nombre])
 
+    def test_horas_personalizadas_por_turno(self):
+        red = red_en_y()
+        resultado = dimensionar_red(red, self.catalogo, self.criterios)
+        datos = DatosBomba()
+        economicos = DatosEconomicos(precio_energia_kwh=0.2, horas_bombeo_anio=1000,
+                                     horas_por_turno={1: 700.0, 2: 300.0})
+        costos = costos_red(resultado, self.precios, datos, economicos)
+        esperado_kwh = (punto_bomba(resultado.turno(1), datos).potencia_kw / 0.9 * 700.0
+                        + punto_bomba(resultado.turno(2), datos).potencia_kw / 0.9 * 300.0)
+        self.assertAlmostEqual(costos.energia_kwh_anual, esperado_kwh)
+
     def test_energia_gratis_mantiene_el_diseno_por_velocidad(self):
         r = optimizar_red(red_en_y(), self.catalogo, self.precios, self.criterios,
                           economicos=DatosEconomicos(precio_energia_kwh=0.0))

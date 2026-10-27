@@ -27,6 +27,8 @@ class PruebasPortalateral(unittest.TestCase):
         self.assertAlmostEqual(r.caudal_total_lh / n, 2.0, delta=0.01)
         self.assertAlmostEqual(sum(r.caudales_emisores_lh), r.caudal_total_lh, delta=1e-6)
         self.assertGreater(r.uniformidad_emision, 80)
+        self.assertGreaterEqual(r.uniformidad_emision_cuartil, r.uniformidad_emision)
+        self.assertGreaterEqual(r.caudal_cuartil_inferior_lh, r.caudal_min_lh)
         self.assertGreater(r.presion_entrada_m, r.presiones_m[-1])
 
     def test_curva_coherente_con_detalle(self):

@@ -1,8 +1,10 @@
 import unittest
 
-from riegolibre.nucleo import (CriteriosRed, DatosBomba, Red, TramoRed, Tuberia, Valvula,
-                               cargar_catalogo_tuberias, dimensionar_red, punto_bomba)
+from riegolibre.nucleo import (CriteriosRed, DatosBomba, ElementoHidraulico, Red, TramoRed,
+                               Tuberia, Valvula, cargar_catalogo_tuberias, dimensionar_red,
+                               punto_bomba)
 from riegolibre.nucleo.hidraulica import LH_A_M3S
+from riegolibre.nucleo.memoria import avisos_red
 
 PVC110 = Tuberia("PVC 110", 104.6, material="PVC", c_hazen=150, presion_nominal_m=50)
 SIN_MENORES = CriteriosRed(factor_perdidas_menores=0.0, presion_min_m=0.0)
@@ -94,6 +96,18 @@ class PruebasRed(unittest.TestCase):
                   [Valvula("v", "A", 1000, 10)], "F")
         self.assertIn("no están conectados", red.avisos[0])
 
+    def test_valvula_con_curva_irricad_y_rango(self):
+        elem = ElementoHidraulico('Válvula 2"', k=0.004, n=2.0, c=1.5, caudal_min_m3h=10.0, caudal_max_m3h=25.0)
+        v_ok = Valvula("v1", "V", 20000.0, 15.0, perdida_m=0.5, elemento=elem)
+        # Q = 20 m³/h -> H_elem = 0.004 * 400 + 1.5 = 3.1 m; más 0.5 m adicional = 3.6 m
+        self.assertAlmostEqual(v_ok.perdida_m, 3.6, places=6)
+        self.assertIsNone(v_ok.motivo_rango())
+
+        v_alta = Valvula("v2", "V", 30000.0, 15.0, elemento=elem)
+        red = Red({"F": 100.0, "V": 100.0}, [TramoRed("FV", "F", "V", 100.0)], [v_alta], "F")
+        self.assertEqual(len(red.avisos), 1)
+        self.assertIn("caudal 30.00 m³/h > máximo 25 m³/h", red.avisos[0])
+
 
 class PruebasDimensionamiento(unittest.TestCase):
     def setUp(self):
@@ -127,6 +141,20 @@ class PruebasDimensionamiento(unittest.TestCase):
             self.assertGreaterEqual(resultado.asignacion[t.id].presion_nominal_m, p_max)
         self.assertGreater(resultado.asignacion["AV"].presion_nominal_m, 50)
 
+    def test_presion_estatica_en_bajada_un_solo_turno(self):
+        # En un solo turno la pérdida por fricción reduce la presión dinámica en V por debajo de 50 m,
+        # pero al cerrar la válvula la carga hidrostática desde F (200 - 135 = 65 m) exige PN > 50 m.
+        cotas = {"F": 200.0, "A": 160.0, "V": 135.0}
+        red = Red(cotas, [TramoRed("FA", "F", "A", 800.0), TramoRed("AV", "A", "V", 800.0)],
+                  [Valvula("v", "V", 25000.0, 10.0)], "F")
+        sin_estatica = dimensionar_red(red, self.catalogo, CriteriosRed(verificar_presion_estatica=False))
+        self.assertEqual(sin_estatica.asignacion["AV"].presion_nominal_m, 50)
+
+        con_estatica = dimensionar_red(red, self.catalogo, CriteriosRed(verificar_presion_estatica=True))
+        self.assertEqual(con_estatica.tramos if hasattr(con_estatica, "tramos") else con_estatica.motivos, {})
+        self.assertAlmostEqual(con_estatica.turnos[0].tramos["AV"].presion_estatica_m, 65.0)
+        self.assertGreaterEqual(con_estatica.asignacion["AV"].presion_nominal_m, 65.0)
+
     def test_tramo_sin_caudal(self):
         red = red_en_y()
         cotas = dict(red.cotas, X=101.0)
@@ -158,6 +186,20 @@ class PruebasDimensionamiento(unittest.TestCase):
         esperado = 9.81 * critico.caudal_total_lh / 3.6e6 * bomba.carga_dinamica_total_m / 0.7
         self.assertAlmostEqual(bomba.potencia_kw, esperado)
         self.assertAlmostEqual(bomba.potencia_hp, esperado / 0.7457)
+
+    def test_bomba_con_elementos_cabezal_irricad(self):
+        resultado = dimensionar_red(red_en_y(), self.catalogo)
+        filtro = ElementoHidraulico("Filtro anillas", k=0.002, n=2.0, c=1.0, caudal_max_m3h=25.0)
+        datos = DatosBomba(perdidas_cabezal_m=1.5, altura_succion_m=2.0, eficiencia=0.75,
+                           elementos_cabezal=[filtro])
+        bombas = [punto_bomba(r, datos) for r in resultado.turnos]
+        # Turno 1: Q = 36 m³/h -> pérdida filtro = 0.002 * 36^2 + 1.0 = 3.592 m; total cabezal = 5.092 m
+        self.assertAlmostEqual(bombas[0].perdida_cabezal_m, 1.5 + 0.002 * 36 ** 2 + 1.0, places=6)
+        # Turno 2: Q = 18 m³/h -> pérdida filtro = 0.002 * 18^2 + 1.0 = 1.648 m; total cabezal = 3.148 m
+        self.assertAlmostEqual(bombas[1].perdida_cabezal_m, 1.5 + 0.002 * 18 ** 2 + 1.0, places=6)
+        # El turno 1 supera el caudal máximo de 25 m³/h del filtro
+        avisos = avisos_red(resultado, bombas, datos_bomba=datos)
+        self.assertTrue(any("Turno 1, cabezal: caudal 36.00 m³/h > máximo 25 m³/h" in a for a in avisos))
 
 
 if __name__ == "__main__":

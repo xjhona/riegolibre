@@ -18,7 +18,8 @@ from .hidraulica import (LH_A_M3S, PresionInsuficiente, interpolar_perfil,
 from .lateral import (CRITERIO_CAUDAL_MEDIO, CRITERIO_PRESION_MINIMA, Lateral,
                       ResultadoLateral)
 from .tuberias import Tuberia
-from .uniformidad import uniformidad_emision_keller, variacion_caudal
+from .uniformidad import (caudal_cuartil_inferior, uniformidad_emision_cuartil,
+                          uniformidad_emision_keller, variacion_caudal)
 
 
 @dataclass
@@ -92,6 +93,20 @@ class EstadisticasEmisores:
     @property
     def presiones_emisores_m(self):
         return self._todos("presiones_m")
+
+    @property
+    def caudal_cuartil_inferior_lh(self):
+        """Promedio del 25 % de emisores de menor caudal (o caudal_min_lh sin detalle)."""
+        if self.laterales is None:
+            return self.caudal_min_lh
+        return caudal_cuartil_inferior(self.caudales_emisores_lh)
+
+    @property
+    def uniformidad_emision_cuartil(self):
+        """Uniformidad de emisión EU (%) usando el cuartil inferior q_25% cuando hay detalle."""
+        if self.laterales is None:
+            return self.uniformidad_emision
+        return uniformidad_emision_cuartil(self.caudales_emisores_lh, self.cv)
 
     @property
     def emisores_fuera_de_rango(self):

@@ -18,7 +18,8 @@ from .emisores import Emisor
 from .hidraulica import (LH_A_M3S, PresionInsuficiente, interpolar_perfil,
                          resolver_creciente)
 from .tuberias import Tuberia
-from .uniformidad import uniformidad_emision_keller, variacion_caudal
+from .uniformidad import (caudal_cuartil_inferior, uniformidad_emision_cuartil,
+                          uniformidad_emision_keller, variacion_caudal)
 
 CRITERIO_CAUDAL_MEDIO = "caudal_medio"
 CRITERIO_PRESION_MINIMA = "presion_minima"
@@ -69,6 +70,10 @@ class ResultadoLateral:
         return self.caudal_total_lh / len(self.caudales_lh)
 
     @property
+    def caudal_cuartil_inferior_lh(self):
+        return caudal_cuartil_inferior(self.caudales_lh)
+
+    @property
     def variacion_presion_m(self):
         return self.presion_max_m - self.presion_min_m
 
@@ -79,6 +84,10 @@ class ResultadoLateral:
     @property
     def uniformidad_emision(self):
         return uniformidad_emision_keller(self.caudal_min_lh, self.caudal_medio_lh, self.cv_emisor)
+
+    @property
+    def uniformidad_emision_cuartil(self):
+        return uniformidad_emision_cuartil(self.caudales_lh, self.cv_emisor)
 
     def cumple(self, variacion_caudal_max=0.10):
         return self.variacion_caudal <= variacion_caudal_max + 1e-9 and self.emisores_fuera_de_rango == 0

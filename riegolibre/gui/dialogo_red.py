@@ -11,7 +11,8 @@ from qgis.PyQt.QtWidgets import (QAbstractItemView, QApplication, QCheckBox, QCo
                                  QTextBrowser, QVBoxLayout, QWidget)
 
 from ..nucleo import (CriteriosRed, DatosBomba, cargar_catalogo_tuberias,
-                      dimensionar_red, punto_bomba)
+                      dimensionar_red, hidraulicos_activos, punto_bomba,
+                      valvulas_activas)
 from ..nucleo.economia import DatosEconomicos, optimizar_red
 from ..nucleo.graficos import dibujar_perfil_red
 from ..nucleo.memoria import avisos_red, resumen_economia, resumen_red
@@ -199,8 +200,18 @@ class DialogoRed(QDialog):
         self.tabla_valvulas.setMinimumHeight(140)
         capa.addWidget(self.tabla_valvulas)
         formulario = QFormLayout()
+        self.combo_valvula_base = QComboBox()
+        self.combo_valvula_base.addItem("Ninguna (usar solo pérdida fija)", None)
+        for v in valvulas_activas():
+            rango = f" ({v.caudal_min_m3h:g}–{v.caudal_max_m3h:g} m³/h)" if v.caudal_max_m3h else ""
+            self.combo_valvula_base.addItem(f"{v.nombre}{rango}", v)
+        self.combo_valvula_base.setToolTip(
+            "Válvula de la base de datos (H = K·Q^n + C). Su pérdida para el caudal de cada "
+            "subunidad se suma a la pérdida fija indicada abajo.")
+        if self.combo_valvula_base.count() > 1:
+            formulario.addRow("Modelo de válvula:", self.combo_valvula_base)
         self.spin_perdida_valvula = spin(0, 30, 2.0, 0.5, sufijo="m")
-        self.spin_perdida_valvula.setToolTip("Pérdida en la válvula de cada subunidad y sus accesorios.")
+        self.spin_perdida_valvula.setToolTip("Pérdida fija o adicional en la válvula de cada subunidad y sus accesorios.")
         formulario.addRow("Pérdida en cada válvula:", self.spin_perdida_valvula)
         capa.addLayout(formulario)
         return grupo
@@ -324,11 +335,27 @@ class DialogoRed(QDialog):
         self.spin_menores = spin(0, 100, 10, 1, decimales=0, sufijo="%")
         self.spin_menores.setToolTip("Pérdidas en codos, tes y válvulas como porcentaje de la fricción.")
         formulario.addRow("Pérdidas menores:", self.spin_menores)
+        self.check_presion_estatica = QCheckBox("Verificar presión estática (cierre de válvulas)")
+        self.check_presion_estatica.setChecked(True)
+        self.check_presion_estatica.setToolTip(
+            "Exige que la clase de presión (PN) de cada tramo soporte también la carga "
+            "hidrostática desde la fuente cuando las válvulas se cierran (Q = 0).")
+        formulario.addRow(self.check_presion_estatica)
         return grupo
 
     def _grupo_bomba(self):
         grupo = QGroupBox("Cabezal y bomba")
         formulario = QFormLayout(grupo)
+        self.combo_hidraulico_cabezal = QComboBox()
+        self.combo_hidraulico_cabezal.addItem("Ninguno (usar solo pérdida fija)", None)
+        for h in hidraulicos_activos():
+            rango = f" ({h.caudal_min_m3h:g}–{h.caudal_max_m3h:g} m³/h)" if h.caudal_max_m3h else ""
+            self.combo_hidraulico_cabezal.addItem(f"{h.nombre}{rango}", h)
+        self.combo_hidraulico_cabezal.setToolTip(
+            "Elemento del cabezal de la base de datos (filtro, hidrociclón… con H = K·Q^n + C). "
+            "Su pérdida según el caudal de cada turno se suma a las pérdidas fijas del cabezal.")
+        if self.combo_hidraulico_cabezal.count() > 1:
+            formulario.addRow("Equipo de cabezal (base):", self.combo_hidraulico_cabezal)
         self.spin_cabezal = spin(0, 50, 7.0, 0.5, sufijo="m")
         self.spin_cabezal.setToolTip("Filtros, fertirriego, medidor y válvulas del cabezal.")
         formulario.addRow("Pérdidas en el cabezal:", self.spin_cabezal)
@@ -477,12 +504,15 @@ class DialogoRed(QDialog):
             presion_min_m=self.spin_presion_min.value(),
             factor_perdidas_menores=self.spin_menores.value() / 100,
             metodo=self.combo_metodo.currentData(),
+            verificar_presion_estatica=self.check_presion_estatica.isChecked(),
         )
 
     def datos_bomba(self):
+        elemento = self.combo_hidraulico_cabezal.currentData()
         return DatosBomba(perdidas_cabezal_m=self.spin_cabezal.value(),
                           altura_succion_m=self.spin_succion.value(),
-                          eficiencia=self.spin_eficiencia.value() / 100)
+                          eficiencia=self.spin_eficiencia.value() / 100,
+                          elementos_cabezal=(elemento,) if elemento is not None else ())
 
     def economicos(self):
         return DatosEconomicos(precio_energia_kwh=self.spin_energia.value(),
@@ -529,7 +559,8 @@ class DialogoRed(QDialog):
             red_mapa = construir_red(capa_tuberias, fuente, self.valvulas, crs,
                                      MuestreadorDem(dem, crs) if dem is not None else None,
                                      tolerancia_m=self.spin_tolerancia.value(),
-                                     perdida_valvula_m=self.spin_perdida_valvula.value())
+                                     perdida_valvula_m=self.spin_perdida_valvula.value(),
+                                     elemento_valvula=self.combo_valvula_base.currentData())
             optimizacion, economia = None, None
             if self.grupo_costo.isChecked():
                 optimizacion, economia = self._optimizar(red_mapa.red)
@@ -562,7 +593,8 @@ class DialogoRed(QDialog):
         turno = resultado.turno(critica.turno)
         longitud = sum(t.longitud_m for t in red.tramos)
         cumple = not resultado.motivos
-        avisos = avisos_red(resultado, bombas, red_mapa.sin_dem)
+        avisos = avisos_red(resultado, bombas, red_mapa.sin_dem, self.datos_bomba())
+        cabezal_m = critica.perdida_cabezal_m or self.datos_bomba().perdida_cabezal(critica.caudal_lh)
 
         metros = {}
         for t in red.tramos:
@@ -578,7 +610,7 @@ class DialogoRed(QDialog):
             ("Presión a la entrada de la red",
              f"{turno.presion_entrada_red_m:.2f} m ({turno.presion_entrada_red_m / M_POR_BAR:.2f} bar)"),
             ("Componentes de la CDT",
-             f"red {turno.presion_entrada_red_m:.1f} + cabezal {self.spin_cabezal.value():.1f} + "
+             f"red {turno.presion_entrada_red_m:.1f} + cabezal {cabezal_m:.1f} + "
              f"succión {self.spin_succion.value():.1f} m"),
             ("Red principal", f"{len(red.tramos)} tramos · {longitud:,.0f} m · {len(red.valvulas)} válvulas"),
         ]

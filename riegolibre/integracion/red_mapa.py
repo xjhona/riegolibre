@@ -33,6 +33,7 @@ class ValvulaMapa:
     caudal_lh: float
     presion_m: float
     turno: int = 1
+    elemento: Optional[object] = None  # ElementoHidraulico opcional
 
 
 def capas_de_valvulas(proyecto=None):
@@ -72,7 +73,7 @@ class RedMapa:
 
 
 def construir_red(capa_tuberias, punto_fuente, valvulas: List[ValvulaMapa], crs, muestreador=None,
-                  tolerancia_m=0.5, paso_perfil_m=5.0, perdida_valvula_m=0.0):
+                  tolerancia_m=0.5, paso_perfil_m=5.0, perdida_valvula_m=0.0, elemento_valvula=None):
     """Construye la red (nodos, tramos con perfil y válvulas) a partir del mapa."""
     lineas = []
     for entidad in capa_tuberias.getFeatures():
@@ -128,7 +129,8 @@ def construir_red(capa_tuberias, punto_fuente, valvulas: List[ValvulaMapa], crs,
             raise ValueError("El DEM no cubre toda la red (falta la cota de un nodo).")
         cotas[f"N{i}"] = cota
 
-    lista = [Valvula(v.id, nodo, v.caudal_lh, v.presion_m, v.turno, perdida_valvula_m)
+    lista = [Valvula(v.id, nodo, v.caudal_lh, v.presion_m, v.turno, perdida_valvula_m,
+                     v.elemento or elemento_valvula)
              for v, nodo in zip(valvulas, nodos_valvula)]
     try:
         red = Red(cotas, tramos, lista, fuente)
