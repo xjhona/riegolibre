@@ -210,6 +210,22 @@ def capas_de_lotes():
     return [c for c in QgsProject.instance().mapLayers().values() if es_capa_de_lotes(c)]
 
 
+def lotes_con_nombre(nombre, capa=None, id_entidad=None) -> List[str]:
+    """Capas de lotes del proyecto donde otro lote ya se llama así (el de `capa` e `id_entidad` no cuenta).
+
+    Los resultados de cada lote van en un grupo con su nombre: dos lotes con el mismo se pisarían.
+    """
+    repetidas = []
+    for otra in capas_de_lotes():
+        for entidad in otra.getFeatures():
+            if str(entidad[CAMPO_NOMBRE] or "") != nombre:
+                continue
+            if otra is capa and entidad.id() == id_entidad:
+                continue
+            repetidas.append(otra.name())
+    return repetidas
+
+
 def parametros_guardados(entidad) -> Optional[dict]:
     valor = entidad[CAMPO_BLOQUE]
     if not valor or not isinstance(valor, str):

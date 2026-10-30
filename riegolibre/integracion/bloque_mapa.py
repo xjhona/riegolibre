@@ -5,6 +5,7 @@ El motor (`nucleo.bloque`, `nucleo.subdivision`) trabaja con listas de puntos; a
 geometrías de QGIS, se leen las cotas del DEM y se crean las capas.
 """
 
+import json
 import math
 from dataclasses import dataclass
 from typing import List, Optional
@@ -13,9 +14,10 @@ from qgis.core import (Qgis, QgsFeature, QgsGeometry, QgsMarkerSymbol, QgsPointX
                        QgsSymbol, QgsVectorLayer)
 from qgis.PyQt.QtGui import QColor
 
-from ..nucleo.bloque import Bloque, ParametrosBloque, trazar_bloque
+from ..nucleo.bloque import (Bloque, PORTA_INICIO, PORTA_MANUAL, ParametrosBloque, VALV_AUTO, VALV_PUNTO,
+                             trazar_bloque)
 from ..nucleo.subdivision import ParametrosSubdivision, subdividir
-from .lotes import CAMPO_AREA, CAMPO_NOMBRE
+from .lotes import CAMPO_AREA, CAMPO_BLOQUE, CAMPO_NOMBRE
 from .subunidad_mapa import PROPIEDAD, LateralMapa, reemplazar_grupo
 from .trazado_mapa import (anillos_de_geometria, funcion_cota, pendiente_a_lo_largo,
                            relieve_del_terreno)
@@ -307,8 +309,32 @@ def vista_previa_subdivision(partes, crs):
     return reemplazar_grupo(GRUPO_VISTA_PREVIA, [capa])
 
 
+def valores_para_otro_lote(valores: dict) -> dict:
+    """Los parámetros del bloque que valen para otros lotes: el punto de la válvula y el portalateral dibujado
+    son de un solo lote (en los demás la válvula va automática y el portalateral al inicio de los laterales)
+    y el resultado calculado tampoco se hereda."""
+    valores = {k: v for k, v in valores.items() if k != RESULTADO}
+    if valores.get("valvula") == VALV_PUNTO:
+        valores.update(valvula=VALV_AUTO, punto_valvula=None)
+    if valores.get("portalateral") == PORTA_MANUAL:
+        valores.update(portalateral=PORTA_INICIO, puntos_portalateral=None)
+    return valores
+
+
+def _bloque_heredado(texto):
+    """El JSON del bloque de un lote, listo para sus sub-bloques (None si no tiene parámetros)."""
+    try:
+        datos = json.loads(texto) if texto and isinstance(texto, str) else None
+    except ValueError:
+        return texto
+    if not isinstance(datos, dict):
+        return texto
+    return json.dumps(valores_para_otro_lote(datos), ensure_ascii=False)
+
+
 def reemplazar_lote_por_partes(capa, entidad, partes, nombres: List[str]) -> List[int]:
-    """Reemplaza el lote por sus sub-bloques en la capa de lotes (con los mismos parámetros del bloque)."""
+    """Reemplaza el lote por sus sub-bloques en la capa de lotes (con los mismos parámetros del bloque,
+    salvo lo que es de un solo lote: ver `valores_para_otro_lote`)."""
     nuevas = []
     campos = capa.fields()
     for (geometria, _), nombre in zip(partes, nombres):
@@ -323,6 +349,8 @@ def reemplazar_lote_por_partes(capa, entidad, partes, nombres: List[str]) -> Lis
                 nueva.setAttribute(i, nombre)
             elif nombre_campo == CAMPO_AREA:
                 nueva.setAttribute(i, round(geometria.area() / 10000, 4))
+            elif nombre_campo == CAMPO_BLOQUE:
+                nueva.setAttribute(i, _bloque_heredado(entidad[nombre_campo]))
             elif nombre_campo.lower() != "fid":  # el GeoPackage numera las entidades nuevas
                 nueva.setAttribute(i, entidad[nombre_campo])
         nuevas.append(nueva)

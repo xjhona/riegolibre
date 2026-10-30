@@ -660,11 +660,14 @@ class DialogoBloque(QDialog):
 
     def _aplicar(self):
         from ..integracion.bloque_mapa import RESULTADO, calcular_bloque, quitar_vista_previa, resumen_resultado
-        from ..integracion.lotes import CAMPO_NOMBRE, guardar_parametros, parametros_guardados
+        from ..integracion.lotes import CAMPO_NOMBRE, guardar_parametros, lotes_con_nombre, parametros_guardados
         entidad = self._lote()
         nombre = self.edit_nombre.text().strip()
         if not nombre:
             raise ValueError("Escriba el nombre del lote (pestaña Área).")
+        if lotes_con_nombre(nombre, self.capa, entidad.id()):
+            raise ValueError(f"Ya hay otro lote llamado «{nombre}»: los resultados de cada lote van en un grupo con "
+                             "su nombre y se pisarían. Elija un nombre distinto (pestaña Área).")
         anterior = entidad[CAMPO_NOMBRE]
         bloque, geometria, crs = self._trazar(self.capa, entidad, alcance=self._alcance())
         self.bloque = bloque
@@ -981,13 +984,9 @@ class DialogoBloque(QDialog):
 
 
 def _sin_punto_de_valvula(valores):
-    """Valores para otros lotes: el punto de la válvula y el portalateral dibujado son de un solo lote; en los
-    demás la válvula va automática y el portalateral al inicio de los laterales."""
-    if valores.get("valvula") == VALV_PUNTO:
-        valores = dict(valores, valvula=VALV_AUTO, punto_valvula=None)
-    if valores.get("portalateral") == PORTA_MANUAL:  # la línea dibujada es de un solo lote
-        valores = dict(valores, portalateral=PORTA_INICIO, puntos_portalateral=None)
-    return valores
+    """Valores para otros lotes (ver `valores_para_otro_lote`)."""
+    from ..integracion.bloque_mapa import valores_para_otro_lote
+    return valores_para_otro_lote(valores)
 
 
 def _texto_portalateral(diseno):

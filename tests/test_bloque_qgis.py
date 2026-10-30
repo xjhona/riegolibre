@@ -56,7 +56,9 @@ class PruebasLotesYBloque(unittest.TestCase):
         cls.carpeta.cleanup()
 
     def _importar(self, nombre="lotes.gpkg"):
-        from riegolibre.integracion.lotes import agregar_al_mapa, importar_lotes
+        from riegolibre.integracion.lotes import agregar_al_mapa, capas_de_lotes, importar_lotes
+        for vieja in capas_de_lotes():  # los nombres de lote no pueden repetirse entre capas
+            QgsProject.instance().removeMapLayer(vieja.id())
         ruta = os.path.join(self.carpeta.name, nombre)
         resultado = importar_lotes(self.ruta_dxf, ["_bloques"], _wkt_utm(), ruta)
         return resultado, agregar_al_mapa(resultado.ruta)
@@ -75,6 +77,60 @@ class PruebasLotesYBloque(unittest.TestCase):
         with self.assertRaises(ValueError):
             from riegolibre.integracion.lotes import importar_lotes
             importar_lotes(self.ruta_dxf, ["NO_EXISTE"], _wkt_utm(), os.path.join(self.carpeta.name, "x.gpkg"))
+
+    def _capa_de_prueba(self, nombre_capa, lotes):
+        """Capa de lotes en memoria con [(nombre, WKT, parámetros)]."""
+        import json
+        from qgis.core import QgsFeature, QgsGeometry, QgsVectorLayer
+        capa = QgsVectorLayer("Polygon?crs=EPSG:32717&field=nombre:string&field=area_ha:double"
+                              "&field=capa_cad:string&field=bloque:string", nombre_capa, "memory")
+        entidades = []
+        for nombre, wkt, datos in lotes:
+            e = QgsFeature(capa.fields())
+            e.setGeometry(QgsGeometry.fromWkt(wkt))
+            e["nombre"] = nombre
+            e["bloque"] = json.dumps(datos) if datos else None
+            entidades.append(e)
+        capa.dataProvider().addFeatures(entidades)
+        QgsProject.instance().addMapLayer(capa)
+        return capa
+
+    def test_subdividir_no_hereda_lo_de_un_solo_lote(self):
+        from riegolibre.integracion.bloque_mapa import reemplazar_lote_por_partes
+        from riegolibre.integracion.lotes import parametros_guardados
+        from qgis.core import QgsGeometry
+        datos = {"separacion_m": 1.5, "portalateral": "manual", "puntos_portalateral": [[10.0, 0.0], [10.0, 100.0]],
+                 "valvula": "punto", "punto_valvula": [10.0, 50.0], "azimut_usado_deg": 90.0,
+                 "resultado": {"caudal_m3h": 55.0, "motivos": []}}
+        capa = self._capa_de_prueba("Lotes herencia", [("H1", "POLYGON((0 0,200 0,200 100,0 100,0 0))", datos)])
+        try:
+            lote = next(capa.getFeatures())
+            partes = [(QgsGeometry.fromWkt("POLYGON((0 0,100 0,100 100,0 100,0 0))"), None),
+                      (QgsGeometry.fromWkt("POLYGON((100 0,200 0,200 100,100 100,100 0))"), None)]
+            reemplazar_lote_por_partes(capa, lote, partes, ["H1-1", "H1-2"])
+            for hija in capa.getFeatures():
+                p = parametros_guardados(hija)
+                self.assertEqual(p["portalateral"], "inicio")
+                self.assertIsNone(p["puntos_portalateral"])
+                self.assertEqual(p["valvula"], "auto")
+                self.assertIsNone(p["punto_valvula"])
+                self.assertNotIn("resultado", p)
+                self.assertEqual(p["separacion_m"], 1.5)  # lo demás se hereda
+                self.assertEqual(p["azimut_usado_deg"], 90.0)
+        finally:
+            QgsProject.instance().removeMapLayer(capa.id())
+
+    def test_nombres_de_lote_repetidos(self):
+        from riegolibre.integracion.lotes import lotes_con_nombre
+        capa = self._capa_de_prueba("Lotes nombres", [("N1", "POLYGON((0 0,10 0,10 10,0 10,0 0))", None),
+                                                      ("N2", "POLYGON((20 0,30 0,30 10,20 10,20 0))", None)])
+        try:
+            n1, n2 = sorted(capa.getFeatures(), key=lambda e: e["nombre"])
+            self.assertEqual(lotes_con_nombre("N1", capa, n1.id()), [])  # él mismo no cuenta
+            self.assertEqual(lotes_con_nombre("N1", capa, n2.id()), ["Lotes nombres"])
+            self.assertEqual(lotes_con_nombre("N9", capa, n2.id()), [])
+        finally:
+            QgsProject.instance().removeMapLayer(capa.id())
 
     def test_bloque_en_la_ventana_y_subdivision(self):
         from riegolibre.gui import dialogo_bloque

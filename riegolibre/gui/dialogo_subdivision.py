@@ -226,6 +226,12 @@ class DialogoSubdivision(QDialog):
         if respuesta != QMessageBox.StandardButton.Yes:
             return
         nombres = [f"{self.nombre}-{i}" for i in range(1, len(self.partes) + 1)]
+        from ..integracion.lotes import lotes_con_nombre
+        repetidos = [n for n in nombres if lotes_con_nombre(n, self.capa, self.entidad.id())]
+        if repetidos:
+            QMessageBox.warning(self, "RiegoLibre", "Ya hay lotes con los nombres " + ", ".join(
+                f"«{n}»" for n in repetidos) + ": cámbieles el nombre antes de subdividir.")
+            return
         try:
             self.nuevas = reemplazar_lote_por_partes(self.capa, self.entidad, self.partes, nombres)
         except ValueError as e:
