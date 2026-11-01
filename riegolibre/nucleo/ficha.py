@@ -1,3 +1,6 @@
+# Copyright (C) 2026 Jhonatan Chilet
+# SPDX-License-Identifier: GPL-3.0-only
+# RiegoLibre: software libre; ver los archivos LICENSE y NOTICE (autoría y condiciones adicionales).
 """Fichas de información de un objeto del diseño (lateral, portalateral, tubería, válvula, bomba).
 
 Dan el mismo tipo de datos que «Object Info» de IRRICAD: coordenadas, longitud, ángulo,

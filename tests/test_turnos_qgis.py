@@ -1,3 +1,6 @@
+# Copyright (C) 2026 Jhonatan Chilet
+# SPDX-License-Identifier: GPL-3.0-only
+# RiegoLibre: software libre; ver los archivos LICENSE y NOTICE (autoría y condiciones adicionales).
 """Turnos de riego en el mapa: bloques bajo el clic, asignación, guardado y ventana de la red (requieren QGIS)."""
 
 import os

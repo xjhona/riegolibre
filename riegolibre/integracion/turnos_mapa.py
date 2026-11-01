@@ -1,3 +1,6 @@
+# Copyright (C) 2026 Jhonatan Chilet
+# SPDX-License-Identifier: GPL-3.0-only
+# RiegoLibre: software libre; ver los archivos LICENSE y NOTICE (autoría y condiciones adicionales).
 """Turnos de riego en el mapa: qué bloque pertenece a qué turno, guardado como una capa de polígonos.
 
 Cada válvula es una entidad de la capa «Turnos de riego» (polígono del bloque que riega, id de la válvula

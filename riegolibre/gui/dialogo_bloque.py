@@ -1,3 +1,6 @@
+# Copyright (C) 2026 Jhonatan Chilet
+# SPDX-License-Identifier: GPL-3.0-only
+# RiegoLibre: software libre; ver los archivos LICENSE y NOTICE (autoría y condiciones adicionales).
 """Bloque de goteo de un lote (como el «Tape Irrigation Block» de IRRICAD).
 
 Se abre con la herramienta de mapa «Bloque de goteo» (clic en un lote). Las pestañas son:

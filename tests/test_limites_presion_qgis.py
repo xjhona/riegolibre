@@ -1,3 +1,6 @@
+# Copyright (C) 2026 Jhonatan Chilet
+# SPDX-License-Identifier: GPL-3.0-only
+# RiegoLibre: software libre; ver los archivos LICENSE y NOTICE (autoría y condiciones adicionales).
 """Marcadores de presión mínima y máxima de las subunidades (requieren el Python de QGIS)."""
 
 import os

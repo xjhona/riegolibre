@@ -1,3 +1,6 @@
+# Copyright (C) 2026 Jhonatan Chilet
+# SPDX-License-Identifier: GPL-3.0-only
+# RiegoLibre: software libre; ver los archivos LICENSE y NOTICE (autoría y condiciones adicionales).
 """Diámetros de los portalaterales por velocidad, para todos los lotes diseñados (o los seleccionados).
 
 Con el portalateral y la válvula de cada lote ya ubicados (herramienta «Bloque de goteo»), se vuelve a

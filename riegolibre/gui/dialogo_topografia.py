@@ -1,3 +1,6 @@
+# Copyright (C) 2026 Jhonatan Chilet
+# SPDX-License-Identifier: GPL-3.0-only
+# RiegoLibre: software libre; ver los archivos LICENSE y NOTICE (autoría y condiciones adicionales).
 """Topografía del proyecto: curvas de nivel de un plano CAD (DXF) → DEM y lindero, imagen satelital
 recortada al DEM y vista 3D del terreno."""
 

@@ -1,3 +1,6 @@
+# Copyright (C) 2026 Jhonatan Chilet
+# SPDX-License-Identifier: GPL-3.0-only
+# RiegoLibre: software libre; ver los archivos LICENSE y NOTICE (autoría y condiciones adicionales).
 """Edición de la base de datos de materiales: campos de cada formulario, validación, copias.
 
 La ventana (`gui/dialogo_base_datos.py`) arma el formulario de cada registro con `CAMPOS` y

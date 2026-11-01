@@ -1,0 +1,40 @@
+RiegoLibre
+Complemento de QGIS para diseñar riego tecnificado.
+Copyright (C) 2026 Jhonatan Chilet
+https://github.com/xjhona/riegolibre
+
+
+LICENCIA
+
+Este programa es software libre: puede redistribuirlo y modificarlo según la
+Licencia Pública General de GNU, versión 3 (GPL-3.0), publicada por la Free
+Software Foundation, con las condiciones adicionales de este aviso. El texto
+de la licencia está en el archivo LICENSE.
+
+Este programa se distribuye con la esperanza de que sea útil, pero SIN NINGUNA
+GARANTÍA, ni siquiera la garantía implícita de COMERCIALIZACIÓN o IDONEIDAD
+PARA UN FIN DETERMINADO. Consulte la licencia para más detalles.
+
+
+CONDICIONES ADICIONALES (sección 7 de la GPL-3.0)
+
+a) Atribución (sección 7 b). Toda copia o versión modificada debe conservar
+   este aviso y los avisos de copyright de los archivos, y mostrar la
+   atribución «RiegoLibre, creado por Jhonatan Chilet» en los avisos legales
+   que presente al usuario. En esta versión, esos avisos están en la ventana
+   «Acerca de RiegoLibre».
+
+b) Origen (sección 7 c). Se prohíbe presentar este programa, o partes de él,
+   como obra de otro autor, o falsear su origen de cualquier otra forma. Las
+   versiones modificadas deben indicar que lo son, qué se cambió y cuándo, y
+   distinguirse razonablemente de la versión original.
+
+Quien modifique el programa puede agregar su propio aviso de copyright por sus
+cambios, sin quitar los anteriores.
+
+
+USO DE INTELIGENCIA ARTIFICIAL
+
+El código se escribió con asistencia de inteligencia artificial (Claude, de
+Anthropic). La dirección del proyecto, los criterios de diseño y la validación
+de la hidráulica y de la interfaz son de Jhonatan Chilet.

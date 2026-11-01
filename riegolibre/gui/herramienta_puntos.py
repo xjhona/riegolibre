@@ -1,3 +1,6 @@
+# Copyright (C) 2026 Jhonatan Chilet
+# SPDX-License-Identifier: GPL-3.0-only
+# RiegoLibre: software libre; ver los archivos LICENSE y NOTICE (autoría y condiciones adicionales).
 """Herramienta de mapa para marcar puntos, con imán a los vértices y lados de unas geometrías.
 
 La usa el bloque de goteo para fijar la dirección de los laterales con dos puntos, para colocar la

@@ -1,3 +1,6 @@
+# Copyright (C) 2026 Jhonatan Chilet
+# SPDX-License-Identifier: GPL-3.0-only
+# RiegoLibre: software libre; ver los archivos LICENSE y NOTICE (autoría y condiciones adicionales).
 import json
 import unittest
 
@@ -100,7 +103,8 @@ class PruebasResumenes(unittest.TestCase):
         for esperado in ("1. Resumen del proyecto", "Bases de cálculo", "Subunidades de riego", "Bloque 1",
                          "Selección del diámetro del portalateral", "Red principal de conducción",
                          "Equipo de bombeo", "Presupuesto de materiales", "Observaciones",
-                         "Primera línea<br>Segunda línea", "RiegoLibre 0.2.0", "Darcy-Weisbach",
+                         "Primera línea<br>Segunda línea", "RiegoLibre 0.2.0", "creado por Jhonatan Chilet",
+                         "Darcy-Weisbach",
                          f"{total(datos.presupuesto.partidas, 0.05):,.2f}", "sin precio"):
             self.assertIn(esperado, texto)
         self.assertIn("Agrícola A &amp; B &lt;SAC&gt;", texto)  # los textos del usuario se escapan

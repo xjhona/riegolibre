@@ -1,3 +1,6 @@
+# Copyright (C) 2026 Jhonatan Chilet
+# SPDX-License-Identifier: GPL-3.0-only
+# RiegoLibre: software libre; ver los archivos LICENSE y NOTICE (autoría y condiciones adicionales).
 """Red principal dibujada en el mapa: topología, válvulas, cotas y capas de resultado.
 
 Las tuberías se dibujan como líneas sin necesidad de cortarlas en las uniones:

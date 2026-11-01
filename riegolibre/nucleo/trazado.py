@@ -1,3 +1,6 @@
+# Copyright (C) 2026 Jhonatan Chilet
+# SPDX-License-Identifier: GPL-3.0-only
+# RiegoLibre: software libre; ver los archivos LICENSE y NOTICE (autoría y condiciones adicionales).
 """Trazado automático de subunidades sobre un terreno de forma cualquiera.
 
 Dado el contorno del terreno (un polígono, con huecos o varias partes) se decide

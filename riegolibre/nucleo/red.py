@@ -1,3 +1,6 @@
+# Copyright (C) 2026 Jhonatan Chilet
+# SPDX-License-Identifier: GPL-3.0-only
+# RiegoLibre: software libre; ver los archivos LICENSE y NOTICE (autoría y condiciones adicionales).
 """Red principal ramificada: caudales por turno, pérdidas, presiones, diámetros y bomba.
 
 La red es un árbol que parte de la fuente (bomba + cabezal) y llega a las

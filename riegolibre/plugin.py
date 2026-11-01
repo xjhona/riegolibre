@@ -1,3 +1,6 @@
+# Copyright (C) 2026 Jhonatan Chilet
+# SPDX-License-Identifier: GPL-3.0-only
+# RiegoLibre: software libre; ver los archivos LICENSE y NOTICE (autoría y condiciones adicionales).
 """Registro del complemento en la interfaz de QGIS."""
 
 import os
@@ -73,6 +76,9 @@ class RiegoLibrePlugin:
             self._crear_accion("icon_base_datos.svg", "Base de datos de materiales…", "base_datos"),
             self._crear_accion("icon_materiales.svg", "Lista de materiales y costos…", "materiales"),
             self._crear_accion("icon_memoria.svg", "Memoria de cálculo…", "memoria")))
+        self._separar()
+        self._agregar_grupo("Ayuda", "icon_ayuda.svg", (
+            self._crear_accion("icon_ayuda.svg", "Acerca de RiegoLibre…", "acerca"),))
         from qgis.core import QgsProject
         proyecto = QgsProject.instance()
         proyecto.layersAdded.connect(self._programar_guardado)
@@ -322,6 +328,8 @@ class RiegoLibrePlugin:
                 from .gui.dialogo_diametros import DialogoDiametros as Clase
             elif nombre == "zonas":
                 from .gui.dialogo_zonas import DialogoZonas as Clase
+            elif nombre == "acerca":
+                from .gui.dialogo_acerca import DialogoAcerca as Clase
             else:
                 from .gui.dialogo_memoria import DialogoMemoria as Clase
             dialogo = self.dialogos[nombre] = Clase(self.iface, self.iface.mainWindow())

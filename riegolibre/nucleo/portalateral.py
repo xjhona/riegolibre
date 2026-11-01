@@ -1,3 +1,6 @@
+# Copyright (C) 2026 Jhonatan Chilet
+# SPDX-License-Identifier: GPL-3.0-only
+# RiegoLibre: software libre; ver los archivos LICENSE y NOTICE (autoría y condiciones adicionales).
 """Cálculo de portalaterales (tubería terciaria que alimenta a los laterales).
 
 Cada conexión del portalateral alimenta uno o dos laterales (por ejemplo, a cada

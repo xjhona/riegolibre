@@ -1,3 +1,6 @@
+# Copyright (C) 2026 Jhonatan Chilet
+# SPDX-License-Identifier: GPL-3.0-only
+# RiegoLibre: software libre; ver los archivos LICENSE y NOTICE (autoría y condiciones adicionales).
 import unittest
 
 from riegolibre.nucleo import (ENTRADA_CENTRO, ENTRADA_EXTREMO, CriteriosDiseno, Emisor,

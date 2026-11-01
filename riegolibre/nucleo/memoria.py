@@ -1,3 +1,6 @@
+# Copyright (C) 2026 Jhonatan Chilet
+# SPDX-License-Identifier: GPL-3.0-only
+# RiegoLibre: software libre; ver los archivos LICENSE y NOTICE (autoría y condiciones adicionales).
 """Memoria de cálculo: resúmenes de los resultados y documento para el cliente.
 
 Los resúmenes son diccionarios sencillos que se pueden guardar como JSON (en las
@@ -10,6 +13,7 @@ import html
 from dataclasses import asdict, dataclass, field
 from typing import Dict, List, Optional
 
+from .autoria import AUTOR
 from .graficos import (dibujar_perfil_red, dibujar_perfil_subunidad, png,
                        puntos_perfil_subunidad, referencia_emisor)
 from .materiales import resumen_por_categoria, total
@@ -774,6 +778,7 @@ def memoria_html(datos: DatosMemoria, imagenes: Optional[Dict[str, str]] = None)
         partes.append("<p>" + "<br>".join(_e(linea) for linea in datos.notas.strip().splitlines()) + "</p>")
     version = f" {_e(datos.version)}" if datos.version else ""
     partes.append(f"<p class='nota' align='center'><br>Documento generado con RiegoLibre{version}, "
-                  "software libre (GPL-3.0). Los resultados deben ser revisados por el proyectista.</p>")
+                  f"software libre (GPL-3.0) creado por {AUTOR}. Los resultados deben ser revisados por el "
+                  "proyectista.</p>")
     partes.append("</body></html>")
     return "\n".join(partes)

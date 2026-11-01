@@ -1,3 +1,6 @@
+# Copyright (C) 2026 Jhonatan Chilet
+# SPDX-License-Identifier: GPL-3.0-only
+# RiegoLibre: software libre; ver los archivos LICENSE y NOTICE (autoría y condiciones adicionales).
 """Topografía de un plano CAD (DXF): curvas de nivel → modelo de elevación (DEM) y lindero → polígono.
 
 Las curvas son polilíneas con elevación: la `LWPOLYLINE` habitual guarda una sola cota para toda la

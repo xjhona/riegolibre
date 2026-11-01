@@ -1,3 +1,6 @@
+# Copyright (C) 2026 Jhonatan Chilet
+# SPDX-License-Identifier: GPL-3.0-only
+# RiegoLibre: software libre; ver los archivos LICENSE y NOTICE (autoría y condiciones adicionales).
 """Gráficos de resultados con matplotlib (opcional: sin matplotlib no se dibuja nada).
 
 Las funciones dibujar_* reciben una Figure de matplotlib, de modo que sirven

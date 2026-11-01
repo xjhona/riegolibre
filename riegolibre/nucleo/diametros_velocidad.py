@@ -1,3 +1,6 @@
+# Copyright (C) 2026 Jhonatan Chilet
+# SPDX-License-Identifier: GPL-3.0-only
+# RiegoLibre: software libre; ver los archivos LICENSE y NOTICE (autoría y condiciones adicionales).
 """Diámetros del portalateral por velocidad (como el dimensionado por velocidad de IRRICAD).
 
 Con el portalateral y la válvula ya ubicados, cada rama (de la válvula hacia un extremo) se parte en

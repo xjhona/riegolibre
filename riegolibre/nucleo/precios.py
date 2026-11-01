@@ -1,3 +1,6 @@
+# Copyright (C) 2026 Jhonatan Chilet
+# SPDX-License-Identifier: GPL-3.0-only
+# RiegoLibre: software libre; ver los archivos LICENSE y NOTICE (autoría y condiciones adicionales).
 """Listas de precios: lectura del CSV e identificación de tuberías por su descripción.
 
 El CSV debe tener las columnas codigo, descripcion, unidad y precio. Se acepta

@@ -1,3 +1,6 @@
+# Copyright (C) 2026 Jhonatan Chilet
+# SPDX-License-Identifier: GPL-3.0-only
+# RiegoLibre: software libre; ver los archivos LICENSE y NOTICE (autoría y condiciones adicionales).
 """Pruebas que necesitan QGIS (se omiten si no está disponible).
 
 Ejecutar con el Python de QGIS, por ejemplo:
@@ -285,7 +288,7 @@ class PruebasIntegracionQgis(unittest.TestCase):
                        "Red principal y bomba…",
                        "Turnos de riego (marcar bloques en el mapa y asignarles un turno)", "",
                        "Información del objeto (clic en un lateral, tubería o válvula)",
-                       "Presión mínima y máxima", "", "Materiales y documentos"]
+                       "Presión mínima y máxima", "", "Materiales y documentos", "", "Ayuda"]
         self.assertEqual([a.text() for a in plugin.menu.actions()], principales)
         self.assertEqual([a.text() for a in plugin.barra.actions()], principales)
         grupos = {a.text(): [b.text() for b in a.menu().actions()] for a in plugin.barra.actions() if a.menu()}
@@ -298,18 +301,27 @@ class PruebasIntegracionQgis(unittest.TestCase):
                                 "Diámetros de portalaterales por velocidad…"],
             "Presión mínima y máxima": ["Todas las válvulas", "Válvulas seleccionadas", "Borrar marcadores"],
             "Materiales y documentos": ["Base de datos de materiales…", "Lista de materiales y costos…",
-                                        "Memoria de cálculo…"]})
+                                        "Memoria de cálculo…"],
+            "Ayuda": ["Acerca de RiegoLibre…"]})
         for accion in plugin.barra.actions():
             if accion.menu():  # un clic despliega el grupo; los botones del grupo no quedan sueltos en la barra
                 self.assertEqual(plugin.barra.widgetForAction(accion).popupMode(),
                                  QToolButton.ToolButtonPopupMode.InstantPopup)
                 self.assertFalse(accion.icon().isNull())
-        self.assertEqual(len(plugin.acciones), 18)
+        self.assertEqual(len(plugin.acciones), 19)
         self.assertTrue(all(not a.icon().isNull() for a in plugin.acciones))
 
         def accion(inicio):
             return next(a for a in plugin.acciones if a.text().startswith(inicio))
 
+        accion("Acerca de").trigger()
+        acerca = plugin.dialogos["acerca"]
+        self.assertTrue(acerca.isVisible())
+        self.assertIn("RiegoLibre, creado por Jhonatan Chilet", acerca.etiqueta.text())
+        self.assertIn("SIN NINGUNA GARANTÍA", acerca.etiqueta.text())
+        self.assertEqual(acerca.pestanas.count(), 3)
+        self.assertIn("sección 7 de la GPL-3.0", acerca.pestanas.widget(1).toPlainText())
+        self.assertIn("GNU GENERAL PUBLIC LICENSE", acerca.pestanas.widget(2).toPlainText())
         accion("Topografía").trigger()
         self.assertTrue(plugin.dialogos["topografia"].isVisible())
         accion("Subunidad de riego").trigger()

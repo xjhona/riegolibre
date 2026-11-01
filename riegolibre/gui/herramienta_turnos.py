@@ -1,3 +1,6 @@
+# Copyright (C) 2026 Jhonatan Chilet
+# SPDX-License-Identifier: GPL-3.0-only
+# RiegoLibre: software libre; ver los archivos LICENSE y NOTICE (autoría y condiciones adicionales).
 """Herramienta de mapa «Turnos de riego»: se marcan bloques con el ratón y se les asigna un turno.
 
 Un clic marca un bloque (en rojo) o lo desmarca; arrastrar un rectángulo marca todos los que toca. Con los

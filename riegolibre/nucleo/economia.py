@@ -1,3 +1,6 @@
+# Copyright (C) 2026 Jhonatan Chilet
+# SPDX-License-Identifier: GPL-3.0-only
+# RiegoLibre: software libre; ver los archivos LICENSE y NOTICE (autoría y condiciones adicionales).
 """Diámetros de la red principal por costo total: tubería + energía de bombeo.
 
 Un diámetro mayor cuesta más, pero pierde menos carga: la bomba trabaja con una

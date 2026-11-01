@@ -1,3 +1,6 @@
+# Copyright (C) 2026 Jhonatan Chilet
+# SPDX-License-Identifier: GPL-3.0-only
+# RiegoLibre: software libre; ver los archivos LICENSE y NOTICE (autoría y condiciones adicionales).
 """Tabla de las zonas (lotes con bloque de goteo), como «Zone Design Configuration» de IRRICAD.
 
 Una fila por lote de la capa de lotes, con lo que se puede cambiar para cada zona (procesar o no,

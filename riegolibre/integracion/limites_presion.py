@@ -1,3 +1,6 @@
+# Copyright (C) 2026 Jhonatan Chilet
+# SPDX-License-Identifier: GPL-3.0-only
+# RiegoLibre: software libre; ver los archivos LICENSE y NOTICE (autoría y condiciones adicionales).
 """Presión mínima y máxima de cada subunidad, marcadas en el mapa («Pressure Limits» de IRRICAD).
 
 Para cada subunidad calculada (capas «Válvula · nombre» y «Laterales · nombre») se busca el emisor con

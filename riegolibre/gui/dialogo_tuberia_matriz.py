@@ -1,3 +1,6 @@
+# Copyright (C) 2026 Jhonatan Chilet
+# SPDX-License-Identifier: GPL-3.0-only
+# RiegoLibre: software libre; ver los archivos LICENSE y NOTICE (autoría y condiciones adicionales).
 """Cuadro previo a dibujar (o editar) la tubería matriz, como «Mainline Pipe» de IRRICAD.
 
 Pide la capa donde se dibuja y el diámetro: uno del catálogo o «Elegida por el programa»

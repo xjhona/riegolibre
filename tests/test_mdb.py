@@ -1,3 +1,6 @@
+# Copyright (C) 2026 Jhonatan Chilet
+# SPDX-License-Identifier: GPL-3.0-only
+# RiegoLibre: software libre; ver los archivos LICENSE y NOTICE (autoría y condiciones adicionales).
 """Pruebas del lector de bases de Access (.mdb) en Python puro.
 
 Las bases de prueba se generan con tests/datos/generar_mdb.ps1 (datos ficticios).

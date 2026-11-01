@@ -1,3 +1,6 @@
+# Copyright (C) 2026 Jhonatan Chilet
+# SPDX-License-Identifier: GPL-3.0-only
+# RiegoLibre: software libre; ver los archivos LICENSE y NOTICE (autoría y condiciones adicionales).
 """Imagen satelital de la zona del proyecto, recortada al DEM, y vista 3D del terreno.
 
 La imagen se dibuja con el motor de mapas de QGIS a partir de un servicio de teselas (XYZ) o de

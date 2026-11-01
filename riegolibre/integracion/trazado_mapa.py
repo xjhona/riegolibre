@@ -1,3 +1,6 @@
+# Copyright (C) 2026 Jhonatan Chilet
+# SPDX-License-Identifier: GPL-3.0-only
+# RiegoLibre: software libre; ver los archivos LICENSE y NOTICE (autoría y condiciones adicionales).
 """Trazado automático en el mapa: del polígono del terreno a las subunidades con sus laterales.
 
 El motor (`nucleo.trazado`) trabaja con listas de puntos; aquí se convierten las

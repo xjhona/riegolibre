@@ -17,7 +17,7 @@ Repositorio: https://github.com/xjhona/riegolibre (rama `main`, cuenta gh `xjhon
   `QT_QPA_PLATFORM=offscreen timeout 600 "C:/Program Files/QGIS 3.44.15/bin/python-qgis-ltr.bat" -m unittest discover -s tests -t .`
 - Solo el motor: `C:\Users\Jhonatan\AppData\Local\Python\bin\python.exe -m unittest discover -s tests -t .`
   (el `python` de bash es el alias de la Tienda y no sirve).
-- Estado: ~382 pruebas pasan (el 2026-10-31 se retiró el motor de trazado automático de la red y sus pruebas). Lo nuevo de octubre no se ha probado a mano con pantalla en QGIS.
+- Estado: ~385 pruebas pasan (el 2026-10-31 se retiró el motor de trazado automático de la red y sus pruebas). Lo nuevo de octubre no se ha probado a mano con pantalla en QGIS.
 
 ## Reglas
 - Mantener el núcleo sin imports de QGIS. Compatibilidad Qt6: enums con nombre completo, `exec()`.
@@ -29,6 +29,8 @@ Repositorio: https://github.com/xjhona/riegolibre (rama `main`, cuenta gh `xjhon
   («Number of Laterals», «Even Flow», «Flushing»).
 - Toda herramienta o módulo nuevo va dentro de una de las pestañas existentes (los grupos del menú y la barra de RiegoLibre, en
   `plugin.py`). Si no guarda relación con ninguna, se crea una pestaña nueva. Nunca un botón suelto fuera de ellas.
+- Todo `.py` nuevo empieza con las tres líneas de autoría (copiarlas de otro archivo; `tests/test_autoria.py` lo exige).
+  `LICENSE` de la raíz y `riegolibre/LICENSE` deben ser iguales; el texto legal no se traduce ni se edita.
 
 ## Trampas que no hay que olvidar
 - GeoPackage: el primer campo es `fid`; nunca `setAttributes` posicional en capas que ya pudieron guardarse.

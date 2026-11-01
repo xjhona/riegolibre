@@ -1,3 +1,6 @@
+# Copyright (C) 2026 Jhonatan Chilet
+# SPDX-License-Identifier: GPL-3.0-only
+# RiegoLibre: software libre; ver los archivos LICENSE y NOTICE (autoría y condiciones adicionales).
 """Subunidad de riego: uno o dos portalaterales alimentados desde la misma válvula.
 
 Con la entrada en un extremo hay un solo portalateral; con la entrada en el

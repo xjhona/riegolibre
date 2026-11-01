@@ -1,3 +1,6 @@
+# Copyright (C) 2026 Jhonatan Chilet
+# SPDX-License-Identifier: GPL-3.0-only
+# RiegoLibre: software libre; ver los archivos LICENSE y NOTICE (autoría y condiciones adicionales).
 """Turnos de riego: colores, resumen por turno y balance de caudales.
 
 Un turno es el grupo de válvulas que riegan a la vez. Aquí no hay mapa ni QGIS: solo la paleta que

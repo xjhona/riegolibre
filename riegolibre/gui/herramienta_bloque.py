@@ -1,3 +1,6 @@
+# Copyright (C) 2026 Jhonatan Chilet
+# SPDX-License-Identifier: GPL-3.0-only
+# RiegoLibre: software libre; ver los archivos LICENSE y NOTICE (autoría y condiciones adicionales).
 """Herramienta de mapa «Bloque de goteo»: un clic en un lote abre su ventana de diseño.
 
 Ctrl + clic en un lote elimina su bloque (previa confirmación), como en IRRICAD; Ctrl + Z lo recupera.

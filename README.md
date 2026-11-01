@@ -77,6 +77,7 @@ Todas las herramientas están en el menú **RiegoLibre** (en la barra de menús 
 | **Información del objeto** | Herramienta de mapa, a un clic |
 | **Presión mínima y máxima** (despliega) | Todas las válvulas, Válvulas seleccionadas, Borrar marcadores |
 | **Materiales y documentos** (despliega) | Base de datos de materiales, Lista de materiales y costos, Memoria de cálculo |
+| **Ayuda** (despliega) | Acerca de RiegoLibre |
 
 ## Diseño en el mapa
 
@@ -282,3 +283,11 @@ Se exporta a **PDF**, a **ODT**, que se abre y edita en Word o LibreOffice, o a 
 - [x] Memoria de cálculo (PDF, ODT y HTML)
 - [x] Elección de diámetros de la red por costo (tubería + energía de bombeo)
 - [ ] Riego por aspersión
+
+## Autoría y licencia
+
+RiegoLibre fue creado por **Jhonatan Chilet**. Copyright (C) 2026 Jhonatan Chilet.
+
+Es software libre bajo la licencia [GPL-3.0](LICENSE), con condiciones adicionales de la sección 7 de esa licencia: toda copia o versión modificada debe conservar la atribución al autor, y no se permite falsear el origen del programa. El texto completo está en [`riegolibre/NOTICE`](riegolibre/NOTICE) y en la ventana **Ayuda → Acerca de RiegoLibre**.
+
+El código se escribió con asistencia de inteligencia artificial (Claude, de Anthropic). La dirección del proyecto, los criterios de diseño y la validación de la hidráulica y de la interfaz son de Jhonatan Chilet.
