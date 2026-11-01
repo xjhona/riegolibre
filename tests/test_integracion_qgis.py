@@ -97,6 +97,106 @@ class PruebasIntegracionQgis(unittest.TestCase):
         b = con_pendiente.presion_entrada_requerida().presion_entrada_m
         self.assertAlmostEqual(a, b, delta=0.03)
 
+    def _capa_lineas(self, nombre, y, campos=""):
+        capa = QgsVectorLayer(f"LineString?crs=EPSG:32718{campos}", nombre, "memory")
+        entidad = QgsFeature(capa.fields())
+        entidad.setGeometry(QgsGeometry.fromPolylineXY(
+            [QgsPointXY(X0 + 10, y), QgsPointXY(X0 + 110, y)]))
+        capa.dataProvider().addFeatures([entidad])
+        capa.updateExtents()
+        QgsProject.instance().addMapLayer(capa)
+        self.addCleanup(QgsProject.instance().removeMapLayer, capa.id())
+        return capa
+
+    def test_linea_en_punto_prefiere_los_laterales(self):
+        from qgis.core import QgsCoordinateReferenceSystem
+        from riegolibre.integracion.info_objeto import linea_en_punto
+        crs = QgsCoordinateReferenceSystem("EPSG:32718")
+        calculado = self._capa_lineas(
+            "Laterales · Lote 1", Y0 - 40, "&field=emisores:integer&field=p_entrada:double&field=longitud:double")
+        curva = self._capa_lineas("Curvas", Y0 - 41)
+        sin_preferir = linea_en_punto(QgsPointXY(X0 + 50, Y0 - 41), crs, 5.0)
+        self.assertIs(sin_preferir[0], calculado)  # aunque la curva pase justo por el clic
+        self.assertIs(linea_en_punto(QgsPointXY(X0 + 50, Y0 - 44), crs, 3.5)[0], curva)  # el lateral queda lejos
+        self.assertIsNone(linea_en_punto(QgsPointXY(X0 + 50, Y0 - 500), crs, 5.0))
+
+        QgsProject.instance().layerTreeRoot().findLayer(calculado.id()).setItemVisibilityChecked(False)
+        self.assertIs(linea_en_punto(QgsPointXY(X0 + 50, Y0 - 41), crs, 5.0)[0], curva)  # capa apagada: no cuenta
+
+    def test_elegir_lateral_en_el_mapa(self):
+        from qgis.core import QgsCoordinateReferenceSystem, QgsRectangle
+        from qgis.gui import QgsMapCanvas
+        from riegolibre.gui.dialogo_lateral import DialogoLateral
+        from riegolibre.gui.herramienta_puntos import HerramientaPuntos
+
+        class IfaceFalsa:
+            def __init__(self):
+                self.lienzo = QgsMapCanvas()
+                self.lienzo.setDestinationCrs(QgsCoordinateReferenceSystem("EPSG:32718"))
+                self.lienzo.setExtent(QgsRectangle(X0, Y0 - 50, X0 + 200, Y0))
+                self.mensajes = []
+
+            def mapCanvas(self):  # noqa: N802
+                return self.lienzo
+
+            def statusBarIface(self):  # noqa: N802
+                return self
+
+            def showMessage(self, _texto):  # noqa: N802
+                pass
+
+            def messageBar(self):  # noqa: N802
+                return self
+
+            def pushMessage(self, _titulo, texto, *_):  # noqa: N802
+                self.mensajes.append(texto)
+
+        def clic(herramienta, x, y):
+            herramienta.puntos = [QgsPointXY(x, y)]
+            herramienta._salir(cancelado=False)
+
+        iface = IfaceFalsa()
+        otra = self._capa_lineas("Otro lote", Y0 - 35)
+        self.addCleanup(self.lineas.removeSelection)
+        dialogo = DialogoLateral(iface=iface)
+        dialogo.combo_linea.setLayer(otra)
+        dialogo.combo_dem.setLayer(self.dem)
+        dialogo.show()
+
+        dialogo.elegir_en_mapa()
+        self.assertFalse(dialogo.isVisible())
+        herramienta = iface.lienzo.mapTool()
+        self.assertIsInstance(herramienta, HerramientaPuntos)
+
+        # Clic en un sitio sin líneas: avisa y sigue esperando, con la ventana escondida.
+        clic(herramienta, X0 + 190, Y0 - 5)
+        self.assertFalse(dialogo.isVisible())
+        self.assertIsNot(iface.lienzo.mapTool(), herramienta)
+        self.assertIn("No hay ninguna línea", iface.mensajes[-1])
+        self.assertFalse(dialogo.check_terreno.isChecked())
+
+        # Clic sobre una línea de otra capa: cambia la capa, la selecciona y calcula.
+        clic(iface.lienzo.mapTool(), X0 + 50, Y0 - 25)
+        self.assertTrue(dialogo.isVisible())
+        self.assertIs(dialogo.combo_linea.currentLayer(), self.lineas)
+        self.assertEqual(self.lineas.selectedFeatureCount(), 1)
+        self.assertTrue(dialogo.check_terreno.isChecked())
+        self.assertAlmostEqual(dialogo.spin_longitud.value(), 100.0, places=1)
+        self.assertIn("Presión de entrada", dialogo.texto.toHtml())
+        self.assertIn("laterales", dialogo.nota_linea.text())
+
+        # Esc: vuelve sin cambiar nada; y una elección nueva quita la selección de la anterior.
+        dialogo.elegir_en_mapa()
+        iface.lienzo.mapTool()._salir(cancelado=True)
+        self.assertTrue(dialogo.isVisible())
+        self.assertEqual(self.lineas.selectedFeatureCount(), 1)
+        dialogo.elegir_en_mapa()
+        clic(iface.lienzo.mapTool(), X0 + 50, Y0 - 35)
+        self.assertIs(dialogo.combo_linea.currentLayer(), otra)
+        self.assertEqual(self.lineas.selectedFeatureCount(), 0)
+        self.assertEqual(otra.selectedFeatureCount(), 1)
+        dialogo.hide()
+
     def test_dialogo_longitud_maxima(self):
         from riegolibre.gui.dialogo_lateral import DialogoLateral
         dialogo = DialogoLateral(iface=None)

@@ -9,7 +9,7 @@ import json
 from dataclasses import dataclass
 from typing import List, Optional
 
-from qgis.core import (QgsCoordinateTransform, QgsFeatureRequest, QgsGeometry, QgsPointXY,
+from qgis.core import (Qgis, QgsCoordinateTransform, QgsFeatureRequest, QgsGeometry, QgsPointXY,
                        QgsProject, QgsRectangle, QgsVectorLayer)
 
 from ..nucleo import Emisor, Lateral, PresionInsuficiente
@@ -77,17 +77,46 @@ def buscar(punto, crs_punto, tolerancia, proyecto=None, solo_visibles=True) -> L
     punto = QgsPointXY(punto)
     candidatos = []
     for capa in capas_con_resultados(proyecto, solo_visibles):
-        transformacion = QgsCoordinateTransform(crs_punto, capa.crs(), proyecto)
-        p = transformacion.transform(punto)
-        tol = transformacion.transform(QgsPointXY(punto.x() + tolerancia, punto.y())).distance(p)
-        zona = QgsRectangle(p.x() - tol, p.y() - tol, p.x() + tol, p.y() + tol)
-        geometria_punto = QgsGeometry.fromPointXY(p)
-        for entidad in capa.getFeatures(QgsFeatureRequest().setFilterRect(zona)):
-            distancia = entidad.geometry().distance(geometria_punto)
-            if distancia <= tol:
-                candidatos.append(Candidato(capa, entidad, tipo_de_capa(capa), distancia))
+        for entidad, distancia in _entidades_cerca(capa, punto, crs_punto, tolerancia, proyecto):
+            candidatos.append(Candidato(capa, entidad, tipo_de_capa(capa), distancia))
     candidatos.sort(key=lambda c: (c.tipo not in PUNTUALES, c.distancia))
     return candidatos
+
+
+def _entidades_cerca(capa, punto, crs_punto, tolerancia, proyecto):
+    """Pares (entidad, distancia en unidades de la capa) a menos de `tolerancia` del punto."""
+    transformacion = QgsCoordinateTransform(crs_punto, capa.crs(), proyecto)
+    p = transformacion.transform(punto)
+    tol = transformacion.transform(QgsPointXY(punto.x() + tolerancia, punto.y())).distance(p)
+    zona = QgsRectangle(p.x() - tol, p.y() - tol, p.x() + tol, p.y() + tol)
+    geometria_punto = QgsGeometry.fromPointXY(p)
+    for entidad in capa.getFeatures(QgsFeatureRequest().setFilterRect(zona)):
+        distancia = entidad.geometry().distance(geometria_punto)
+        if distancia <= tol:
+            yield entidad, distancia
+
+
+def linea_en_punto(punto, crs_punto, tolerancia, preferida=None, proyecto=None):
+    """(capa, entidad) de la línea visible más cercana al punto, o None si no hay ninguna a menos de `tolerancia`.
+
+    Los laterales calculados y la capa `preferida` van antes que las demás líneas (curvas de nivel,
+    portalaterales…), que suelen pasar muy cerca de ellos.
+    """
+    proyecto = proyecto or QgsProject.instance()
+    raiz = proyecto.layerTreeRoot()
+    punto = QgsPointXY(punto)
+    mejor = None
+    for capa in proyecto.mapLayers().values():
+        if not isinstance(capa, QgsVectorLayer) or capa.geometryType() != Qgis.GeometryType.Line:
+            continue
+        nodo = raiz.findLayer(capa.id())
+        if nodo is not None and not nodo.isVisible():
+            continue
+        relegada = capa is not preferida and tipo_de_capa(capa) != LATERALES
+        for entidad, distancia in _entidades_cerca(capa, punto, crs_punto, tolerancia, proyecto):
+            if mejor is None or (relegada, distancia) < mejor[0]:
+                mejor = ((relegada, distancia), capa, entidad)
+    return mejor[1:] if mejor else None
 
 
 # -------------------------------------------------------------------- lectura

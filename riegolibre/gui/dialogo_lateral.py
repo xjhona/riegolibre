@@ -1,6 +1,6 @@
 """Calculadora de lateral de goteo."""
 
-from qgis.core import Qgis
+from qgis.core import Qgis, QgsProject
 from qgis.gui import QgsMapLayerComboBox
 from qgis.PyQt.QtCore import Qt
 from qgis.PyQt.QtWidgets import (QApplication, QCheckBox, QComboBox, QDialog,
@@ -20,6 +20,7 @@ class DialogoLateral(QDialog):
     def __init__(self, iface, parent=None):
         super().__init__(parent)
         self.iface = iface
+        self._capa_elegida = None  # id de la capa donde quedó seleccionado el lateral elegido en el mapa
         self.setWindowTitle("RiegoLibre · Calculadora de lateral (goteo)")
         self.resize(1100, 680)
 
@@ -120,9 +121,13 @@ class DialogoLateral(QDialog):
         self.combo_dem = QgsMapLayerComboBox()
         self.combo_dem.setFilters(Qgis.LayerFilter.RasterLayer)
         formulario.addRow("DEM:", self.combo_dem)
-        nota = QLabel("Se usa la línea seleccionada; su primer vértice es la entrada del lateral.")
-        nota.setWordWrap(True)
-        formulario.addRow(nota)
+        self.boton_elegir = QPushButton("Elegir el lateral en el mapa")
+        self.boton_elegir.setToolTip("Esconde la ventana mientras hace clic sobre la línea, en cualquier capa visible.")
+        self.boton_elegir.clicked.connect(self.elegir_en_mapa)
+        formulario.addRow(self.boton_elegir)
+        self.nota_linea = QLabel("Se usa la línea seleccionada; su primer vértice es la entrada del lateral.")
+        self.nota_linea.setWordWrap(True)
+        formulario.addRow(self.nota_linea)
         return grupo
 
     def _grupo_calculo(self):
@@ -184,14 +189,71 @@ class DialogoLateral(QDialog):
             capa_linea, capa_dem = self.combo_linea.currentLayer(), self.combo_dem.currentLayer()
             if capa_linea is None or capa_dem is None:
                 raise ValueError("Elija una capa de líneas y un DEM.")
-            longitud, perfil = extraer_perfil(
-                capa_linea, entidad_unica(capa_linea), capa_dem, paso_m=max(espaciamiento, 0.5))
+            entidad = entidad_unica(capa_linea)
+            longitud, perfil = extraer_perfil(capa_linea, entidad, capa_dem, paso_m=max(espaciamiento, 0.5))
             self.spin_longitud.setValue(longitud)
+            self.nota_linea.setText(f"Calculado con la línea {entidad.id()} de «{capa_linea.name()}»; "
+                                    "su primer vértice es la entrada del lateral.")
             return Lateral.desde_longitud(self.tuberia(), self.emisor(), espaciamiento, longitud,
                                           perfil=perfil, **comunes)
         return Lateral.desde_longitud(self.tuberia(), self.emisor(), espaciamiento,
                                       self.spin_longitud.value(),
                                       pendiente=self.spin_pendiente.value() / 100, **comunes)
+
+    # ---------------------------------------------------------------- línea en el mapa
+
+    def elegir_en_mapa(self):
+        """Esconde la ventana y pide un clic sobre la línea; si no hay ninguna ahí, sigue esperando."""
+        from ..integracion.info_objeto import linea_en_punto
+        from .herramienta_puntos import TOLERANCIA_PX, HerramientaPuntos
+        if self.iface is None:
+            return
+        canvas = self.iface.mapCanvas()
+        anterior = canvas.mapTool()
+        barra = self.iface.statusBarIface()
+        mensaje = "Lateral: haga clic sobre la línea en el mapa"
+
+        def volver():
+            self._herramienta_puntos = None
+            if canvas.mapTool() is None and anterior is not None:
+                canvas.setMapTool(anterior)
+            self.show()
+            self.raise_()
+            self.activateWindow()
+
+        def armar():
+            self._herramienta_puntos = HerramientaPuntos(canvas, 1, [], [mensaje], terminar, volver,
+                                                         barra.showMessage)
+            canvas.setMapTool(self._herramienta_puntos)
+            canvas.setFocus()
+
+        def terminar(puntos):
+            encontrada = linea_en_punto(puntos[0], canvas.mapSettings().destinationCrs(),
+                                        TOLERANCIA_PX * canvas.mapUnitsPerPixel(), self.combo_linea.currentLayer())
+            if encontrada is None:
+                self.iface.messageBar().pushMessage(
+                    "RiegoLibre", "No hay ninguna línea visible en ese punto; acérquese o haga clic sobre "
+                    "ella (Esc para cancelar).", Qgis.MessageLevel.Warning, 5)
+                armar()
+                return
+            volver()
+            self._usar_linea(*encontrada)
+
+        self.iface.messageBar().pushMessage("RiegoLibre", mensaje + " (Esc para cancelar).",
+                                            Qgis.MessageLevel.Info, 5)
+        self.hide()
+        armar()
+
+    def _usar_linea(self, capa, entidad):
+        """Deja la línea como única seleccionada de su capa y calcula con ella."""
+        previa = QgsProject.instance().mapLayer(self._capa_elegida) if self._capa_elegida else None
+        if previa is not None and previa is not capa:
+            previa.removeSelection()
+        self._capa_elegida = capa.id()
+        capa.selectByIds([entidad.id()])
+        self.combo_linea.setLayer(capa)
+        self.check_terreno.setChecked(True)
+        self.calcular()
 
     # ---------------------------------------------------------------- acciones
 
