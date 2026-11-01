@@ -646,6 +646,20 @@ class PruebasLotesYBloque(unittest.TestCase):
             self.assertIn("sin diseñar", t.item(a, C_RESULTADO).text())
             self.assertFalse(t.item(a, C_PROCESAR).flags() & Qt.ItemFlag.ItemIsUserCheckable)
             self.assertEqual(t.item(b, C_PROCESAR).checkState(), Qt.CheckState.Checked)
+            # Filtro «Mostrar»: todos, solo los diseñados o solo los pendientes
+            self.assertFalse(t.isRowHidden(a) or t.isRowHidden(b))
+            zonas.combo_filtro.setCurrentIndex(zonas.combo_filtro.findData(dialogo_zonas.FILTRO_DISENADOS))
+            self.assertTrue(t.isRowHidden(a))
+            self.assertFalse(t.isRowHidden(b))
+            self.assertIn("1 a la vista", zonas.etiqueta_total.text())
+            zonas.combo_filtro.setCurrentIndex(zonas.combo_filtro.findData(dialogo_zonas.FILTRO_PENDIENTES))
+            self.assertFalse(t.isRowHidden(a))
+            self.assertTrue(t.isRowHidden(b))
+            zonas.llenar()  # recargar conserva el filtro
+            self.assertTrue(t.isRowHidden(b))
+            zonas.combo_filtro.setCurrentIndex(zonas.combo_filtro.findData(dialogo_zonas.FILTRO_TODOS))
+            self.assertFalse(t.isRowHidden(a) or t.isRowHidden(b))
+            self.assertNotIn("a la vista", zonas.etiqueta_total.text())
             real = float(t.item(b, C_VALVULA_REAL).text())
             self.assertAlmostEqual(real, guardado["resultado"]["presion_valvula_m"])
             # La mínima permitida viene de la base de datos (gris) y no cuenta como cambio

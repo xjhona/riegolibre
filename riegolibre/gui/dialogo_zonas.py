@@ -46,7 +46,10 @@ ENCABEZADOS = {
     C_VELOCIDAD: ("Velocidad\nmáx. (m/s)", "Velocidad máxima en el portalateral en el último cálculo."),
     C_RESULTADO: ("Resultado", "Si la zona cumple los criterios de diseño (pase el ratón para ver por qué no)."),
 }
-VERDE, ROJO, GRIS = QColor("#2e7d32"), QColor("#c62828"), QColor("#9e9e9e")
+FILTRO_TODOS, FILTRO_DISENADOS, FILTRO_PENDIENTES = "todos", "disenados", "pendientes"
+FILTROS = (("Todos los lotes", FILTRO_TODOS), ("Diseñados", FILTRO_DISENADOS),
+           ("Pendientes (sin diseñar)", FILTRO_PENDIENTES))
+VERDE, ROJO, GRIS =QColor("#2e7d32"), QColor("#c62828"), QColor("#9e9e9e")
 CLAVE_ID = Qt.ItemDataRole.UserRole
 
 
@@ -76,9 +79,15 @@ class DialogoZonas(QDialog):
         self.combo_dem.setFilters(Qgis.LayerFilter.RasterLayer)
         self.combo_dem.setAllowEmptyLayer(True)
         self.combo_dem.setToolTip("Se usa en las zonas que no tienen un DEM guardado.")
+        self.combo_filtro = QComboBox()
+        for texto, clave in FILTROS:
+            self.combo_filtro.addItem(texto, clave)
+        self.combo_filtro.setToolTip("Diseñados: lotes con bloque de goteo. Pendientes: lotes sin diseñar.")
+        self.combo_filtro.currentIndexChanged.connect(self.filtrar)
         arriba = QFormLayout()
         arriba.addRow("Capa de lotes:", self.combo_capa)
         arriba.addRow("DEM:", self.combo_dem)
+        arriba.addRow("Mostrar:", self.combo_filtro)
 
         self.tabla = QTableWidget(0, len(ENCABEZADOS))
         for columna, (titulo, ayuda) in ENCABEZADOS.items():
@@ -184,6 +193,15 @@ class DialogoZonas(QDialog):
         self.tabla.setRowCount(len(entidades))
         for fila, entidad in enumerate(entidades):
             self._poner_fila(fila, entidad, parametros_guardados(entidad))
+        self.filtrar()
+
+    def filtrar(self):
+        """Oculta las filas que no corresponden a «Mostrar»: diseñadas (con casilla Procesar) o pendientes."""
+        filtro = self.combo_filtro.currentData()
+        for fila in range(self.tabla.rowCount()):
+            disenada = self._procesar(fila) is not None
+            self.tabla.setRowHidden(fila, (filtro == FILTRO_DISENADOS and not disenada)
+                                    or (filtro == FILTRO_PENDIENTES and disenada))
         self._total()
 
     def _item(self, fila, columna, texto="", editable=False, color=None, ayuda=None):
@@ -277,8 +295,10 @@ class DialogoZonas(QDialog):
             zonas += 1
             cumplen += resultado.text().startswith("✔")
             caudal += float(self.tabla.item(fila, C_CAUDAL).text())
-        self.etiqueta_total.setText(f"{self.tabla.rowCount()} lotes · {zonas} calculados · cumplen {cumplen} · "
-                                    f"caudal total {caudal:.2f} m³/h")
+        visibles = sum(not self.tabla.isRowHidden(f) for f in range(self.tabla.rowCount()))
+        mostrando = "" if visibles == self.tabla.rowCount() else f" ({visibles} a la vista)"
+        self.etiqueta_total.setText(f"{self.tabla.rowCount()} lotes{mostrando} · {zonas} calculados · "
+                                    f"cumplen {cumplen} · caudal total {caudal:.2f} m³/h")
 
     # ---------------------------------------------------------------- marcas
 
