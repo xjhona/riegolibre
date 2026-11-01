@@ -16,6 +16,9 @@ class RiegoLibrePlugin:
         self.dialogos = {}
         self.desactualizados = set()  # ventanas abiertas cuando cambió la base de datos
         self.accion_info = None
+        self.accion_limites = None  # el botón con menú de la barra
+        self.acciones_limites = []  # sus tres opciones, también en el menú del complemento
+        self.menu_limites = None
         self.herramienta_info = None
         self.dialogo_info = None
         self.accion_bloque = None
@@ -42,6 +45,7 @@ class RiegoLibrePlugin:
         self._agregar_accion("icon_materiales.svg", "Lista de materiales y costos…", "materiales")
         self._agregar_accion("icon_memoria.svg", "Memoria de cálculo…", "memoria")
         self._agregar_herramienta_info()
+        self._agregar_limites_presion()
         from qgis.core import QgsProject
         proyecto = QgsProject.instance()
         proyecto.layersAdded.connect(self._programar_guardado)
@@ -95,6 +99,56 @@ class RiegoLibrePlugin:
         self.iface.addToolBarIcon(accion)
         self.accion_info = accion
         self.acciones.append(accion)
+
+    def _agregar_limites_presion(self):
+        """Botón con menú, como el de IRRICAD: marcadores de presión mínima y máxima de todas las subunidades,
+        de las seleccionadas, o borrarlos."""
+        from qgis.PyQt.QtWidgets import QMenu, QToolButton
+        ventana = self.iface.mainWindow()
+        icono = QIcon(os.path.join(CARPETA, "icon_presion.svg"))
+        menu = QMenu(ventana)
+        for texto, ayuda, modo in (
+                ("Presión mín. y máx.: todas las válvulas", "Marca el emisor de menor y de mayor presión de cada "
+                 "subunidad calculada", "todas"),
+                ("Presión mín. y máx.: válvulas seleccionadas", "Lo mismo, solo de las válvulas o lotes que tenga "
+                 "seleccionados en el mapa", "seleccionadas"),
+                ("Presión mín. y máx.: borrar marcadores", "Quita los marcadores de presión del mapa", "borrar")):
+            accion = QAction(icono, texto, ventana)
+            accion.setToolTip(ayuda)
+            accion.setStatusTip(ayuda)
+            accion.triggered.connect(lambda _=False, m=modo: self._limites_presion(m))
+            menu.addAction(accion)
+            self.iface.addPluginToMenu(MENU, accion)
+            self.acciones_limites.append(accion)
+        boton = QToolButton()
+        boton.setIcon(icono)
+        boton.setToolTip("Presión mínima y máxima de cada subunidad en el mapa (menú)")
+        boton.setMenu(menu)
+        boton.setPopupMode(QToolButton.ToolButtonPopupMode.InstantPopup)
+        self.menu_limites = menu
+        self.accion_limites = self.iface.addToolBarWidget(boton)
+
+    def _limites_presion(self, modo):
+        from qgis.core import Qgis
+        from .integracion import limites_presion
+        barra = self.iface.messageBar()
+        try:
+            if modo == "borrar":
+                cantidad = limites_presion.borrar()
+                texto = f"Se quitaron {cantidad} marcadores de presión." if cantidad else "No hay marcadores."
+                barra.pushMessage("RiegoLibre", texto, Qgis.MessageLevel.Info, 5)
+                return
+            resumen = limites_presion.mostrar(solo_seleccionadas=(modo == "seleccionadas"))
+        except ValueError as error:
+            barra.pushMessage("RiegoLibre", str(error), Qgis.MessageLevel.Warning, 8)
+            return
+        finally:
+            self.iface.mapCanvas().refresh()  # al quitar la capa el lienzo conserva los rótulos hasta repintar
+        plural = "subunidad" if resumen.subunidades == 1 else "subunidades"
+        texto = f"Presión mínima y máxima marcada en {resumen.subunidades} {plural} ({resumen.marcadores} marcadores)."
+        if resumen.sin_resultados:
+            texto += " Sin laterales calculados: " + ", ".join(resumen.sin_resultados) + "."
+        barra.pushMessage("RiegoLibre", texto, Qgis.MessageLevel.Info, 6)
 
     def _agregar_herramienta_bloque(self):
         accion = QAction(QIcon(os.path.join(CARPETA, "icon_bloque.svg")),
@@ -209,6 +263,15 @@ class RiegoLibrePlugin:
             self.iface.removePluginMenu(MENU, accion)
             self.iface.removeToolBarIcon(accion)
         self.acciones = []
+        for accion in self.acciones_limites:  # solo en el menú: en la barra van dentro del botón
+            self.iface.removePluginMenu(MENU, accion)
+        self.acciones_limites = []
+        if self.accion_limites is not None:
+            self.iface.removeToolBarIcon(self.accion_limites)
+            self.accion_limites = None
+        if self.menu_limites is not None:
+            self.menu_limites.deleteLater()
+            self.menu_limites = None
         for dialogo in self.dialogos.values():
             dialogo.close()
             dialogo.deleteLater()

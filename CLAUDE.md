@@ -17,7 +17,7 @@ Repositorio: https://github.com/xjhona/riegolibre (rama `main`, cuenta gh `xjhon
   `QT_QPA_PLATFORM=offscreen timeout 600 "C:/Program Files/QGIS 3.44.15/bin/python-qgis-ltr.bat" -m unittest discover -s tests -t .`
 - Solo el motor: `C:\Users\Jhonatan\AppData\Local\Python\bin\python.exe -m unittest discover -s tests -t .`
   (el `python` de bash es el alias de la Tienda y no sirve).
-- Estado: ~358 pruebas pasan. Lo nuevo de octubre no se ha probado a mano con pantalla en QGIS.
+- Estado: ~441 pruebas pasan. Lo nuevo de octubre no se ha probado a mano con pantalla en QGIS.
 
 ## Reglas
 - Mantener el núcleo sin imports de QGIS. Compatibilidad Qt6: enums con nombre completo, `exec()`.

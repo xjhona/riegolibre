@@ -144,14 +144,14 @@ class PruebasIntegracionQgis(unittest.TestCase):
 
     def test_registro_en_qgis(self):
         from qgis.gui import QgsMapCanvas
-        from qgis.PyQt.QtWidgets import QMainWindow
+        from qgis.PyQt.QtWidgets import QAction, QMainWindow
         from riegolibre import classFactory
 
         class IfaceFalsa:
             def __init__(self):
                 self.ventana = QMainWindow()
                 self.lienzo = QgsMapCanvas()
-                self.menu, self.barra = [], []
+                self.menu, self.barra, self.widgets, self.mensajes = [], [], [], []
 
             def mapCanvas(self):  # noqa: N802
                 return self.lienzo
@@ -171,6 +171,18 @@ class PruebasIntegracionQgis(unittest.TestCase):
             def removeToolBarIcon(self, accion):  # noqa: N802
                 self.barra.remove(accion)
 
+            def addToolBarWidget(self, widget):  # noqa: N802
+                accion = QAction(self.ventana)
+                self.widgets.append(widget)
+                self.barra.append(accion)
+                return accion
+
+            def messageBar(self):  # noqa: N802
+                return self
+
+            def pushMessage(self, titulo, texto, *_):  # noqa: N802
+                self.mensajes.append(texto)
+
         iface = IfaceFalsa()
         plugin = classFactory(iface)
         plugin.initGui()
@@ -185,7 +197,10 @@ class PruebasIntegracionQgis(unittest.TestCase):
                           "Turnos de riego (marcar bloques en el mapa y asignarles un turno)",
                           "Red principal y bomba…",
                           "Base de datos de materiales…", "Lista de materiales y costos…", "Memoria de cálculo…",
-                          "Información del objeto (clic en un lateral, tubería o válvula)"])
+                          "Información del objeto (clic en un lateral, tubería o válvula)",
+                          "Presión mín. y máx.: todas las válvulas",
+                          "Presión mín. y máx.: válvulas seleccionadas",
+                          "Presión mín. y máx.: borrar marcadores"])
         self.assertTrue(all(not a.icon().isNull() for a in iface.menu))
         iface.menu[0].trigger()
         self.assertTrue(plugin.dialogos["topografia"].isVisible())
@@ -223,6 +238,11 @@ class PruebasIntegracionQgis(unittest.TestCase):
         self.assertIs(iface.mapCanvas().mapTool(), plugin.herramienta_info)
         iface.mapCanvas().unsetMapTool(plugin.herramienta_info)
         self.assertFalse(iface.menu[14].isChecked())
+        # Los marcadores de presión salen de un botón con menú; sin ninguno, borrar solo lo avisa.
+        self.assertEqual(len(iface.widgets), 1)
+        self.assertEqual([a.text() for a in plugin.menu_limites.actions()], [a.text() for a in iface.menu[15:18]])
+        iface.menu[17].trigger()
+        self.assertEqual(iface.mensajes[-1], "No hay marcadores.")
         # Al cambiar la base de datos, las ventanas se rehacen para leer los catálogos nuevos:
         # las cerradas de inmediato y las abiertas cuando se vuelven a abrir.
         iface.menu[11].trigger()

@@ -18,6 +18,10 @@ Fuente: sesiones de octubre de 2026. El usuario valida la hidráulica y prueba e
   NO entran en la pérdida de carga.
 - Tuberías menores de 63 mm se rotulan en pulgadas (`diametro_en_plano` en `nucleo/tuberias.py`).
 - La zona UTM varía por proyecto (32717 o 32718): nunca fijarla en el código.
+- Presión mínima y máxima en el mapa (video del usuario, 2026-10-31): un botón con menú «All Valves / Selected Valves /
+  Clear Markers»; los marcadores salen en el emisor de menor y de mayor presión y, al pasar el cursor, muestran
+  «Max: 21.0 m». Aquí van como rótulos fijos «Máx: 21.0 m» / «Mín: …» (`integracion/limites_presion.py`). Por confirmar
+  con el usuario: que el rótulo fijo le sirva (IRRICAD lo muestra solo al pasar el cursor).
 
 ## Cambios de una IA externa
 - 2026-10-27: cambios de Gemini (válvula y cabezal con curva, horas por turno, cuartil inferior, presión estática)

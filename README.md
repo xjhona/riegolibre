@@ -110,6 +110,16 @@ Al consultar un **lateral**, la ventana dibuja también su perfil: presión en c
 
 Las líneas se orientan en el sentido del flujo (P1 aguas arriba, P2 aguas abajo) y siempre se cumple *presión P1 − presión P2 = pérdida + desnivel*. Los resultados calculados con una versión anterior no tienen todos los campos: se muestran con «—» hasta que se vuelva a calcular. Las presiones por turno de una válvula aparecen cuando se asignan los turnos y se calcula la **Red principal y bomba**.
 
+## Presión mínima y máxima en el mapa
+
+El botón **Presión mínima y máxima** (barra de RiegoLibre; las mismas tres opciones están en el menú del complemento) replica el de IRRICAD. Tiene un menú:
+
+- **Todas las válvulas**: en cada subunidad calculada pone un marcador rojo en el emisor de mayor presión («Máx: 21.0 m») y uno azul en el de menor presión («Mín: 18.5 m»).
+- **Válvulas seleccionadas**: lo mismo, solo en las subunidades cuya válvula está seleccionada, o cuyo lote (o bloque) está seleccionado con *Seleccionar entidades*.
+- **Borrar marcadores**: quita la capa de marcadores.
+
+Los marcadores van en la capa *Presión mínima y máxima* (campos `tipo`, `presion`, `subunidad`, `rotulo`) y se reemplazan al repetir la acción. La presión sale de los campos `p_min` y `p_max` de los laterales; la posición se obtiene reconstruyendo el lateral extremo como lo hace *Información del objeto* (con el DEM con que se calculó). Código: `integracion/limites_presion.py`.
+
 ## Red principal y bomba
 
 Menú **Complementos → RiegoLibre → Red principal y bomba**:
