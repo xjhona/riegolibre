@@ -6,20 +6,18 @@ cada línea se divide en tramos allí donde la toca un nodo (uniones en T).
 """
 
 import json
-import math
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 from typing import Dict, List, Optional
 
-from qgis.core import (Qgis, QgsFeature, QgsGeometry,
-                       QgsMarkerSymbol, QgsPointXY, QgsProject, QgsRectangle,
+from qgis.core import (Qgis, QgsFeature, QgsField, QgsGeometry,
+                       QgsMarkerSymbol, QgsPointXY, QgsProject,
                        QgsSingleSymbolRenderer, QgsSymbol, QgsVectorLayer)
+from qgis.PyQt.QtCore import QMetaType
 from qgis.PyQt.QtGui import QColor
 
 from ..nucleo import Red, TramoRed, Valvula
-from ..nucleo.terreno import Terreno, celda_automatica
-from ..nucleo.trazado_red import ORTOGONAL, ParametrosRed, ValvulaDestino, trazar_red
 from ..nucleo.tuberias import rotulo_corto
-from .perfil_terreno import MuestreadorDem, linea_simple, perfil_de_geometria
+from .perfil_terreno import linea_simple, perfil_de_geometria
 from .subunidad_mapa import PROPIEDAD, estilo_por_tuberia, geometria_en, rotular_tuberia
 
 CAMPOS_VALVULA = ("presion", "caudal_lh")
@@ -73,17 +71,33 @@ class RedMapa:
 
 
 def construir_red(capa_tuberias, punto_fuente, valvulas: List[ValvulaMapa], crs, muestreador=None,
-                  tolerancia_m=0.5, paso_perfil_m=5.0, perdida_valvula_m=0.0, elemento_valvula=None):
-    """Construye la red (nodos, tramos con perfil y válvulas) a partir del mapa."""
+                  tolerancia_m=0.5, paso_perfil_m=5.0, perdida_valvula_m=0.0, elemento_valvula=None,
+                  catalogo=()):
+    """Construye la red (nodos, tramos con perfil y válvulas) a partir del mapa.
+
+    Las líneas con el campo `tuberia` lleno fijan ese diámetro (se busca por nombre en el `catalogo`)
+    en todos sus tramos; las demás lo elige el dimensionamiento.
+    """
+    por_nombre = {t.nombre: t for t in catalogo}
+    hay_campo = capa_tuberias.fields().indexOf(CAMPO_TUBERIA) >= 0
     lineas = []
     for entidad in capa_tuberias.getFeatures():
         geometria = geometria_en(capa_tuberias, entidad, crs)
         if geometria.isEmpty():
             continue
         try:
-            lineas.append((entidad.id(), linea_simple(geometria)))
+            linea = linea_simple(geometria)
         except ValueError:
             raise ValueError(f"La tubería {entidad.id()} tiene varias partes; sepárelas.") from None
+        nombre = entidad[CAMPO_TUBERIA] if hay_campo else None
+        tuberia = None
+        if isinstance(nombre, str) and nombre.strip():  # un campo vacío llega como NULL, que no es texto
+            tuberia = por_nombre.get(nombre.strip())
+            if tuberia is None:
+                raise ValueError(f"La tubería {entidad.id()} usa «{nombre}», que no está en el catálogo de "
+                                 "tuberías de la red principal. Cámbiele el diámetro o agréguela a la base "
+                                 "de datos.")
+        lineas.append((entidad.id(), linea, tuberia))
     if not lineas:
         raise ValueError(f"La capa «{capa_tuberias.name()}» no tiene tuberías.")
 
@@ -98,13 +112,13 @@ def construir_red(capa_tuberias, punto_fuente, valvulas: List[ValvulaMapa], crs,
 
     fuente = nodo_de(punto_fuente)
     nodos_valvula = [nodo_de(v.punto) for v in valvulas]
-    for _, geometria in lineas:
+    for _, geometria, _ in lineas:
         vertices = geometria.asPolyline()
         nodo_de(vertices[0])
         nodo_de(vertices[-1])
 
     tramos, geometrias = [], {}
-    for id_linea, geometria in lineas:
+    for id_linea, geometria, tuberia in lineas:
         posiciones = set()
         for i, punto in enumerate(puntos):
             punto_geom = QgsGeometry.fromPointXY(punto)
@@ -119,7 +133,7 @@ def construir_red(capa_tuberias, punto_fuente, valvulas: List[ValvulaMapa], crs,
             perfil = None
             if muestreador is not None:
                 _, perfil = perfil_de_geometria(tramo_geom, crs, muestreador, paso_perfil_m)
-            tramos.append(TramoRed(id_tramo, nodo_a, nodo_b, b - a, perfil))
+            tramos.append(TramoRed(id_tramo, nodo_a, nodo_b, b - a, perfil, tuberia))
             geometrias[id_tramo] = tramo_geom
 
     cotas = {}
@@ -142,20 +156,12 @@ def construir_red(capa_tuberias, punto_fuente, valvulas: List[ValvulaMapa], crs,
     return RedMapa(red, geometrias, {f"N{i}": p for i, p in enumerate(puntos)}, muestreador is None)
 
 
-# --------------------------------------------------- trazado automático
+# --------------------------------------------------- tubería matriz dibujada
 
-PROPIEDAD_AUTOMATICA = "red_automatica"
-NOMBRE_CAPA_AUTOMATICA = "Red principal · trazado automático"
-
-
+NOMBRE_CAPA_RED = "Red principal"
+CAMPO_TUBERIA = "tuberia"  # nombre de la tubería del catálogo; vacío = la elige el cálculo («Computer Selected»)
+TEXTO_POR_DIMENSIONAR = "Por dimensionar"
 NOMBRE_CAPA_BLOQUES = "Bloques"
-
-
-@dataclass
-class ZonaEvitar:
-    """Una capa de polígonos que conviene evitar, con su propio factor de costo."""
-    capa: QgsVectorLayer
-    factor: Optional[float] = 5.0  # cuántas veces cuesta más tender en ella; None = no se cruza
 
 
 def capas_de_bloques(proyecto=None):
@@ -170,149 +176,54 @@ def capas_de_bloques(proyecto=None):
     return sorted(capas, key=lambda c: c.name())
 
 
-@dataclass
-class RestriccionesTrazado:
-    """Capas del proyecto que condicionan el trazado automático de la red."""
-    capa_zonas: Optional[QgsVectorLayer] = None  # polígonos que conviene evitar
-    factor_zonas: Optional[float] = 5.0  # cuántas veces cuesta más tender en ellas; None = no se cruzan
-    zonas: List[ZonaEvitar] = field(default_factory=list)  # más capas de zonas, cada una con su factor
-    capa_caminos: Optional[QgsVectorLayer] = None  # líneas a seguir: caminos, zanjas existentes
-    factor_caminos: float = 0.5  # fracción del costo normal sobre ellas
-    capa_barreras: Optional[QgsVectorLayer] = None  # líneas que cuesta cruzar: canales, cercos
-    costo_cruce_m: Optional[float] = 50.0  # metros de tubería que equivale a cruzarlas; None = no se cruzan
-    capa_dem: Optional[object] = None  # DEM para evitar subidas y pendientes fuertes
-    costo_subida: float = 5.0
-    pendiente_duplica: Optional[float] = 0.25
-    celda_m: Optional[float] = None  # tamaño de la celda de trabajo; None = automático
-
-    def todas_las_zonas(self) -> List[ZonaEvitar]:
-        zonas = [ZonaEvitar(self.capa_zonas, self.factor_zonas)] if self.capa_zonas is not None else []
-        return zonas + list(self.zonas)
-
-    @property
-    def activa(self):
-        return bool(self.todas_las_zonas()) or any(
-            c is not None for c in (self.capa_caminos, self.capa_barreras, self.capa_dem))
+def asegurar_campo_tuberia(capa):
+    """Agrega a la capa el campo de la tubería si no lo tiene (las capas dibujadas antes no lo traen)."""
+    if capa.fields().indexOf(CAMPO_TUBERIA) < 0:
+        capa.dataProvider().addAttributes([QgsField(CAMPO_TUBERIA, QMetaType.Type.QString)])
+        capa.updateFields()
 
 
-def _poligonos(geometria):
-    """Polígonos de una geometría como listas de anillos de tuplas (x, y)."""
-    if geometria.isEmpty():
-        return []
-    partes = geometria.asMultiPolygon() if geometria.isMultipart() else [geometria.asPolygon()]
-    return [[[(p.x(), p.y()) for p in anillo] for anillo in poligono] for poligono in partes if poligono]
+def estilo_red_dibujada(capa):
+    """Línea azul con la tubería de cada tramo escrita encima («Por dimensionar» si la elige el cálculo)."""
+    simbolo = QgsSymbol.defaultSymbol(capa.geometryType())
+    simbolo.setColor(QColor("#1565c0"))
+    simbolo.setWidth(0.8)
+    capa.setRenderer(QgsSingleSymbolRenderer(simbolo))
+    rotular_tuberia(capa, f"coalesce(nullif(\"{CAMPO_TUBERIA}\", ''), '{TEXTO_POR_DIMENSIONAR}')", expresion=True)
 
 
-def _lineas(geometria):
-    """Líneas de una geometría como listas de tuplas (x, y)."""
-    if geometria.isEmpty():
-        return []
-    partes = geometria.asMultiPolyline() if geometria.isMultipart() else [geometria.asPolyline()]
-    return [[(p.x(), p.y()) for p in linea] for linea in partes if len(linea) > 1]
+def agregar_tuberia(capa, puntos, tuberia=None):
+    """Agrega a la capa una tubería con los vértices dados (en el SRC de la capa) y el diámetro elegido.
 
-
-def _cargar_cotas(terreno: Terreno, capa_dem, crs):
-    """Pone en el terreno la cota del DEM en el centro de cada celda."""
-    cotas = None
-    if capa_dem.crs() == crs:  # un solo pedido al DEM, remuestreado a la cuadrícula del terreno
-        nx, ny, paso = terreno.nx, terreno.ny, terreno.paso
-        extension = QgsRectangle(terreno.x0, terreno.y0, terreno.x0 + nx * paso, terreno.y0 + ny * paso)
-        bloque = capa_dem.dataProvider().block(1, extension, nx, ny)
-        if bloque is not None and bloque.isValid():
-            cotas = [math.nan] * (nx * ny)
-            for fila in range(ny):
-                base = (ny - 1 - fila) * nx  # la fila 0 del bloque es la del norte
-                for columna in range(nx):
-                    if not bloque.isNoData(fila, columna):
-                        cotas[base + columna] = bloque.value(fila, columna)
-    if cotas is None:
-        muestreador = MuestreadorDem(capa_dem, crs)
-        terreno.cargar_cotas(lambda x, y: muestreador.cota(QgsPointXY(x, y)))
-    else:
-        terreno.poner_cotas(cotas)
-    if all(c != c for c in terreno.cotas):
-        raise ValueError(f"El DEM «{capa_dem.name()}» no cubre el predio.")
-
-
-def construir_terreno(puntos, crs, restricciones: Optional[RestriccionesTrazado]) -> Optional[Terreno]:
-    """Mapa de costos del terreno alrededor de los puntos dados (fuente y válvulas); None sin restricciones."""
-    if restricciones is None or not restricciones.activa:
-        return None
-    r = restricciones
-    terreno = Terreno.cubriendo(puntos, r.celda_m or celda_automatica(puntos))
-    for zona in r.todas_las_zonas():  # donde se juntan varias, manda la de mayor factor
-        for entidad in zona.capa.getFeatures():
-            for poligono in _poligonos(geometria_en(zona.capa, entidad, crs)):
-                terreno.penalizar_poligono(poligono, zona.factor)
-    if r.capa_barreras is not None:
-        for entidad in r.capa_barreras.getFeatures():
-            for linea in _lineas(geometria_en(r.capa_barreras, entidad, crs)):
-                terreno.barrera_linea(linea, r.costo_cruce_m)
-    if r.capa_caminos is not None:  # al final: abarata sin quitar lo que prohíben las capas anteriores
-        for entidad in r.capa_caminos.getFeatures():
-            for linea in _lineas(geometria_en(r.capa_caminos, entidad, crs)):
-                terreno.descontar_linea(linea, r.factor_caminos)
-    if r.capa_dem is not None:
-        _cargar_cotas(terreno, r.capa_dem, crs)
-    return terreno
-
-
-def trazar_red_en_mapa(punto_fuente, valvulas: List[ValvulaMapa], crs, modo=ORTOGONAL, angulo_grados=None,
-                       proyecto=None, restricciones: Optional[RestriccionesTrazado] = None,
-                       ajuste_costo=None):
-    """Traza la red principal de la fuente a las válvulas y la deja en una capa de líneas editable.
-
-    La capa de un trazado anterior (la que lleva la propiedad `red_automatica`) se reutiliza y
-    se vacía; si no existe se crea y se agrega al proyecto. Con `restricciones`, el trazado evita
-    las zonas, sigue los caminos, cruza las barreras donde cuesta menos y esquiva el relieve.
-    Con `ajuste_costo` (un `AjusteCosto`) el costo por metro sigue la lista de precios en vez de los
-    valores por defecto. Devuelve (capa, RedTrazada).
+    `tuberia`: una `Tuberia` del catálogo, o None si la elige el cálculo. Devuelve la entidad agregada.
     """
-    proyecto = proyecto or QgsProject.instance()
-    destinos = [ValvulaDestino(v.id, v.punto.x(), v.punto.y(), v.caudal_lh, v.turno) for v in valvulas]
-    fuente = (punto_fuente.x(), punto_fuente.y())
-    terreno = construir_terreno([fuente] + [(d.x, d.y) for d in destinos], crs, restricciones)
-    parametros = ParametrosRed(modo=modo, angulo_grados=angulo_grados)
-    if ajuste_costo is not None:
-        parametros.costo_fijo = ajuste_costo.costo_fijo
-        parametros.exponente = ajuste_costo.exponente
-    if restricciones is not None:
-        parametros.costo_subida = restricciones.costo_subida
-        parametros.pendiente_duplica = restricciones.pendiente_duplica
-    red = trazar_red(fuente, destinos, parametros, terreno)
-
-    capa = next((c for c in proyecto.mapLayers().values()
-                 if isinstance(c, QgsVectorLayer) and c.customProperty(PROPIEDAD_AUTOMATICA) and c.crs() == crs),
-                None)
-    if capa is None:
-        capa = QgsVectorLayer("LineString?field=nombre:string(100)&field=desde:string(80)&field=hasta:string(80)"
-                              "&field=caudal_lh:double&field=longitud:double",
-                              NOMBRE_CAPA_AUTOMATICA, "memory")
-        capa.setCrs(crs)
-        capa.setCustomProperty(PROPIEDAD_AUTOMATICA, True)
-        simbolo = QgsSymbol.defaultSymbol(capa.geometryType())
-        simbolo.setColor(QColor("#1565c0"))
-        simbolo.setWidth(0.8)
-        capa.setRenderer(QgsSingleSymbolRenderer(simbolo))
-        proyecto.addMapLayer(capa)
+    asegurar_campo_tuberia(capa)
+    entidad = QgsFeature(capa.fields())
+    entidad.setGeometry(QgsGeometry.fromPolylineXY([QgsPointXY(p) for p in puntos]))
+    # Por nombre: si la capa ya se guardó en el GeoPackage, el primer campo es «fid».
+    entidad[CAMPO_TUBERIA] = tuberia.nombre if tuberia is not None else None
+    if capa.isEditable():  # con la edición activa va al búfer, para que el usuario pueda deshacer o descartar
+        capa.addFeature(entidad)
     else:
-        capa.dataProvider().truncate()
-
-    entidades = []
-    for t in red.tramos:
-        if t.longitud_m < 1e-6:
-            continue  # válvula justo sobre otro punto de la red: no necesita tubería
-        entidad = QgsFeature(capa.fields())
-        entidad.setGeometry(QgsGeometry.fromPolylineXY([QgsPointXY(x, y) for x, y in t.vertices]))
-        # Por nombre: si la capa ya se guardó en el GeoPackage, el primer campo es «fid».
-        for campo, valor in (("nombre", f"{t.desde} → {t.hasta}"), ("desde", t.desde), ("hasta", t.hasta),
-                             ("caudal_lh", round(t.caudal_lh, 1)), ("longitud", round(t.longitud_m, 2))):
-            entidad[campo] = valor
-        entidades.append(entidad)
-    capa.dataProvider().addFeatures(entidades)
-    capa.updateExtents()
+        _, agregadas = capa.dataProvider().addFeatures([entidad])
+        entidad = agregadas[0]
+        capa.updateExtents()
     capa.triggerRepaint()
-    return capa, red
+    return entidad
+
+
+def cambiar_tuberia(capa, ids, tuberia=None):
+    """Cambia el diámetro de las tuberías de la capa con los ids dados (None: lo elige el cálculo)."""
+    asegurar_campo_tuberia(capa)
+    indice = capa.fields().indexOf(CAMPO_TUBERIA)
+    valor = tuberia.nombre if tuberia is not None else None
+    if capa.isEditable():
+        for id_entidad in ids:
+            capa.changeAttributeValue(id_entidad, indice, valor)
+    else:
+        capa.dataProvider().changeAttributeValues({id_entidad: {indice: valor} for id_entidad in ids})
+    capa.triggerRepaint()
+
 
 
 # --------------------------------------------------------------- resultados

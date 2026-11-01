@@ -42,6 +42,16 @@ def _capa_punto(punto, nombre, campos="", valores=()):
     return capa
 
 
+class _HerramientaFalsa:
+    """Sustituye a `HerramientaPuntos`: guarda lo que recibe para que la prueba termine o cancele el trazo."""
+    creadas = []
+
+    def __init__(self, canvas, cuantos, geometrias, mensajes, terminar, cancelar, mostrar_estado=None):
+        self.cuantos, self.geometrias, self.mensajes = cuantos, geometrias, mensajes
+        self.terminar, self.cancelar = terminar, cancelar
+        self.creadas.append(self)
+
+
 @unittest.skipUnless(HAY_QGIS, "requiere el Python de QGIS")
 class PruebasRedMapa(unittest.TestCase):
     @classmethod
@@ -116,30 +126,6 @@ class PruebasRedMapa(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, "Lejana.*0.5 m"):
             construir_red(self.tuberias, _p(*FUENTE), [lejana], self.tuberias.crs())
 
-    def test_trazado_automatico_conecta_y_se_calcula(self):
-        from riegolibre.gui.dialogo_red import DialogoRed
-        from riegolibre.integracion.red_mapa import NOMBRE_CAPA_AUTOMATICA
-        dialogo = DialogoRed(iface=None)
-        dialogo.combo_fuente.setLayer(self.fuente)
-        dialogo.combo_tuberias.setLayer(self.tuberias)
-        dialogo.buscar_valvulas()
-        dialogo.trazar_red_automatica()
-        capa = dialogo.combo_tuberias.currentLayer()
-        self.assertEqual(capa.name(), NOMBRE_CAPA_AUTOMATICA)
-        self.assertGreater(capa.featureCount(), 1)
-        # Repetir el trazado reutiliza la misma capa.
-        dialogo.trazar_red_automatica()
-        self.assertEqual(sum(1 for c in QgsProject.instance().mapLayers().values()
-                             if c.name() == NOMBRE_CAPA_AUTOMATICA), 1)
-        # La red trazada se calcula sin cambios y conecta las dos válvulas.
-        dialogo.calcular()
-        self.assertIsNotNone(dialogo.resultado)
-        self.assertEqual({v.id for v in dialogo.resultado.red.valvulas}, {"A", "B"})
-        self.assertEqual(dialogo.resultado.motivos, {})
-        QgsProject.instance().removeMapLayer(capa.id())
-
-    # ------------------------------------------- trazado con restricciones
-
     @staticmethod
     def _capa_zona(x0, y0, x1, y1):
         capa = QgsVectorLayer("Polygon?crs=EPSG:32718", "zona", "memory")
@@ -148,68 +134,6 @@ class PruebasRedMapa(unittest.TestCase):
             [[_p(x0, y0), _p(x1, y0), _p(x1, y1), _p(x0, y1), _p(x0, y0)]]))
         capa.dataProvider().addFeatures([entidad])
         return capa
-
-    def _trazar_con(self, restricciones, modo):
-        from riegolibre.integracion.red_mapa import (capas_de_valvulas, leer_valvulas,
-                                                     trazar_red_en_mapa)
-        crs = self.tuberias.crs()
-        valvulas = leer_valvulas(capas_de_valvulas(), crs)
-        capa, red = trazar_red_en_mapa(_p(*FUENTE), valvulas, crs, modo, restricciones=restricciones)
-        self.addCleanup(QgsProject.instance().removeMapLayer, capa.id())
-        return capa, red
-
-    def test_trazado_rodea_una_zona_prohibida(self):
-        from riegolibre.integracion.red_mapa import RestriccionesTrazado
-        from riegolibre.nucleo.trazado_red import DIRECTO, ORTOGONAL
-        zona = self._capa_zona(40, -60, 100, -30)  # tapa el paso a lo largo de la fuente
-        poligono = next(zona.getFeatures()).geometry()
-        libre, _ = self._trazar_con(None, DIRECTO)
-        largo_libre = sum(f.geometry().length() for f in libre.getFeatures())
-        for modo in (DIRECTO, ORTOGONAL):
-            capa, red = self._trazar_con(RestriccionesTrazado(capa_zonas=zona, factor_zonas=None), modo)
-            self.assertGreater(capa.featureCount(), 1)
-            for entidad in capa.getFeatures():
-                self.assertLess(entidad.geometry().intersection(poligono).length(), 0.5)
-            self.assertLess(red.m_penalizados, red.celda_m)  # solo el redondeo de la cuadrícula
-            self.assertIsNotNone(red.celda_m)
-        self.assertGreater(sum(f.geometry().length() for f in capa.getFeatures()), largo_libre)
-
-    def test_trazado_con_relieve_lee_el_dem(self):
-        from riegolibre.integracion.red_mapa import RestriccionesTrazado, construir_terreno
-        from riegolibre.nucleo.trazado_red import DIRECTO
-        crs = self.tuberias.crs()
-        puntos = [(X0 + 5, Y0 - 45), (X0 + 150, Y0 - 10)]
-        terreno = construir_terreno(puntos, crs, RestriccionesTrazado(capa_dem=self.dem))
-        # El DEM sube 2 cm por metro hacia el este (y vale 100 m en el origen).
-        self.assertAlmostEqual(terreno.cota_en(X0 + 50.4, Y0 - 25.4), 100 + 0.02 * 50.5, delta=0.1)
-        self.assertAlmostEqual(terreno.cota_en(X0 + 150.4, Y0 - 25.4), 100 + 0.02 * 150.5, delta=0.1)
-        capa, red = self._trazar_con(RestriccionesTrazado(capa_dem=self.dem), DIRECTO)
-        self.assertGreater(capa.featureCount(), 1)
-
-    def test_dialogo_traza_con_zona_y_relieve(self):
-        from riegolibre.gui.dialogo_red import DialogoRed
-        zona = self._capa_zona(40, -60, 100, -30)
-        QgsProject.instance().addMapLayer(zona)
-        try:
-            dialogo = DialogoRed(iface=None)
-            dialogo.combo_fuente.setLayer(self.fuente)
-            dialogo.combo_tuberias.setLayer(self.tuberias)
-            dialogo.tabla_zonas.cellWidget(0, 0).setLayer(zona)
-            dialogo.tabla_zonas.cellWidget(0, 2).setChecked(True)
-            dialogo.combo_dem.setLayer(self.dem)
-            dialogo.check_relieve.setChecked(True)
-            dialogo.buscar_valvulas()
-            dialogo.trazar_red_automatica()
-            capa = dialogo.combo_tuberias.currentLayer()
-            poligono = next(zona.getFeatures()).geometry()
-            for entidad in capa.getFeatures():
-                self.assertLess(entidad.geometry().intersection(poligono).length(), 0.5)
-            self.assertIn("Mapa de costos", dialogo.texto.toPlainText())
-            dialogo.calcular()
-            self.assertIsNotNone(dialogo.resultado)
-            QgsProject.instance().removeMapLayer(capa.id())
-        finally:
-            QgsProject.instance().removeMapLayer(zona.id())
 
     @staticmethod
     def _capa_bloques(nombre, propiedad, x0, y0, x1, y1):
@@ -232,111 +156,203 @@ class PruebasRedMapa(unittest.TestCase):
         self.assertEqual([c.name() for c in capas_de_bloques()], ["Bloques", "Bloques · Norte"])
         self.assertEqual({c.customProperty("riegolibre/tipo") for c in capas_de_bloques()}, {"dibujo", "trazado"})
 
-    def test_dialogo_evita_los_bloques_sin_elegirlos(self):
-        from riegolibre.gui.dialogo_red import DialogoRed
-        bloques = self._capa_bloques("Bloques", "dibujo", 40, -60, 100, -30)  # tapa el paso de la fuente
-        QgsProject.instance().addMapLayer(bloques)
-        self.addCleanup(QgsProject.instance().removeMapLayer, bloques.id())
-        poligono = next(bloques.getFeatures()).geometry()
-        dialogo = DialogoRed(iface=None)
-        dialogo.combo_fuente.setLayer(self.fuente)
-        dialogo.combo_tuberias.setLayer(self.tuberias)
-        dialogo.buscar_valvulas()
-        dialogo.spin_factor_bloques.setValue(100)
-        self.assertEqual(dialogo.etiqueta_bloques.text(), "Se evitarán: Bloques")
-        dialogo.check_evitar_bloques.setChecked(False)
-        self.assertIsNone(dialogo.restricciones_de_trazado())
-        dialogo.trazar_red_automatica()
-        libre = dialogo.combo_tuberias.currentLayer()
-        cruzado = sum(e.geometry().intersection(poligono).length() for e in libre.getFeatures())
-        self.assertGreater(cruzado, 10)
-        dialogo.check_evitar_bloques.setChecked(True)
-        self.assertEqual([z.capa for z in dialogo.restricciones_de_trazado().todas_las_zonas()], [bloques])
-        dialogo.trazar_red_automatica()
-        evitado = sum(e.geometry().intersection(poligono).length()
-                      for e in dialogo.combo_tuberias.currentLayer().getFeatures())
-        self.assertLess(evitado, 3)
-        self.assertIn("Bloques", dialogo.texto.toPlainText())
-        QgsProject.instance().removeMapLayer(dialogo.combo_tuberias.currentLayer().id())
+    # ------------------------------------- tubería matriz dibujada a mano
 
-    def test_varias_capas_de_zonas_con_factores_distintos(self):
-        from riegolibre.integracion.red_mapa import RestriccionesTrazado, ZonaEvitar, construir_terreno
-        from riegolibre.nucleo.terreno import INFINITO
-        prohibida = self._capa_zona(20, -44, 30, -36)
-        barata = self._capa_zona(100, -30, 130, -20)
-        cara = self._capa_zona(115, -35, 140, -15)
-        restricciones = RestriccionesTrazado(
-            zonas=[ZonaEvitar(prohibida, None), ZonaEvitar(barata, 2.0), ZonaEvitar(cara, 8.0)])
-        self.assertTrue(restricciones.activa)
-        crs = self.tuberias.crs()
-        terreno = construir_terreno([(X0 + 5, Y0 - 45), (X0 + 150, Y0 - 10)], crs, restricciones)
-        self.assertEqual(terreno.factor_en(X0 + 25, Y0 - 40), INFINITO)
-        self.assertEqual(terreno.factor_en(X0 + 105, Y0 - 25), 2.0)
-        self.assertEqual(terreno.factor_en(X0 + 135, Y0 - 17), 8.0)
-        self.assertEqual(terreno.factor_en(X0 + 122, Y0 - 25), 8.0)  # donde se juntan manda la mayor
-        self.assertEqual(terreno.factor_en(X0 + 60, Y0 - 25), 1.0)
-        # La capa suelta de antes sigue valiendo como una zona más.
-        con_suelta = RestriccionesTrazado(capa_zonas=barata, factor_zonas=3.0, zonas=[ZonaEvitar(cara, 8.0)])
-        self.assertEqual([z.factor for z in con_suelta.todas_las_zonas()], [3.0, 8.0])
+    @staticmethod
+    def _catalogo():
+        from riegolibre.nucleo import cargar_catalogo_tuberias
+        return cargar_catalogo_tuberias(uso="principal")
 
-    def test_dialogo_con_dos_capas_de_zonas(self):
-        from riegolibre.gui.dialogo_red import DialogoRed
-        a = self._capa_zona(40, -60, 100, -30)
-        b = self._capa_zona(110, -30, 140, -5)
-        QgsProject.instance().addMapLayers([a, b])
-        self.addCleanup(lambda: [QgsProject.instance().removeMapLayer(c.id()) for c in (a, b)])
-        dialogo = DialogoRed(iface=None)
-        dialogo.combo_dem.setLayer(None)
-        dialogo.check_evitar_bloques.setChecked(False)
-        dialogo.tabla_zonas.cellWidget(0, 0).setLayer(a)
-        dialogo.tabla_zonas.cellWidget(0, 2).setChecked(True)
-        fila = dialogo.agregar_zona(b, 3.0)
-        self.assertEqual(fila, 1)
-        zonas = dialogo.restricciones_de_trazado().todas_las_zonas()
-        self.assertEqual([(z.capa, z.factor) for z in zonas], [(a, None), (b, 3.0)])
-        self.assertFalse(dialogo.tabla_zonas.cellWidget(0, 1).isEnabled())  # prohibida: el factor no cuenta
-        self.assertTrue(dialogo.tabla_zonas.cellWidget(1, 1).isEnabled())
-        dialogo.tabla_zonas.selectRow(0)
-        dialogo.quitar_zona()
-        self.assertEqual([(z.capa, z.factor) for z in dialogo.restricciones_de_trazado().todas_las_zonas()],
-                         [(b, 3.0)])
+    def test_agregar_tuberia_crea_el_campo_y_guarda_el_diametro(self):
+        from riegolibre.integracion.red_mapa import CAMPO_TUBERIA, agregar_tuberia, cambiar_tuberia
+        capa = _capa_lineas([])  # una capa dibujada antes, sin el campo de la tubería
+        self.assertLess(capa.fields().indexOf(CAMPO_TUBERIA), 0)
+        tubo = self._catalogo()[-1]
+        fija = agregar_tuberia(capa, [_p(0, 0), _p(10, 0), _p(10, 10)], tubo)
+        libre = agregar_tuberia(capa, [_p(10, 10), _p(30, 10)])
+        self.assertEqual(capa.featureCount(), 2)
+        valores = {e.id(): e[CAMPO_TUBERIA] for e in capa.getFeatures()}
+        self.assertEqual(valores[fija.id()], tubo.nombre)
+        self.assertNotIsInstance(valores[libre.id()], str)  # NULL: la elige el cálculo
+        self.assertAlmostEqual(next(capa.getFeatures()).geometry().length(), 20.0)
+        # Cambiar el diámetro después, y volver a «Elegida por el programa».
+        cambiar_tuberia(capa, [libre.id()], tubo)
+        self.assertEqual({e[CAMPO_TUBERIA] for e in capa.getFeatures()}, {tubo.nombre})
+        cambiar_tuberia(capa, [fija.id(), libre.id()], None)
+        self.assertFalse(any(isinstance(e[CAMPO_TUBERIA], str) for e in capa.getFeatures()))
 
-    def test_trazado_con_costo_ajustado_a_la_lista_de_precios(self):
-        from unittest import mock
-        from riegolibre.gui.dialogo_red import DialogoRed
+    def test_agregar_tuberia_con_la_capa_en_edicion_va_al_bufer(self):
+        from riegolibre.integracion.red_mapa import CAMPO_TUBERIA, agregar_tuberia
+        capa = _capa_lineas([])
+        agregar_tuberia(capa, [_p(0, 0), _p(5, 0)])  # crea el campo
+        capa.startEditing()
+        self.addCleanup(capa.rollBack)
+        agregar_tuberia(capa, [_p(5, 0), _p(9, 0)], self._catalogo()[0])
+        self.assertTrue(capa.isModified())
+        self.assertEqual(capa.featureCount(), 2)
+        capa.rollBack()
+        self.assertEqual(capa.featureCount(), 1)
+
+    def test_el_diametro_fijado_se_respeta_al_calcular(self):
+        from riegolibre.integracion.red_mapa import CAMPO_TUBERIA, agregar_tuberia, construir_red
+        from riegolibre.nucleo import CriteriosRed, dimensionar_red
+        catalogo = self._catalogo()
+        tubo = catalogo[-1]
+        capa = _capa_lineas([])
+        agregar_tuberia(capa, [_p(*p) for p in PRINCIPAL], tubo)
+        agregar_tuberia(capa, [_p(*p) for p in RAMA])  # sin diámetro: lo elige el cálculo
+        id_principal = min(e.id() for e in capa.getFeatures())
+        crs = capa.crs()
+        from riegolibre.integracion.red_mapa import capas_de_valvulas, leer_valvulas
+        red = construir_red(capa, _p(*FUENTE), leer_valvulas(capas_de_valvulas(), crs), crs,
+                            catalogo=catalogo).red
+        fijos = {t.id for t in red.tramos if t.tuberia is not None}
+        self.assertEqual(fijos, {t.id for t in red.tramos if t.id.startswith(f"{id_principal}.")})
+        self.assertEqual(len(fijos), 2)  # la línea principal quedó partida en la unión de la rama
+        resultado = dimensionar_red(red, catalogo, CriteriosRed(presion_min_m=0.0))
+        for t in red.tramos:
+            if t.id in fijos:
+                self.assertIs(resultado.asignacion[t.id], tubo)
+            else:
+                self.assertIsNot(resultado.asignacion[t.id], tubo)  # la rama delgada no necesita la mayor
+
+    def test_tuberia_fuera_del_catalogo_avisa(self):
+        from riegolibre.integracion.red_mapa import agregar_tuberia, capas_de_valvulas, construir_red, leer_valvulas
         from riegolibre.nucleo.tuberias import Tuberia
-        dialogo = DialogoRed(iface=None)
-        dialogo.combo_dem.setLayer(None)
-        dialogo.check_evitar_bloques.setChecked(False)
-        dialogo.combo_fuente.setLayer(self.fuente)
-        dialogo.combo_tuberias.setLayer(self.tuberias)
-        dialogo.buscar_valvulas()
-        dialogo.tuberias = [Tuberia(f"PVC {d}", d, "PVC", ["principal"], d) for d in (57, 69, 84, 103, 150, 190)]
-        precios = {"PVC 57": 3.0, "PVC 69": 4.2, "PVC 84": 6.0, "PVC 103": 9.0, "PVC 150": 18.0, "PVC 190": 28.0}
-        dialogo.check_costo_lista.setChecked(True)
-        dialogo.spin_zanja.setValue(5)
-        with mock.patch("riegolibre.integracion.materiales_mapa.precios_de_tuberias",
-                        return_value=(precios, "USD", "lista de prueba")):
-            dialogo.trazar_red_automatica()
-        capa = dialogo.combo_tuberias.currentLayer()
-        self.assertGreater(capa.featureCount(), 1)
-        self.assertIn("ajustado a la lista de precios", dialogo.texto.toPlainText())
-        QgsProject.instance().removeMapLayer(capa.id())
-        # Sin lista de precios avisa en vez de trazar con el costo por defecto.
-        with mock.patch("riegolibre.integracion.materiales_mapa.precios_de_tuberias", return_value=None), \
-                mock.patch("riegolibre.gui.dialogo_red.QMessageBox.warning") as aviso:
-            dialogo.trazar_red_automatica()
-        self.assertIn("lista de precios", aviso.call_args[0][2])
+        capa = _capa_lineas([])
+        agregar_tuberia(capa, [_p(*p) for p in PRINCIPAL], Tuberia("Tubo inexistente", 90.0))
+        agregar_tuberia(capa, [_p(*p) for p in RAMA])
+        crs = capa.crs()
+        valvulas = leer_valvulas(capas_de_valvulas(), crs)
+        with self.assertRaisesRegex(ValueError, "Tubo inexistente.*catálogo"):
+            construir_red(capa, _p(*FUENTE), valvulas, crs, catalogo=self._catalogo())
 
-    def test_dialogo_sin_capas_no_hay_restricciones(self):
+    def test_dialogo_de_tuberia_matriz(self):
+        from riegolibre.gui.dialogo_tuberia_matriz import TEXTO_POR_PROGRAMA, DialogoTuberiaMatriz
+        catalogo = self._catalogo()
+        dialogo = DialogoTuberiaMatriz(catalogo, self.tuberias)
+        self.assertEqual(dialogo.combo_tuberia.itemText(0), TEXTO_POR_PROGRAMA)
+        self.assertEqual(dialogo.combo_tuberia.count(), len(catalogo) + 1)
+        self.assertIsNone(dialogo.tuberia())  # por defecto la elige el programa
+        self.assertIs(dialogo.capa(), self.tuberias)
+        dialogo.combo_tuberia.setCurrentIndex(3)
+        self.assertEqual(dialogo.tuberia(), dialogo.combo_tuberia.itemData(3))
+        # Con una tubería recordada, el cuadro la deja marcada; al editar no pide la capa.
+        recordada = DialogoTuberiaMatriz(catalogo, elegida=dialogo.tuberia(), edicion=True)
+        self.assertEqual(recordada.tuberia().nombre, dialogo.tuberia().nombre)
+        self.assertIsNone(recordada.capa())
+        self.assertIsNone(recordada.combo_capa)
+
+    def _dialogo_con_mapa(self, capa):
+        """Ventana de la red con una interfaz y un lienzo simulados (un lienzo real deja inestable
+        la suite: la prueba de la imagen satelital cae más adelante al dibujar en hilos)."""
+        from unittest import mock
+
+        from qgis.core import QgsCoordinateReferenceSystem
+
         from riegolibre.gui.dialogo_red import DialogoRed
-        dialogo = DialogoRed(iface=None)
+        canvas = mock.Mock()
+        canvas.mapTool.return_value = None
+        canvas.mapSettings.return_value.destinationCrs.return_value = QgsCoordinateReferenceSystem("EPSG:32718")
+        iface = mock.Mock()
+        iface.mapCanvas.return_value = canvas
+        dialogo = DialogoRed(iface=iface)
+        dialogo.combo_tuberias.setLayer(capa)
+        dialogo.combo_fuente.setLayer(self.fuente)
         dialogo.combo_dem.setLayer(None)
-        self.assertIsNone(dialogo.restricciones_de_trazado())
-        dialogo.check_relieve.setChecked(True)
-        self.assertIsNone(dialogo.restricciones_de_trazado())  # sin DEM elegido no hay nada que aplicar
-        dialogo.combo_dem.setLayer(self.dem)
-        self.assertIsNotNone(dialogo.restricciones_de_trazado())
+        self.addCleanup(dialogo.hide)
+        return dialogo, canvas
+
+    def test_se_dibuja_la_red_con_clics_y_se_calcula(self):
+        from unittest import mock
+
+        from qgis.PyQt.QtWidgets import QDialog
+
+        from riegolibre.integracion.red_mapa import CAMPO_TUBERIA
+        capa = _capa_lineas([], "Red dibujada")
+        QgsProject.instance().addMapLayer(capa)
+        self.addCleanup(QgsProject.instance().removeMapLayer, capa.id())
+        dialogo, canvas = self._dialogo_con_mapa(capa)
+        dialogo.buscar_valvulas()
+        tubo = dialogo.tuberias[-1]
+        fake = mock.patch("riegolibre.gui.dialogo_tuberia_matriz.DialogoTuberiaMatriz.exec",
+                          return_value=QDialog.DialogCode.Accepted)
+        with fake, mock.patch("riegolibre.gui.dialogo_tuberia_matriz.DialogoTuberiaMatriz.tuberia",
+                              return_value=tubo), \
+                mock.patch("riegolibre.gui.herramienta_puntos.HerramientaPuntos", _HerramientaFalsa):
+            _HerramientaFalsa.creadas = []
+            dialogo.dibujar_tuberia_matriz()
+        herramienta = dialogo._herramienta_puntos
+        self.assertIsNotNone(herramienta)
+        self.assertIs(canvas.setMapTool.call_args[0][0], herramienta)
+        self.assertIsNone(herramienta.cuantos)  # una línea de dos o más puntos
+        self.assertGreaterEqual(len(herramienta.geometrias), 3)  # fuente y las dos válvulas atraen al cursor
+        self.assertIn(tubo.nombre, herramienta.mensajes[0])
+        self.assertFalse(dialogo.isVisible())  # la ventana se esconde mientras se traza
+        self.assertIs(dialogo.diametro_matriz, tubo)
+        # Primera tubería (la principal, con el diámetro elegido) y a continuación la rama, con el mismo.
+        herramienta.terminar([_p(*p) for p in PRINCIPAL])
+        self.assertIsNot(dialogo._herramienta_puntos, herramienta)  # sigue con la tubería siguiente
+        self.assertIs(canvas.setMapTool.call_args[0][0], dialogo._herramienta_puntos)
+        self.assertEqual(len(dialogo._herramienta_puntos.geometrias), len(herramienta.geometrias) + 1)  # atrae la nueva
+        dialogo._herramienta_puntos.terminar([_p(*p) for p in RAMA])
+        self.assertEqual(capa.featureCount(), 2)
+        self.assertEqual({e[CAMPO_TUBERIA] for e in capa.getFeatures()}, {tubo.nombre})
+        # Esc termina: la ventana vuelve con el resumen.
+        dialogo._herramienta_puntos.cancelar()
+        self.assertIsNone(dialogo._herramienta_puntos)
+        self.assertIn("2 con diámetro fijo · 0 por dimensionar", dialogo.etiqueta_matriz.text())
+        self.assertIn("Se dibujaron 2 tuberías", dialogo.texto.toPlainText())
+        dialogo.calcular()
+        self.assertIsNotNone(dialogo.resultado)
+        self.assertEqual({dialogo.resultado.asignacion[t.id].nombre for t in dialogo.resultado.red.tramos},
+                         {tubo.nombre})
+        self.assertIn("Diámetros fijados al dibujar", dialogo.texto.toPlainText())
+
+    def test_cambiar_el_diametro_de_las_seleccionadas(self):
+        from unittest import mock
+
+        from qgis.PyQt.QtWidgets import QDialog
+
+        from riegolibre.integracion.red_mapa import CAMPO_TUBERIA, agregar_tuberia
+        capa = _capa_lineas([], "Red a editar")
+        QgsProject.instance().addMapLayer(capa)
+        self.addCleanup(QgsProject.instance().removeMapLayer, capa.id())
+        primera = agregar_tuberia(capa, [_p(0, 0), _p(10, 0)])
+        segunda = agregar_tuberia(capa, [_p(10, 0), _p(20, 0)])
+        dialogo, _ = self._dialogo_con_mapa(capa)
+        tubo = dialogo.tuberias[1]
+        capa.selectByIds([primera.id()])
+        with mock.patch("riegolibre.gui.dialogo_tuberia_matriz.DialogoTuberiaMatriz.exec",
+                        return_value=QDialog.DialogCode.Accepted), \
+                mock.patch("riegolibre.gui.dialogo_tuberia_matriz.DialogoTuberiaMatriz.tuberia", return_value=tubo):
+            dialogo.cambiar_diametro_seleccionadas()
+        valores = {e.id(): e[CAMPO_TUBERIA] for e in capa.getFeatures()}
+        self.assertEqual(valores[primera.id()], tubo.nombre)
+        self.assertNotIsInstance(valores[segunda.id()], str)
+        self.assertIn("1 con diámetro fijo · 1 por dimensionar", dialogo.etiqueta_matriz.text())
+        # Sin selección avisa en vez de cambiar nada.
+        capa.removeSelection()
+        with mock.patch("riegolibre.gui.dialogo_red.QMessageBox.warning") as aviso:
+            dialogo.cambiar_diametro_seleccionadas()
+        self.assertIn("Seleccione", aviso.call_args[0][2])
+
+    def test_crear_capas_de_dibujo_trae_el_campo_de_la_tuberia(self):
+        from riegolibre.gui.dialogo_red import DialogoRed
+        from riegolibre.integracion.red_mapa import CAMPO_TUBERIA, NOMBRE_CAPA_RED
+        from qgis.core import QgsCoordinateReferenceSystem
+        proyecto = QgsProject.instance()
+        crs_anterior = proyecto.crs()
+        proyecto.setCrs(QgsCoordinateReferenceSystem("EPSG:32718"))  # en grados no deja crear las capas
+        self.addCleanup(proyecto.setCrs, crs_anterior)
+        antes = set(proyecto.mapLayers())
+        dialogo = DialogoRed(iface=None)
+        dialogo.crear_capas_de_dibujo()
+        creadas = [c for i, c in proyecto.mapLayers().items() if i not in antes]
+        self.addCleanup(lambda: [proyecto.removeMapLayer(c.id()) for c in creadas])
+        red = next(c for c in creadas if c.name() == NOMBRE_CAPA_RED)
+        self.assertGreaterEqual(red.fields().indexOf(CAMPO_TUBERIA), 0)
+        self.assertTrue(red.labelsEnabled())
 
     def test_dialogo_calcula_y_crea_capas(self):
         from riegolibre.gui.dialogo_red import NOMBRE_GRUPO, DialogoRed

@@ -18,6 +18,10 @@ Fuente: sesiones de octubre de 2026. El usuario valida la hidráulica y prueba e
   NO entran en la pérdida de carga.
 - Tuberías menores de 63 mm se rotulan en pulgadas (`diametro_en_plano` en `nucleo/tuberias.py`).
 - La zona UTM varía por proyecto (32717 o 32718): nunca fijarla en el código.
+- Red principal (video del usuario, 2026-10-31): se descartó el trazado automático; la red se dibuja a mano. Al activar la
+  herramienta «Mainline Pipe» IRRICAD abre un cuadro con la capa y «Pipe Properties»: lista de tuberías cuya primera opción es
+  «Computer Selected» (diámetro por dimensionar). Después se pide «Enter First Point / Enter Second Point». Con la tubería ya
+  dibujada, «Edit Mainline Pipe» muestra el mismo cuadro para cambiarle el diámetro. Aquí: `gui/dialogo_tuberia_matriz.py`.
 - Presión mínima y máxima en el mapa (video del usuario, 2026-10-31): un botón con menú «All Valves / Selected Valves /
   Clear Markers»; los marcadores salen en el emisor de menor y de mayor presión y, al pasar el cursor, muestran
   «Max: 21.0 m». Aquí van como rótulos fijos «Máx: 21.0 m» / «Mín: …» (`integracion/limites_presion.py`). Por confirmar

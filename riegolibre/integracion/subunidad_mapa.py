@@ -398,13 +398,15 @@ def _capa_conexiones(conexiones, entidades_tramo, tuberias, crs, nombre):
     return capa
 
 
-def rotular_tuberia(capa, campo="rotulo", color="#1565c0", tamano=8, unir=True):
+def rotular_tuberia(capa, campo="rotulo", color="#1565c0", tamano=8, unir=True, expresion=False):
     """Rótulos de plano a lo largo de la tubería, paralelos a ella y debajo de la línea, como en IRRICAD.
 
     `unir`: QGIS junta las entidades conectadas con el mismo texto y pone un solo rótulo.
+    `expresion`: `campo` es una expresión de QGIS y no el nombre de un campo.
     """
     etiquetas = QgsPalLayerSettings()
     etiquetas.fieldName = campo
+    etiquetas.isExpression = expresion
     etiquetas.placement = Qgis.LabelPlacement.Line
     etiquetas.dist = 0.8  # mm entre la línea y el texto
     etiquetas.multilineAlignment = Qgis.LabelMultiLineAlignment.Center

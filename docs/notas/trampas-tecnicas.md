@@ -25,6 +25,6 @@ Ahora hay `ffmpeg` en el PATH: `ffmpeg -i video -vf fps=… salida_%03d.png` y l
 (Antes se servían con `http.server` desde `.claude/launch.json` y se cargaban como blob en el navegador del panel.)
 
 ## Hechos sin probar a mano en QGIS con pantalla
-Casi todo lo de octubre: ventana de trazado automático, red con restricciones, turnos, base de datos editable,
+Casi todo lo de octubre: tubería matriz dibujada a mano, turnos, base de datos editable,
 bloque de goteo (portalateral manual, conexiones), rótulos, guardado en gpkg, imagen satelital y vista 3D.
 La lista detallada de qué confirmar está en `PENDIENTES.md` («Por confirmar»).

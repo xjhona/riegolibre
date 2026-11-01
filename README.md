@@ -23,9 +23,6 @@ riegolibre/                 Complemento de QGIS (esta carpeta es la que se insta
 │   ├── mdb.py              Lector de bases de Access (.mdb, Jet 3 y Jet 4) en Python puro
 │   ├── ficha.py            Fichas de información de un objeto (formato «Object Info»)
 │   ├── trazado.py          Trazado automático: orientación, portalaterales y subunidades de un terreno
-│   ├── trazado_red.py      Red principal automática: árbol de la fuente a las válvulas (ortogonal o directo)
-│   ├── terreno.py          Mapa de costos del terreno: zonas a evitar, caminos, barreras y cotas
-│   ├── trazado_rejilla.py  Red principal automática sobre el mapa de costos (camino de menor costo)
 │   ├── materiales.py       Partidas, tubos, desperdicio, costos y exportación a Excel
 │   ├── memoria.py          Resúmenes de resultados y documento de la memoria de cálculo
 │   ├── graficos.py         Gráficos de presiones (matplotlib)
@@ -174,19 +171,19 @@ La ventana también muestra el perfil hidráulico de la ruta crítica: la línea
 
 Por ahora solo se calculan redes ramificadas, sin circuitos cerrados.
 
-### Trazado automático de la red
+### Tubería matriz dibujada en el mapa
 
-El botón **Trazar la red automáticamente** dibuja las tuberías de la fuente a cada válvula en una capa editable (*Red principal · trazado automático*), que queda elegida como capa de tuberías. Se puede corregir a mano y luego pulsar **Calcular**.
+La red principal se dibuja a mano, como la herramienta *Mainline Pipe* de IRRICAD. El botón **Dibujar tubería matriz…** abre primero un cuadro modal con:
 
-- El trazado busca la red de menor costo suponiendo que una tubería gruesa sale más barata por litro que dos delgadas, así que las válvulas comparten troncales. Las válvulas se conectan una a una, en el punto del árbol que menos encarece la red.
-- **Ortogonal**: tramos en ángulo recto, con ejes en el ángulo elegido (en automático se prueban varios). **Directo**: líneas rectas con uniones en Y.
-- **Restricciones** (opcionales, todas desde la misma ventana):
-  - *Zonas a evitar* (polígonos): el tendido dentro de ellas cuesta N veces más, o no se puede cruzar nunca.
-  - *Caminos a seguir* (líneas): el tendido sobre ellos cuesta una fracción (por defecto, la mitad).
-  - *Barreras a cruzar* (líneas, como canales o vías): cruzarlas cuesta lo mismo que cierto largo de tubería, o no se pueden cruzar.
-  - *Relieve*: con el DEM, cada metro que el agua sube cuesta lo mismo que cierto largo de tubería y las pendientes fuertes encarecen el zanjado.
-- Con restricciones, el recorrido se busca sobre una cuadrícula con el método de camino de menor costo (A*) y después se endereza. El tamaño de la celda es automático (unas 100 celdas por el lado mayor del predio) y se puede cambiar: una celda más pequeña sigue mejor los detalles, pero tarda más. Las válvulas y la fuente siempre se pueden alcanzar aunque estén en el borde de una zona prohibida.
-- Con restricciones, el resultado indica cuántos metros de la red pasan por zonas que encarecen o por barreras, y cuántos van sobre caminos.
+- **Capa**: la capa de líneas donde queda cada tubería (si el proyecto no tiene ninguna, se crea *Red principal*). Si la capa no tiene el campo `tuberia`, se le agrega.
+- **Tubería**: un diámetro del catálogo (red principal) o **Elegida por el programa**, que deja el diámetro por dimensionar (*Computer Selected* de IRRICAD).
+
+Al aceptar, la ventana se esconde y se traza con clics en el mapa: un clic por vértice, clic derecho, doble clic o Intro terminan la tubería y se sigue con la siguiente con el mismo diámetro; Esc termina y la ventana vuelve. Con el imán del proyecto activado, los extremos se pegan a las otras tuberías, la fuente y las válvulas; no hace falta cortar las líneas en las uniones.
+
+- El diámetro se guarda en el campo `tuberia` de cada línea y se rotula en el mapa («Por dimensionar» si lo elige el programa).
+- Al calcular, las líneas con diámetro lo respetan en todos sus tramos; en las demás el dimensionamiento elige el menor que cumple la velocidad máxima y la presión (o el de menor costo total, si esa opción está activa).
+- **Cambiar el diámetro de las tuberías seleccionadas…** cambia el diámetro de las que tenga seleccionadas en el mapa (*Edit Mainline Pipe* de IRRICAD), a uno del catálogo o de nuevo a «Elegida por el programa».
+- Si una línea usa una tubería que ya no está en el catálogo, el cálculo avisa cuál es.
 
 ## Base de datos de materiales
 

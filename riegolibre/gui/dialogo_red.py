@@ -1,6 +1,6 @@
 """Red principal y bomba: diámetros por tramo, turnos de riego y carga dinámica total."""
 
-from qgis.core import Qgis, QgsProject, QgsVectorLayer
+from qgis.core import Qgis, QgsCoordinateTransform, QgsGeometry, QgsProject, QgsVectorLayer
 from qgis.gui import QgsMapLayerComboBox
 from qgis.PyQt.QtCore import Qt
 from qgis.PyQt.QtGui import QColor
@@ -18,7 +18,6 @@ from ..nucleo.economia import DatosEconomicos, optimizar_red
 from ..nucleo.graficos import dibujar_perfil_red
 from ..nucleo.memoria import avisos_red, resumen_economia, resumen_red
 from ..nucleo.red import bomba_critica, perfil_ruta_critica
-from ..nucleo.trazado_red import DIRECTO, ORTOGONAL
 from ..nucleo.turnos import TURNO_MAXIMO, color_de_turno, resumen_turnos, texto_balance
 from .comunes import (M_POR_BAR, Figure, FigureCanvasQTAgg, html_avisos, html_estado,
                       html_tabla, spin)
@@ -78,12 +77,14 @@ class DialogoRed(QDialog):
         self.resultado = None
         self.optimizacion = None  # si los diámetros se eligieron por costo total
         self.economia = None
+        self.diametro_matriz = None  # la última tubería elegida al dibujar (None = «Elegida por el programa»)
+        self._herramienta_puntos = None
 
         contenido = QWidget()
         izquierda = QVBoxLayout(contenido)
         izquierda.addWidget(self._grupo_red())
         izquierda.addWidget(self._grupo_valvulas())
-        izquierda.addWidget(self._grupo_trazado())
+        izquierda.addWidget(self._grupo_tuberia_matriz())
         izquierda.addWidget(self._grupo_criterios())
         izquierda.addWidget(self._grupo_bomba())
         izquierda.addWidget(self._grupo_costo())
@@ -103,9 +104,9 @@ class DialogoRed(QDialog):
             "con su caudal y presión requerida.</li>"
             "<li>Marque la <b>fuente</b> (un punto donde está la bomba y el cabezal).</li>"
             "<li>Pulse <b>Buscar válvulas</b> y asigne los <b>turnos</b> de riego.</li>"
-            "<li>Pulse <b>Trazar la red automáticamente</b> para que RiegoLibre dibuje las tuberías "
-            "de la fuente a cada válvula, o dibújelas usted (no hace falta cortar las líneas en las "
-            "uniones).</li>"
+            "<li>Pulse <b>Dibujar tubería matriz…</b>, elija el diámetro (o «Elegida por el programa») y "
+            "trace las tuberías de la fuente a cada válvula con clics en el mapa (no hace falta cortar las "
+            "líneas en las uniones).</li>"
             "<li>Pulse <b>Calcular</b>.</li></ol>")
         resumen = QSplitter(Qt.Orientation.Vertical)
         resumen.addWidget(self.texto)
@@ -169,6 +170,7 @@ class DialogoRed(QDialog):
 
     def crear_capas_de_dibujo(self):
         from ..integracion.persistencia import aviso_html, guardar_capas_de_dibujo
+        from ..integracion.red_mapa import CAMPO_TUBERIA, NOMBRE_CAPA_RED, estilo_red_dibujada
         from ..integracion.subunidad_mapa import verificar_crs_metrico
         proyecto = QgsProject.instance()
         try:
@@ -177,9 +179,11 @@ class DialogoRed(QDialog):
             QMessageBox.warning(self, "RiegoLibre", f"{error} Cámbielo en Proyecto → Propiedades → SRC.")
             return
         fuente = QgsVectorLayer("Point?field=nombre:string(50)", "Fuente", "memory")
-        tuberias = QgsVectorLayer("LineString?field=nombre:string(50)", "Red principal", "memory")
+        tuberias = QgsVectorLayer(f"LineString?field=nombre:string(50)&field={CAMPO_TUBERIA}:string(80)",
+                                  NOMBRE_CAPA_RED, "memory")
         for capa in (fuente, tuberias):
             capa.setCrs(proyecto.crs())
+        estilo_red_dibujada(tuberias)
         proyecto.addMapLayers([fuente, tuberias])
         ruta = guardar_capas_de_dibujo([fuente, tuberias], proyecto)
         self.combo_fuente.setLayer(fuente)
@@ -190,9 +194,9 @@ class DialogoRed(QDialog):
             self.iface.actionAddFeature().trigger()
         self.texto.setHtml(
             "<p>Se crearon las capas <b>Fuente</b> y <b>Red principal</b>.</p>"
-            "<p>Marque la fuente con un clic. Luego active la edición de <i>Red principal</i> y dibuje "
-            "las tuberías desde la fuente hasta cada válvula (active el autoajuste para unir bien "
-            "los extremos). Guarde las ediciones.</p>" + aviso_html(ruta))
+            "<p>Marque la fuente con un clic y guarde la edición. Luego pulse <b>Dibujar tubería matriz…</b> "
+            "para trazar las tuberías desde la fuente hasta cada válvula (active el autoajuste para unir "
+            "bien los extremos).</p>" + aviso_html(ruta))
 
     def _grupo_valvulas(self):
         grupo = QGroupBox("Válvulas y turnos de riego")
@@ -237,199 +241,32 @@ class DialogoRed(QDialog):
         capa.addLayout(formulario)
         return grupo
 
-    def _grupo_trazado(self):
-        grupo = QGroupBox("Trazado automático de la red")
-        formulario = QFormLayout(grupo)
-        self.combo_modo_trazado = QComboBox()
-        self.combo_modo_trazado.addItem("Ortogonal (tramos en ángulo recto)", ORTOGONAL)
-        self.combo_modo_trazado.addItem("Directo (líneas rectas)", DIRECTO)
-        self.combo_modo_trazado.setToolTip(
-            "Ortogonal: las tuberías siguen dos direcciones perpendiculares, como en un predio "
-            "cuadriculado. Directo: líneas rectas con uniones donde el recorrido es más corto.")
-        self.combo_modo_trazado.currentIndexChanged.connect(self._actualizar_modo_trazado)
-        formulario.addRow("Forma de las tuberías:", self.combo_modo_trazado)
-        self.spin_angulo_red = spin(-1, 89, -1, 5, decimales=0, sufijo="°")
-        self.spin_angulo_red.setSpecialValueText("automático")
-        self.spin_angulo_red.setToolTip(
-            "Dirección de los ejes del trazado ortogonal (antihoraria desde el este). En automático "
-            "se prueban varias y se elige la de menor costo.")
-        formulario.addRow("Ángulo de los ejes:", self.spin_angulo_red)
-
-        self.check_evitar_bloques = QCheckBox("Evitar los bloques del diseño (capa «Bloques»)")
-        self.check_evitar_bloques.setChecked(True)
-        self.check_evitar_bloques.setToolTip(
-            "Busca solas las capas «Bloques» del proyecto (la dibujada a mano y las «Bloques · nombre» "
-            "del trazado automático) y las trata como zonas a evitar: la red principal las cruza solo si "
-            "rodearlas sale más caro.")
-        self.check_evitar_bloques.toggled.connect(self._actualizar_restricciones)
-        formulario.addRow(self.check_evitar_bloques)
-        self.spin_factor_bloques = spin(1, 100, 5, 1, decimales=1, sufijo="veces")
-        self.spin_factor_bloques.setToolTip("Cuánto más cuesta tender tubería dentro de un bloque (1 = igual "
-                                            "que fuera).")
-        formulario.addRow("Costo dentro de los bloques:", self.spin_factor_bloques)
-        self.etiqueta_bloques = QLabel()
-        self.etiqueta_bloques.setWordWrap(True)
-        formulario.addRow("", self.etiqueta_bloques)
-
-        self.tabla_zonas = QTableWidget(0, 3)
-        self.tabla_zonas.setHorizontalHeaderLabels(["Capa de zonas a evitar", "Costo dentro", "Cruce"])
-        self.tabla_zonas.verticalHeader().setVisible(False)
-        self.tabla_zonas.setSelectionBehavior(QAbstractItemView.SelectionBehavior.SelectRows)
-        self.tabla_zonas.setSelectionMode(QAbstractItemView.SelectionMode.SingleSelection)
-        encabezado = self.tabla_zonas.horizontalHeader()
-        encabezado.setSectionResizeMode(0, QHeaderView.ResizeMode.Stretch)
-        encabezado.setSectionResizeMode(1, QHeaderView.ResizeMode.ResizeToContents)
-        encabezado.setSectionResizeMode(2, QHeaderView.ResizeMode.ResizeToContents)
-        self.tabla_zonas.setMaximumHeight(130)
-        self.tabla_zonas.setToolTip(
-            "Capas de polígonos por los que conviene no pasar (terrenos de otro dueño, edificios, lagunas, "
-            "cultivos que no se deben abrir), cada una con su propio costo. Donde se juntan varias manda "
-            "la de mayor costo.")
-        formulario.addRow("Zonas a evitar (polígonos):", self.tabla_zonas)
-        botones_zonas = QHBoxLayout()
-        self.boton_agregar_zona = QPushButton("Agregar capa de zonas")
-        self.boton_agregar_zona.clicked.connect(lambda: self.agregar_zona())
-        self.boton_quitar_zona = QPushButton("Quitar la seleccionada")
-        self.boton_quitar_zona.clicked.connect(self.quitar_zona)
-        botones_zonas.addWidget(self.boton_agregar_zona)
-        botones_zonas.addWidget(self.boton_quitar_zona)
-        formulario.addRow("", botones_zonas)
-        self.combo_caminos = _combo_capas(Qgis.LayerFilter.LineLayer, "Ninguna")
-        self.combo_caminos.setLayer(None)
-        self.combo_caminos.setToolTip("Caminos, linderos o zanjas existentes: la red tiende a seguirlos.")
-        formulario.addRow("Caminos a seguir (líneas):", self.combo_caminos)
-        self.spin_factor_caminos = spin(10, 100, 50, 5, decimales=0, sufijo="%")
-        self.spin_factor_caminos.setToolTip("Costo del tendido sobre el camino, como porcentaje del costo normal.")
-        formulario.addRow("Costo sobre el camino:", self.spin_factor_caminos)
-        self.combo_barreras = _combo_capas(Qgis.LayerFilter.LineLayer, "Ninguna")
-        self.combo_barreras.setLayer(None)
-        self.combo_barreras.setToolTip("Canales, vías, cercos: líneas que la tubería puede cruzar, pero "
-                                       "que cuesta cruzar.")
-        formulario.addRow("Barreras a cruzar (líneas):", self.combo_barreras)
-        self.check_barreras_prohibidas = QCheckBox("No cruzarlas nunca")
-        self.check_barreras_prohibidas.toggled.connect(self._actualizar_restricciones)
-        formulario.addRow("", self.check_barreras_prohibidas)
-        self.spin_cruce = spin(0, 5000, 50, 10, decimales=0, sufijo="m")
-        self.spin_cruce.setToolTip("Cada cruce cuesta lo mismo que este largo de tubería.")
-        formulario.addRow("Costo de cada cruce:", self.spin_cruce)
-        self.check_relieve = QCheckBox("Tener en cuenta el relieve (usa el DEM de arriba)")
-        self.check_relieve.setToolTip("Evita las subidas (cuestan energía de bombeo) y las pendientes fuertes.")
-        self.check_relieve.toggled.connect(self._actualizar_restricciones)
-        formulario.addRow(self.check_relieve)
-        self.spin_subida = spin(0, 100, 5, 1, decimales=1, sufijo="m")
-        self.spin_subida.setToolTip("Cada metro que el agua sube cuesta lo mismo que este largo de tubería.")
-        formulario.addRow("Costo de cada metro de subida:", self.spin_subida)
-        self.spin_pendiente = spin(0, 100, 25, 5, decimales=0, sufijo="%")
-        self.spin_pendiente.setSpecialValueText("no penalizar")
-        self.spin_pendiente.setToolTip("Pendiente a la que el costo de zanjar se duplica.")
-        formulario.addRow("Pendiente que duplica el costo:", self.spin_pendiente)
-        self.spin_celda = spin(0, 100, 0, 1, decimales=1, sufijo="m")
-        self.spin_celda.setSpecialValueText("automático")
-        self.spin_celda.setToolTip("Tamaño de la cuadrícula en que se busca el recorrido. Más pequeña "
-                                   "sigue mejor los detalles, pero tarda más.")
-        formulario.addRow("Tamaño de celda:", self.spin_celda)
-        self.check_costo_lista = QCheckBox("Ajustar el costo de la tubería a la lista de precios")
-        self.check_costo_lista.setToolTip(
-            "En vez del costo por defecto (0.2 + (q/Q)^0.7), ajusta la curva de costo por metro a los precios "
-            "de las tuberías de la red: para cada caudal usa la más barata que cumple la velocidad máxima de "
-            "los criterios de diseño. Hace falta haber abierto una lista de precios en la ventana de materiales.")
-        self.check_costo_lista.toggled.connect(self._actualizar_restricciones)
-        formulario.addRow(self.check_costo_lista)
-        self.spin_zanja = spin(0, 100000, 0, 1, decimales=2, sufijo="por metro")
-        self.spin_zanja.setToolTip("Zanja, tapado y montaje por metro, que la lista de precios no trae. Se suma "
-                                   "al precio de cualquier tubería: cuanto mayor, más conviene compartir tramos.")
-        formulario.addRow("Costo de la zanja:", self.spin_zanja)
-        self.agregar_zona()
-        self._actualizar_bloques()
-        self._actualizar_restricciones()
-
-        self.boton_trazar = QPushButton("Trazar la red automáticamente")
-        self.boton_trazar.setToolTip(
-            "Dibuja en una capa editable las tuberías de la fuente a todas las válvulas, juntando "
-            "las que van hacia el mismo lado para compartir tubería. Después puede editarla y calcular.")
-        self.boton_trazar.clicked.connect(self.trazar_red_automatica)
-        formulario.addRow(self.boton_trazar)
+    def _grupo_tuberia_matriz(self):
+        grupo = QGroupBox("Tubería matriz")
+        capa = QVBoxLayout(grupo)
+        ayuda = QLabel("Dibuje la red principal en el mapa, de la fuente a cada válvula, como en IRRICAD: "
+                       "elija el diámetro (o «Elegida por el programa») y haga clic punto por punto.")
+        ayuda.setWordWrap(True)
+        capa.addWidget(ayuda)
+        self.boton_dibujar = QPushButton("Dibujar tubería matriz…")
+        self.boton_dibujar.setToolTip(
+            "Abre un cuadro para elegir la capa y el diámetro y luego activa el trazo en el mapa: clic en cada "
+            "vértice, clic derecho, doble clic o Intro para terminar la tubería, Esc para salir. Con el imán "
+            "del proyecto activado los extremos se pegan a las otras tuberías, la fuente y las válvulas.")
+        self.boton_dibujar.clicked.connect(self.dibujar_tuberia_matriz)
+        capa.addWidget(self.boton_dibujar)
+        self.boton_cambiar_diametro = QPushButton("Cambiar el diámetro de las tuberías seleccionadas…")
+        self.boton_cambiar_diametro.setToolTip(
+            "Cambia el diámetro de las tuberías de la capa que tenga seleccionadas en el mapa (a uno del "
+            "catálogo o a «Elegida por el programa»).")
+        self.boton_cambiar_diametro.clicked.connect(self.cambiar_diametro_seleccionadas)
+        capa.addWidget(self.boton_cambiar_diametro)
+        self.etiqueta_matriz = QLabel()
+        self.etiqueta_matriz.setWordWrap(True)
+        capa.addWidget(self.etiqueta_matriz)
+        self.combo_tuberias.layerChanged.connect(self._actualizar_matriz)
+        self._actualizar_matriz()
         return grupo
-
-    def _actualizar_modo_trazado(self):
-        self.spin_angulo_red.setEnabled(self.combo_modo_trazado.currentData() == ORTOGONAL)
-
-    def _actualizar_restricciones(self):
-        for fila in range(self.tabla_zonas.rowCount()):
-            self.tabla_zonas.cellWidget(fila, 1).setEnabled(not self.tabla_zonas.cellWidget(fila, 2).isChecked())
-        self.spin_factor_bloques.setEnabled(self.check_evitar_bloques.isChecked())
-        self.spin_cruce.setEnabled(not self.check_barreras_prohibidas.isChecked())
-        self.spin_subida.setEnabled(self.check_relieve.isChecked())
-        self.spin_pendiente.setEnabled(self.check_relieve.isChecked())
-        self.spin_zanja.setEnabled(self.check_costo_lista.isChecked())
-
-    def agregar_zona(self, capa=None, factor=5.0, prohibida=False):
-        """Agrega una fila a la tabla de zonas a evitar (con la capa dada o la primera de polígonos)."""
-        tabla = self.tabla_zonas
-        fila = tabla.rowCount()
-        tabla.insertRow(fila)
-        combo = _combo_capas(Qgis.LayerFilter.PolygonLayer, "Ninguna")
-        combo.setLayer(capa)
-        valor = spin(1, 100, factor, 1, decimales=1, sufijo="veces")
-        valor.setToolTip("Cuánto más cuesta tender tubería dentro de la zona (1 = igual que fuera). "
-                         "La red las cruza solo si rodearlas sale más caro.")
-        nunca = QCheckBox("Nunca")
-        nunca.setToolTip("Prohibir que la red cruce esta capa.")
-        nunca.setChecked(prohibida)
-        nunca.toggled.connect(self._actualizar_restricciones)
-        tabla.setCellWidget(fila, 0, combo)
-        tabla.setCellWidget(fila, 1, valor)
-        tabla.setCellWidget(fila, 2, nunca)
-        self._actualizar_restricciones()
-        return fila
-
-    def quitar_zona(self):
-        fila = self.tabla_zonas.currentRow()
-        if fila >= 0:
-            self.tabla_zonas.removeRow(fila)
-
-    def zonas_elegidas(self):
-        """Las capas de la tabla con su factor (None si no se deben cruzar)."""
-        from ..integracion.red_mapa import ZonaEvitar
-        zonas = []
-        for fila in range(self.tabla_zonas.rowCount()):
-            capa = self.tabla_zonas.cellWidget(fila, 0).currentLayer()
-            if capa is None:
-                continue
-            prohibida = self.tabla_zonas.cellWidget(fila, 2).isChecked()
-            zonas.append(ZonaEvitar(capa, None if prohibida else self.tabla_zonas.cellWidget(fila, 1).value()))
-        return zonas
-
-    def _actualizar_bloques(self):
-        from ..integracion.red_mapa import capas_de_bloques
-        capas = capas_de_bloques()
-        self.etiqueta_bloques.setText(
-            "Se evitarán: " + ", ".join(c.name() for c in capas) if capas
-            else "No hay capas «Bloques» en el proyecto.")
-
-    def zonas_a_evitar(self):
-        """Las capas de la tabla y, si se pide, las capas «Bloques» del diseño."""
-        from ..integracion.red_mapa import ZonaEvitar, capas_de_bloques
-        zonas = self.zonas_elegidas()
-        if self.check_evitar_bloques.isChecked():
-            zonas += [ZonaEvitar(c, self.spin_factor_bloques.value()) for c in capas_de_bloques()]
-        return zonas
-
-    def restricciones_de_trazado(self):
-        """Las capas y valores elegidos para condicionar el trazado (None si no se eligió ninguna capa)."""
-        from ..integracion.red_mapa import RestriccionesTrazado
-        dem = self.combo_dem.currentLayer() if self.check_relieve.isChecked() else None
-        restricciones = RestriccionesTrazado(
-            zonas=self.zonas_a_evitar(),
-            capa_caminos=self.combo_caminos.currentLayer(),
-            factor_caminos=self.spin_factor_caminos.value() / 100,
-            capa_barreras=self.combo_barreras.currentLayer(),
-            costo_cruce_m=None if self.check_barreras_prohibidas.isChecked() else self.spin_cruce.value(),
-            capa_dem=dem,
-            costo_subida=self.spin_subida.value(),
-            pendiente_duplica=self.spin_pendiente.value() / 100 or None,
-            celda_m=self.spin_celda.value() or None)
-        return restricciones if restricciones.activa else None
 
     def _grupo_criterios(self):
         grupo = QGroupBox("Criterios de diseño de la red")
@@ -596,108 +433,143 @@ class DialogoRed(QDialog):
             return
         self.abrir_turnos()
 
-    # --------------------------------------------------------- trazado automático
+    # --------------------------------------------------------- tubería matriz dibujada
 
-    def trazar_red_automatica(self):
-        from ..integracion.perfil_terreno import entidad_unica
-        from ..integracion.red_mapa import trazar_red_en_mapa
-        from ..integracion.subunidad_mapa import geometria_en, verificar_crs_metrico
-        error = None
-        QApplication.setOverrideCursor(Qt.CursorShape.WaitCursor)
-        try:
-            capa_fuente = self.combo_fuente.currentLayer()
-            if capa_fuente is None:
-                raise ValueError("Elija la capa de la fuente y marque en ella el punto de la bomba.")
-            if not self.valvulas:
-                raise ValueError("Pulse «Buscar válvulas en el proyecto» antes de trazar la red.")
-            crs = capa_fuente.crs()
-            verificar_crs_metrico(crs, capa_fuente.name())
-            self._turnos_de_tabla()
-            fuente = geometria_en(capa_fuente, entidad_unica(capa_fuente), crs).asPoint()
-            valvulas = self._valvulas_en(crs)
-            angulo = self.spin_angulo_red.value()
-            if self.check_relieve.isChecked() and self.combo_dem.currentLayer() is None:
-                raise ValueError("Para tener en cuenta el relieve elija arriba el DEM.")
-            self._actualizar_bloques()
-            ajuste = self._ajuste_de_costo(valvulas)
-            restricciones = self.restricciones_de_trazado()
-            capa, red = trazar_red_en_mapa(fuente, valvulas, crs, self.combo_modo_trazado.currentData(),
-                                           angulo if angulo >= 0 else None,
-                                           restricciones=restricciones, ajuste_costo=ajuste)
-            self.combo_tuberias.setLayer(capa)
-            if self.iface is not None:
-                self.iface.mapCanvas().refresh()
-        except ValueError as e:
-            error = str(e)
-        finally:
-            QApplication.restoreOverrideCursor()
-        if error:
-            QMessageBox.warning(self, "RiegoLibre", error)
+    def dibujar_tuberia_matriz(self):
+        """Pide capa y diámetro en un cuadro modal y activa el trazo en el mapa con ese diámetro."""
+        from ..integracion.subunidad_mapa import verificar_crs_metrico
+        from .dialogo_tuberia_matriz import DialogoTuberiaMatriz
+        if self.iface is None:
+            QMessageBox.information(self, "RiegoLibre", "Dibujar la tubería en el mapa solo se puede desde QGIS.")
             return
-        self._mostrar_trazado(red, ajuste, restricciones)
-
-    def _ajuste_de_costo(self, valvulas):
-        """Costo por metro ajustado a la lista de precios (None si la casilla está apagada)."""
-        if not self.check_costo_lista.isChecked():
-            return None
-        from ..integracion.materiales_mapa import precios_de_tuberias
-        from ..nucleo.costo_red import ajustar_costo_de_valvulas
-        from ..nucleo.trazado_red import ValvulaDestino
-        datos = precios_de_tuberias(self.tuberias)
-        if datos is None:
-            raise ValueError("Para ajustar el costo a la lista de precios ábrala en la ventana de materiales, "
-                             "o desmarque la casilla.")
-        destinos = [ValvulaDestino(v.id, v.punto.x(), v.punto.y(), v.caudal_lh, v.turno) for v in valvulas]
+        capa = self.combo_tuberias.currentLayer()
         try:
-            return ajustar_costo_de_valvulas(destinos, self.tuberias, datos[0], self.spin_velocidad.value(),
-                                             self.spin_zanja.value())
+            if capa is None and not any(isinstance(c, QgsVectorLayer) and c.geometryType() == Qgis.GeometryType.Line
+                                        for c in QgsProject.instance().mapLayers().values()):
+                capa = self._crear_capa_de_tuberias()  # el proyecto aún no tiene dónde dibujar
+            dialogo = DialogoTuberiaMatriz(self.tuberias, capa, self.diametro_matriz, parent=self)
+            if dialogo.exec() != QDialog.DialogCode.Accepted:
+                return
+            capa = dialogo.capa()
+            verificar_crs_metrico(capa.crs(), capa.name())
         except ValueError as error:
-            raise ValueError(f"{error} Desmarque «Ajustar el costo de la tubería a la lista de precios» "
-                             "para usar el costo por defecto.") from None
+            QMessageBox.warning(self, "RiegoLibre", str(error))
+            return
+        self.diametro_matriz = dialogo.tuberia()
+        self.combo_tuberias.setLayer(capa)
+        self._trazar_tuberias(capa, self.diametro_matriz)
 
-    def _valvulas_en(self, crs):
-        """Las válvulas encontradas (con sus turnos actuales), con sus puntos en el SRC dado."""
+    def _crear_capa_de_tuberias(self):
+        from ..integracion.persistencia import guardar_capas_de_dibujo
+        from ..integracion.red_mapa import CAMPO_TUBERIA, NOMBRE_CAPA_RED, estilo_red_dibujada
+        from ..integracion.subunidad_mapa import verificar_crs_metrico
+        proyecto = QgsProject.instance()
+        verificar_crs_metrico(proyecto.crs(), "del proyecto")
+        capa = QgsVectorLayer(f"LineString?field=nombre:string(50)&field={CAMPO_TUBERIA}:string(80)",
+                              NOMBRE_CAPA_RED, "memory")
+        capa.setCrs(proyecto.crs())
+        estilo_red_dibujada(capa)
+        proyecto.addMapLayer(capa)
+        guardar_capas_de_dibujo([capa], proyecto)
+        return capa
+
+    def _geometrias_de_iman(self, capa, al_mapa):
+        """Tuberías ya dibujadas, fuente y válvulas (en el SRC del mapa): sus vértices y lados atraen al cursor."""
         from ..integracion.red_mapa import capas_de_valvulas, leer_valvulas
-        turnos = {v.id: v.turno for v in self.valvulas}
-        valvulas = leer_valvulas(capas_de_valvulas(), crs)
-        for v in valvulas:
-            v.turno = turnos.get(v.id, 1)
-        return valvulas
+        from ..integracion.subunidad_mapa import geometria_en
+        crs_mapa = al_mapa.destinationCrs()
+        geometrias = [geometria_en(capa, e, crs_mapa) for e in capa.getFeatures()]
+        fuente = self.combo_fuente.currentLayer()
+        if fuente is not None:
+            geometrias += [geometria_en(fuente, e, crs_mapa) for e in fuente.getFeatures()]
+        geometrias += [QgsGeometry.fromPointXY(v.punto) for v in leer_valvulas(capas_de_valvulas(), crs_mapa)]
+        return [g for g in geometrias if not g.isEmpty()]
 
-    def _mostrar_trazado(self, red, ajuste=None, restricciones=None):
-        forma = ("ortogonal, ejes a " + f"{red.angulo_grados:.0f}°") if red.modo == ORTOGONAL else "directo"
-        filas = [
-            ("Forma", forma),
-            ("Tuberías", f"{len(red.tramos)} tramos · <b>{red.longitud_m:,.0f} m</b>"),
-            ("Uniones en T", str(len(red.uniones))),
-            ("Válvulas conectadas", str(sum(1 for t in red.tramos if not t.hasta.startswith("Unión")))),
-        ]
-        if red.celda_m is not None:
-            filas.append(("Mapa de costos", f"celdas de {red.celda_m:g} m"))
-            if red.m_penalizados > red.celda_m:  # menos que una celda es solo el redondeo de la cuadrícula
-                filas.append(("Por zonas que encarecen o por barreras", f"<b>{red.m_penalizados:,.0f} m</b> "
-                              "(rodearlas costaba más)"))
-            if red.m_descontados > red.celda_m:
-                filas.append(("Sobre caminos o zanjas", f"{red.m_descontados:,.0f} m"))
-        if restricciones is not None and restricciones.todas_las_zonas():
-            filas.append(("Zonas a evitar", "<br>".join(
-                f"{z.capa.name()} ({'no se cruza' if z.factor is None else f'×{z.factor:g}'})"
-                for z in restricciones.todas_las_zonas())))
-        if ajuste is not None:
-            menor, mayor = ajuste.muestras[0][0], ajuste.muestras[-1][0]
-            filas.append(("Costo de la tubería", (
-                f"ajustado a la lista de precios: {ajuste.precio_m(menor):,.2f} por metro con "
-                f"{menor / 3600:,.1f} L/s hasta {ajuste.precio_m(mayor):,.2f} con "
-                f"{mayor / 3600:,.1f} L/s (parte fija {ajuste.costo_fijo:.2f}, exponente "
-                f"{ajuste.exponente:.2f}, error medio {ajuste.error_relativo:.0%})")))
-        self.texto.setHtml(
-            "<h3>Red principal trazada</h3>" + html_tabla(filas)
-            + "<p>Las tuberías están en la capa temporal <b>Red principal · trazado automático</b>, que ya "
-              "quedó elegida como capa de tuberías. Puede editarla (mover vértices, borrar o dibujar "
-              "tramos) y luego pulsar <b>Calcular</b>.</p>"
-              "<p><i>El trazado busca la red de menor costo suponiendo que una tubería más gruesa sale más "
-              "barata por litro que dos delgadas; los diámetros se eligen al calcular.</i></p>")
-        self.pestanas.setCurrentIndex(0)
+    def _trazar_tuberias(self, capa, tuberia):
+        """Oculta la ventana y deja trazar en el mapa: cada línea terminada queda en la capa con el diámetro
+        dado y se sigue con otra hasta pulsar Esc."""
+        from ..integracion.red_mapa import agregar_tuberia
+        from .herramienta_puntos import HerramientaPuntos
+        canvas = self.iface.mapCanvas()
+        crs_mapa = canvas.mapSettings().destinationCrs()
+        al_mapa = QgsCoordinateTransform(capa.crs(), crs_mapa, QgsProject.instance())
+        a_la_capa = QgsCoordinateTransform(crs_mapa, capa.crs(), QgsProject.instance())
+        anterior = canvas.mapTool()
+        dibujadas = []
+        nombre = tuberia.nombre if tuberia is not None else "diámetro por dimensionar"
+        mensajes = [f"Tubería matriz ({nombre}): haga clic en el primer punto",
+                    f"Tubería matriz ({nombre}): haga clic en el siguiente punto"]
+
+        def iniciar():
+            self._herramienta_puntos = HerramientaPuntos(
+                canvas, None, self._geometrias_de_iman(capa, al_mapa), mensajes, terminar, volver,
+                self.iface.statusBarIface().showMessage)
+            canvas.setMapTool(self._herramienta_puntos)
+            canvas.setFocus()
+
+        def terminar(puntos):
+            dibujadas.append(agregar_tuberia(capa, [a_la_capa.transform(p) for p in puntos], tuberia).id())
+            canvas.refresh()
+            iniciar()  # la tubería siguiente, con el mismo diámetro
+
+        def volver():
+            self._herramienta_puntos = None
+            if canvas.mapTool() is None and anterior is not None:
+                canvas.setMapTool(anterior)
+            self._actualizar_matriz()
+            if dibujadas:
+                self.texto.setHtml(
+                    f"<h3>Tubería matriz</h3><p>Se dibujaron {len(dibujadas)} tuberías en la capa "
+                    f"<b>{capa.name()}</b> ({nombre}). Si falta alguna, vuelva a pulsar "
+                    "<b>Dibujar tubería matriz…</b>; si no, pulse <b>Calcular</b>.</p>")
+                self.pestanas.setCurrentIndex(0)
+            self.show()
+            self.raise_()
+            self.activateWindow()
+
+        self.iface.messageBar().pushMessage("RiegoLibre", mensajes[0] + " (Esc para terminar).",
+                                            Qgis.MessageLevel.Info, 5)
+        self.hide()
+        iniciar()
+
+    def cambiar_diametro_seleccionadas(self):
+        """Cambia el diámetro de las tuberías seleccionadas en el mapa (como «Edit Mainline Pipe» de IRRICAD)."""
+        from ..integracion.red_mapa import CAMPO_TUBERIA, cambiar_tuberia
+        from .dialogo_tuberia_matriz import DialogoTuberiaMatriz
+        capa = self.combo_tuberias.currentLayer()
+        if capa is None:
+            QMessageBox.warning(self, "RiegoLibre", "Elija primero la capa de tuberías.")
+            return
+        ids = capa.selectedFeatureIds()
+        if not ids:
+            QMessageBox.warning(self, "RiegoLibre", f"Seleccione en el mapa las tuberías de «{capa.name()}» "
+                                                    "que quiere cambiar.")
+            return
+        nombres = {e[CAMPO_TUBERIA] if capa.fields().indexOf(CAMPO_TUBERIA) >= 0 else None
+                   for e in capa.getSelectedFeatures()}
+        comun = next((t for t in self.tuberias if nombres == {t.nombre}), None)  # la misma en todas: queda marcada
+        dialogo = DialogoTuberiaMatriz(self.tuberias, elegida=comun, edicion=True, parent=self)
+        if dialogo.exec() != QDialog.DialogCode.Accepted:
+            return
+        cambiar_tuberia(capa, ids, dialogo.tuberia())
+        self._actualizar_matriz()
+        if self.iface is not None:
+            self.iface.mapCanvas().refresh()
+
+    def _actualizar_matriz(self, *_):
+        """Resumen de la capa de tuberías: cuántas tienen el diámetro fijo y cuántas están por dimensionar."""
+        from ..integracion.red_mapa import CAMPO_TUBERIA
+        capa = self.combo_tuberias.currentLayer()
+        if capa is None or not capa.featureCount():
+            self.etiqueta_matriz.setText("")
+            return
+        fijas = 0
+        if capa.fields().indexOf(CAMPO_TUBERIA) >= 0:
+            fijas = sum(1 for e in capa.getFeatures() if isinstance(e[CAMPO_TUBERIA], str) and e[CAMPO_TUBERIA].strip())
+        total = capa.featureCount()
+        self.etiqueta_matriz.setText(
+            f"«{capa.name()}»: {total} {'tubería' if total == 1 else 'tuberías'} · {fijas} con diámetro fijo · "
+            f"{total - fijas} por dimensionar.")
 
     # ---------------------------------------------------------------- cálculo
 
@@ -766,7 +638,8 @@ class DialogoRed(QDialog):
                                      MuestreadorDem(dem, crs) if dem is not None else None,
                                      tolerancia_m=self.spin_tolerancia.value(),
                                      perdida_valvula_m=self.spin_perdida_valvula.value(),
-                                     elemento_valvula=self.combo_valvula_base.currentData())
+                                     elemento_valvula=self.combo_valvula_base.currentData(),
+                                     catalogo=self.tuberias)
             optimizacion, economia = None, None
             if self.grupo_costo.isChecked():
                 optimizacion, economia = self._optimizar(red_mapa.red)
@@ -821,6 +694,9 @@ class DialogoRed(QDialog):
             ("Red principal", f"{len(red.tramos)} tramos · {longitud:,.0f} m · {len(red.valvulas)} válvulas"),
         ]
         filas += [(f"&nbsp;&nbsp;{nombre}", f"{m:,.1f} m") for nombre, m in sorted(metros.items())]
+        fijos = sum(1 for t in red.tramos if t.tuberia is not None)
+        if fijos:
+            filas.append(("Diámetros fijados al dibujar", f"{fijos} de {len(red.tramos)} tramos"))
         if self.optimizacion is not None:
             filas += self._filas_costo()
         self.texto.setHtml(f"<h3>Red principal — {html_estado(cumple)}</h3>"

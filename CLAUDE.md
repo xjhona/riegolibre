@@ -17,7 +17,7 @@ Repositorio: https://github.com/xjhona/riegolibre (rama `main`, cuenta gh `xjhon
   `QT_QPA_PLATFORM=offscreen timeout 600 "C:/Program Files/QGIS 3.44.15/bin/python-qgis-ltr.bat" -m unittest discover -s tests -t .`
 - Solo el motor: `C:\Users\Jhonatan\AppData\Local\Python\bin\python.exe -m unittest discover -s tests -t .`
   (el `python` de bash es el alias de la Tienda y no sirve).
-- Estado: ~441 pruebas pasan. Lo nuevo de octubre no se ha probado a mano con pantalla en QGIS.
+- Estado: ~382 pruebas pasan (el 2026-10-31 se retiró el motor de trazado automático de la red y sus pruebas). Lo nuevo de octubre no se ha probado a mano con pantalla en QGIS.
 
 ## Reglas
 - Mantener el núcleo sin imports de QGIS. Compatibilidad Qt6: enums con nombre completo, `exec()`.
@@ -38,8 +38,9 @@ Repositorio: https://github.com/xjhona/riegolibre (rama `main`, cuenta gh `xjhon
   `%APPDATA%\RiegoLibre\base_datos.json` (se usa el catálogo genérico).
 
 ## Estado al 2026-10-31
-Hecho: lateral, subunidad, diseño en el mapa, trazado automático, red principal y bomba (con restricciones, turnos desde el mapa,
-varios equipos de cabezal), materiales y costos, memoria de cálculo, base de datos de materiales (importar IRRICAD + editar),
+Hecho: lateral, subunidad, diseño en el mapa, trazado automático de subunidades, red principal y bomba (la tubería matriz se
+dibuja a mano con cuadro previo de diámetro, como «Mainline Pipe» de IRRICAD; ya no hay trazado automático de la red; turnos desde
+el mapa, varios equipos de cabezal), materiales y costos, memoria de cálculo, base de datos de materiales (importar IRRICAD + editar),
 topografía de CAD + satelital + 3D, lotes y bloque de goteo completo, diámetros por velocidad, información del objeto.
 
 Pendientes principales (lista viva y «Por confirmar» en `PENDIENTES.md`):
