@@ -144,6 +144,12 @@ class RiegoLibrePlugin:
             return
         finally:
             self.iface.mapCanvas().refresh()  # al quitar la capa el lienzo conserva los rótulos hasta repintar
+        # La capa de marcadores queda activa al crearse y «Seleccionar objetos» solo actúa sobre la activa: se
+        # devuelve la activa a los lotes para poder seguir eligiéndolos en el mapa.
+        from .integracion.lotes import capas_de_lotes
+        lotes = capas_de_lotes()
+        if lotes:
+            self.iface.setActiveLayer(lotes[0])
         plural = "subunidad" if resumen.subunidades == 1 else "subunidades"
         texto = f"Presión mínima y máxima marcada en {resumen.subunidades} {plural} ({resumen.marcadores} marcadores)."
         if resumen.sin_resultados:
