@@ -77,6 +77,7 @@ class DialogoRed(QDialog):
         self.tuberias = cargar_catalogo_tuberias(uso="principal")
         self.valvulas = []  # ValvulaMapa encontradas en el proyecto
         self.abrir_turnos = None  # lo pone el complemento: activa la herramienta «Turnos de riego»
+        self.abrir_fuente = None  # lo pone el complemento: esconde la ventana y activa «Fuente de agua»
         self.resultado = None
         self.optimizacion = None  # si los diámetros se eligieron por costo total
         self.economia = None
@@ -105,7 +106,8 @@ class DialogoRed(QDialog):
             "<h3>Pasos</h3><ol>"
             "<li>Diseñe las subunidades en el mapa: cada una deja una capa <i>Válvula · nombre</i> "
             "con su caudal y presión requerida.</li>"
-            "<li>Marque la <b>fuente</b> (un punto donde está la bomba y el cabezal).</li>"
+            "<li>Marque la <b>fuente de agua</b> (el punto donde están la bomba y el cabezal) con el botón "
+            "<b>Fuente de agua</b> de la barra de RiegoLibre o con <b>Colocar la fuente de agua…</b>.</li>"
             "<li>Pulse <b>Buscar válvulas</b> y asigne los <b>turnos</b> de riego.</li>"
             "<li>Pulse <b>Dibujar tubería matriz…</b>, elija el diámetro (o «Elegida por el programa») y "
             "trace las tuberías de la fuente a cada válvula con clics en el mapa (no hace falta cortar las "
@@ -158,6 +160,12 @@ class DialogoRed(QDialog):
         formulario.addRow("Capa de tuberías:", self.combo_tuberias)
         self.combo_fuente = _combo_capas(Qgis.LayerFilter.PointLayer)
         formulario.addRow("Capa de la fuente:", self.combo_fuente)
+        self.boton_fuente = QPushButton("Colocar la fuente de agua…")
+        self.boton_fuente.setToolTip(
+            "Esconde la ventana y deja la fuente (la bomba y el cabezal) donde haga clic en el mapa; si ya "
+            "había una, la reemplaza. Es la misma herramienta «Fuente de agua» de la barra de RiegoLibre.")
+        self.boton_fuente.clicked.connect(self._colocar_fuente)
+        formulario.addRow(self.boton_fuente)
         self.combo_dem = _combo_capas(Qgis.LayerFilter.RasterLayer, "Sin DEM (terreno plano)")
         formulario.addRow("DEM:", self.combo_dem)
         self.spin_tolerancia = spin(0.01, 20, 0.5, 0.1, sufijo="m")
@@ -165,13 +173,20 @@ class DialogoRed(QDialog):
                                         "tubería, o una válvula y la tubería que la alimenta.")
         formulario.addRow("Tolerancia de conexión:", self.spin_tolerancia)
         boton = QPushButton("Crear capas para dibujar")
-        boton.setToolTip("Crea las capas «Fuente» (punto) y «Red principal» (líneas) en el SRC "
-                         "del proyecto y activa la edición de la fuente.")
+        boton.setToolTip("Crea las capas «Fuente» (punto) y «Red principal» (líneas) en el SRC del proyecto.")
         boton.clicked.connect(self.crear_capas_de_dibujo)
         formulario.addRow(boton)
         return grupo
 
+    def _colocar_fuente(self):
+        if self.abrir_fuente is None:
+            QMessageBox.information(self, "RiegoLibre", "La herramienta «Fuente de agua» está en la barra de "
+                                                        "RiegoLibre de QGIS.")
+            return
+        self.abrir_fuente()
+
     def crear_capas_de_dibujo(self):
+        from ..integracion.fuente_mapa import capa_de_fuente, crear_capa_fuente
         from ..integracion.persistencia import aviso_html, guardar_capas_de_dibujo
         from ..integracion.red_mapa import CAMPO_TUBERIA, NOMBRE_CAPA_RED, estilo_red_dibujada
         from ..integracion.subunidad_mapa import verificar_crs_metrico
@@ -181,25 +196,22 @@ class DialogoRed(QDialog):
         except ValueError as error:
             QMessageBox.warning(self, "RiegoLibre", f"{error} Cámbielo en Proyecto → Propiedades → SRC.")
             return
-        fuente = QgsVectorLayer("Point?field=nombre:string(50)", "Fuente", "memory")
+        fuente = capa_de_fuente(proyecto)  # si ya hay una fuente se conserva
+        if fuente is None:
+            fuente, _ = crear_capa_fuente(proyecto)
         tuberias = QgsVectorLayer(f"LineString?field=nombre:string(50)&field={CAMPO_TUBERIA}:string(80)",
                                   NOMBRE_CAPA_RED, "memory")
-        for capa in (fuente, tuberias):
-            capa.setCrs(proyecto.crs())
+        tuberias.setCrs(proyecto.crs())
         estilo_red_dibujada(tuberias)
-        proyecto.addMapLayers([fuente, tuberias])
-        ruta = guardar_capas_de_dibujo([fuente, tuberias], proyecto)
+        proyecto.addMapLayer(tuberias)
+        ruta = guardar_capas_de_dibujo([tuberias], proyecto)
         self.combo_fuente.setLayer(fuente)
         self.combo_tuberias.setLayer(tuberias)
-        if self.iface is not None:
-            self.iface.setActiveLayer(fuente)
-            fuente.startEditing()
-            self.iface.actionAddFeature().trigger()
         self.texto.setHtml(
             "<p>Se crearon las capas <b>Fuente</b> y <b>Red principal</b>.</p>"
-            "<p>Marque la fuente con un clic y guarde la edición. Luego pulse <b>Dibujar tubería matriz…</b> "
-            "para trazar las tuberías desde la fuente hasta cada válvula (active el autoajuste para unir "
-            "bien los extremos).</p>" + aviso_html(ruta))
+            "<p>Pulse <b>Colocar la fuente de agua…</b> y haga clic en el mapa donde están la bomba y el "
+            "cabezal. Luego pulse <b>Dibujar tubería matriz…</b> para trazar las tuberías desde la fuente "
+            "hasta cada válvula (active el autoajuste para unir bien los extremos).</p>" + aviso_html(ruta))
 
     def _grupo_valvulas(self):
         grupo = QGroupBox("Válvulas y turnos de riego")
@@ -634,8 +646,11 @@ class DialogoRed(QDialog):
                 raise ValueError("Pulse «Buscar válvulas en el proyecto» antes de calcular.")
             crs = capa_tuberias.crs()
             verificar_crs_metrico(crs, capa_tuberias.name())
+            if not capa_fuente.featureCount():
+                raise ValueError(f"La capa «{capa_fuente.name()}» no tiene la fuente: márquela con el botón "
+                                 "«Fuente de agua» de la barra de RiegoLibre.")
             self._turnos_de_tabla()
-            fuente = geometria_en(capa_fuente, entidad_unica(capa_fuente), crs).asPoint()
+            fuente =geometria_en(capa_fuente, entidad_unica(capa_fuente), crs).asPoint()
             dem = self.combo_dem.currentLayer()
             red_mapa = construir_red(capa_tuberias, fuente, self.valvulas, crs,
                                      MuestreadorDem(dem, crs) if dem is not None else None,

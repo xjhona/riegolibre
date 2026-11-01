@@ -285,6 +285,7 @@ class PruebasIntegracionQgis(unittest.TestCase):
         self.assertEqual([a.text() for a in acciones_menu], ["&RiegoLibre", "Ayuda"])
         principales = ["Terreno y lotes", "Diseño de goteo",
                        "Bloque de goteo (clic en un lote; Ctrl + clic para eliminar su bloque)", "",
+                       "Fuente de agua (clic en el mapa donde están la bomba y el cabezal)",
                        "Red principal y bomba…",
                        "Turnos de riego (marcar bloques en el mapa y asignarles un turno)", "",
                        "Información del objeto (clic en un lateral, tubería o válvula)",
@@ -308,7 +309,7 @@ class PruebasIntegracionQgis(unittest.TestCase):
                 self.assertEqual(plugin.barra.widgetForAction(accion).popupMode(),
                                  QToolButton.ToolButtonPopupMode.InstantPopup)
                 self.assertFalse(accion.icon().isNull())
-        self.assertEqual(len(plugin.acciones), 19)
+        self.assertEqual(len(plugin.acciones), 20)
         self.assertTrue(all(not a.icon().isNull() for a in plugin.acciones))
 
         def accion(inicio):
