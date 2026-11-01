@@ -66,9 +66,24 @@ Las pruebas del motor funcionan con cualquier Python 3.9 o superior. Las de inte
 & "C:\Program Files\QGIS 3.40.6\bin\python-qgis-ltr.bat" -m unittest discover -s tests -t .
 ```
 
+## Menú y barra de RiegoLibre
+
+Todas las herramientas están en el menú **RiegoLibre** (en la barra de menús de QGIS, antes de *Ayuda*) y en la barra de herramientas **RiegoLibre**, con el mismo orden. La barra se puede mover o apagar en *Ver → Barras de herramientas*.
+
+| En la barra | Contiene |
+| --- | --- |
+| **Terreno y lotes** (despliega) | Topografía, Importar lotes de CAD, Zonas |
+| **Diseño de goteo** (despliega) | Calculadora de lateral, Subunidad de riego, Diseño de subunidad en el mapa, Trazado automático, Diámetros de portalaterales |
+| **Bloque de goteo** | Herramienta de mapa, a un clic |
+| **Red principal y bomba** | Ventana de la red, a un clic |
+| **Turnos de riego** | Herramienta de mapa, a un clic |
+| **Información del objeto** | Herramienta de mapa, a un clic |
+| **Presión mínima y máxima** (despliega) | Todas las válvulas, Válvulas seleccionadas, Borrar marcadores |
+| **Materiales y documentos** (despliega) | Base de datos de materiales, Lista de materiales y costos, Memoria de cálculo |
+
 ## Diseño en el mapa
 
-Menú **Complementos → RiegoLibre → Diseño de subunidad en el mapa**:
+Menú **RiegoLibre → Diseño de goteo → Diseño de subunidad en el mapa**:
 
 1. Dibuje el **bloque** (polígono) y el **portalateral** (línea). El botón *Crear capas para dibujar* prepara capas temporales en el SRC del proyecto. Todo debe estar en un SRC proyectado en metros (UTM).
 2. **Generar laterales**: se trazan cada cierta separación, perpendiculares al portalateral o con un azimut fijo, a uno o ambos lados, y se recortan en el borde del bloque con un margen. La capa generada se puede editar: borrar, mover o alargar laterales.
@@ -79,7 +94,7 @@ Menú **Complementos → RiegoLibre → Diseño de subunidad en el mapa**:
 
 ## Trazado automático
 
-Menú **Complementos → RiegoLibre → Trazado automático de subunidades**. Sirve para terrenos de cualquier forma (con escotaduras, huecos o varias partes) y evita dibujar a mano el portalateral:
+Menú **RiegoLibre → Diseño de goteo → Trazado automático de subunidades**. Sirve para terrenos de cualquier forma (con escotaduras, huecos o varias partes) y evita dibujar a mano el portalateral:
 
 1. Elija la capa con el **polígono del terreno** (si tiene varias entidades, seleccione una). Opcionalmente, un **DEM** y un punto con la **fuente de agua**.
 2. Indique la separación entre laterales, el emisor y los criterios, y pulse **Buscar trazado**. Se prueban unas veinte direcciones de laterales (rejilla de 15°, los lados más largos del contorno, el rectángulo mínimo que envuelve al terreno y, con DEM, las curvas de nivel) y se muestran las mejores en una tabla. Al elegir una fila se dibuja en el mapa.
@@ -112,7 +127,7 @@ Las líneas se orientan en el sentido del flujo (P1 aguas arriba, P2 aguas abajo
 
 ## Presión mínima y máxima en el mapa
 
-El botón **Presión mínima y máxima** (barra de RiegoLibre; las mismas tres opciones están en el menú del complemento) replica el de IRRICAD. Tiene un menú:
+El botón **Presión mínima y máxima** (menú y barra de RiegoLibre) replica el de IRRICAD. Tiene un menú:
 
 - **Todas las válvulas**: en cada subunidad calculada pone un marcador rojo en el emisor de mayor presión («Máx: 21.0 m») y uno azul en el de menor presión («Mín: 18.5 m»).
 - **Válvulas seleccionadas**: lo mismo, solo en las subunidades cuya válvula está seleccionada, o cuyo lote (o bloque) está seleccionado con *Seleccionar entidades*.
@@ -122,7 +137,7 @@ Los marcadores van en la capa *Presión mínima y máxima* (campos `tipo`, `pres
 
 ## Red principal y bomba
 
-Menú **Complementos → RiegoLibre → Red principal y bomba**:
+Menú **RiegoLibre → Red principal y bomba**:
 
 1. Cada subunidad diseñada en el mapa deja una capa *Válvula · nombre* con su caudal y presión requerida. También sirve cualquier capa de puntos con los campos `presion` (m) y `caudal_lh` (L/h).
 2. Dibuje la **fuente** (punto de la bomba y el cabezal) y las **tuberías** hasta cada válvula. No hace falta cortar las líneas en las uniones: los extremos, las uniones en T, la fuente y las válvulas se detectan dentro de una tolerancia.
@@ -175,7 +190,7 @@ El botón **Trazar la red automáticamente** dibuja las tuberías de la fuente a
 
 ## Base de datos de materiales
 
-Menú **Complementos → RiegoLibre → Base de datos de materiales**. Es una sola base para todos los proyectos, como la de IRRICAD:
+Menú **RiegoLibre → Materiales y documentos → Base de datos de materiales**. Es una sola base para todos los proyectos, como la de IRRICAD:
 
 - **Importar base de IRRICAD (.mdb)** lee el archivo directamente, sin instalar Microsoft Access ni drivers (lector propio en Python, para Access 97 y 2000-2003). Se importan las pestañas *Pipes*, *Tapes*, *Valves* y *Other Hydraulics*. Las bombas, los aspersores y las boquillas se dejan para más adelante.
 - La base se guarda en `%APPDATA%\RiegoLibre\base_datos.json`. Al importar otra vez o al volver al catálogo genérico, la anterior queda como copia de respaldo (`.bak`). La variable de entorno `RIEGOLIBRE_BASE` permite usar otro archivo.
@@ -186,7 +201,7 @@ Menú **Complementos → RiegoLibre → Base de datos de materiales**. Es una so
 
 ## Lista de materiales y costos
 
-Menú **Complementos → RiegoLibre → Lista de materiales y costos**:
+Menú **RiegoLibre → Materiales y documentos → Lista de materiales y costos**:
 
 - **Metrado**: se arma con las capas de resultado del proyecto (subunidades en el mapa y red principal):
   - metros de tubería por tipo en laterales, portalaterales y red principal,
@@ -203,7 +218,7 @@ Los precios son referenciales: actualice la lista de precios cuando cambie.
 
 ## Memoria de cálculo
 
-Menú **Complementos → RiegoLibre → Memoria de cálculo**. Cada vez que se calcula una subunidad en el mapa o la red principal, el resumen del cálculo queda guardado en sus capas de resultado. La memoria se arma con esos resúmenes:
+Menú **RiegoLibre → Materiales y documentos → Memoria de cálculo**. Cada vez que se calcula una subunidad en el mapa o la red principal, el resumen del cálculo queda guardado en sus capas de resultado. La memoria se arma con esos resúmenes:
 
 1. Datos del proyecto: cliente, ubicación, proyectista y fecha. Quedan guardados en el proyecto de QGIS.
 2. Resumen: área, caudal, punto de diseño de la bomba, costo y si se cumplen los criterios.

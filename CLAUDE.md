@@ -27,6 +27,8 @@ Repositorio: https://github.com/xjhona/riegolibre (rama `main`, cuenta gh `xjhon
 - Commits en español, estilo de los existentes. No subir a GitHub sin que el usuario lo pida. Commitear solo cambios propios.
 - Cuando el usuario explique algo de IRRICAD (videos, capturas), replicar su comportamiento; lo que descarta, no se hace
   («Number of Laterals», «Even Flow», «Flushing»).
+- Toda herramienta o módulo nuevo va dentro de una de las pestañas existentes (los grupos del menú y la barra de RiegoLibre, en
+  `plugin.py`). Si no guarda relación con ninguna, se crea una pestaña nueva. Nunca un botón suelto fuera de ellas.
 
 ## Trampas que no hay que olvidar
 - GeoPackage: el primer campo es `fid`; nunca `setAttributes` posicional en capas que ya pudieron guardarse.
@@ -39,7 +41,6 @@ Repositorio: https://github.com/xjhona/riegolibre (rama `main`, cuenta gh `xjhon
 Hecho: lateral, subunidad, diseño en el mapa, trazado automático, red principal y bomba (con restricciones, turnos desde el mapa,
 varios equipos de cabezal), materiales y costos, memoria de cálculo, base de datos de materiales (importar IRRICAD + editar),
 topografía de CAD + satelital + 3D, lotes y bloque de goteo completo, diámetros por velocidad, información del objeto.
-Hay 1 commit local sin subir (`8b82421`).
 
 Pendientes principales (lista viva y «Por confirmar» en `PENDIENTES.md`):
 1. Probar a mano en QGIS, con un terreno real, las ventanas nuevas.

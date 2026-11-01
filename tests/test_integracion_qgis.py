@@ -244,14 +244,17 @@ class PruebasIntegracionQgis(unittest.TestCase):
 
     def test_registro_en_qgis(self):
         from qgis.gui import QgsMapCanvas
-        from qgis.PyQt.QtWidgets import QAction, QMainWindow
+        from qgis.PyQt import sip
+        from qgis.PyQt.QtCore import QCoreApplication, QEvent
+        from qgis.PyQt.QtWidgets import QMainWindow, QToolButton
         from riegolibre import classFactory
 
         class IfaceFalsa:
             def __init__(self):
                 self.ventana = QMainWindow()
                 self.lienzo = QgsMapCanvas()
-                self.menu, self.barra, self.widgets, self.mensajes = [], [], [], []
+                self.ayuda = self.ventana.menuBar().addMenu("Ayuda")
+                self.mensajes = []
 
             def mapCanvas(self):  # noqa: N802
                 return self.lienzo
@@ -259,23 +262,11 @@ class PruebasIntegracionQgis(unittest.TestCase):
             def mainWindow(self):  # noqa: N802
                 return self.ventana
 
-            def addPluginToMenu(self, _menu, accion):  # noqa: N802
-                self.menu.append(accion)
+            def firstRightStandardMenu(self):  # noqa: N802
+                return self.ayuda
 
-            def removePluginMenu(self, _menu, accion):  # noqa: N802
-                self.menu.remove(accion)
-
-            def addToolBarIcon(self, accion):  # noqa: N802
-                self.barra.append(accion)
-
-            def removeToolBarIcon(self, accion):  # noqa: N802
-                self.barra.remove(accion)
-
-            def addToolBarWidget(self, widget):  # noqa: N802
-                accion = QAction(self.ventana)
-                self.widgets.append(widget)
-                self.barra.append(accion)
-                return accion
+            def addToolBar(self, nombre):  # noqa: N802
+                return self.ventana.addToolBar(nombre)
 
             def messageBar(self):  # noqa: N802
                 return self
@@ -286,66 +277,81 @@ class PruebasIntegracionQgis(unittest.TestCase):
         iface = IfaceFalsa()
         plugin = classFactory(iface)
         plugin.initGui()
-        self.assertEqual([a.text() for a in iface.menu],
-                         ["Topografía: curvas de CAD, imagen satelital y 3D…",
-                          "Calculadora de lateral (goteo)…", "Subunidad de riego (goteo)…",
-                          "Diseño de subunidad en el mapa (goteo)…",
-                          "Importar lotes de CAD…",
-                          "Bloque de goteo (clic en un lote; Ctrl + clic para eliminar su bloque)",
-                          "Zonas: tabla de diseño de los lotes…", "Diámetros de portalaterales por velocidad…",
-                          "Trazado automático de subunidades (goteo)…",
-                          "Turnos de riego (marcar bloques en el mapa y asignarles un turno)",
-                          "Red principal y bomba…",
-                          "Base de datos de materiales…", "Lista de materiales y costos…", "Memoria de cálculo…",
-                          "Información del objeto (clic en un lateral, tubería o válvula)",
-                          "Presión mín. y máx.: todas las válvulas",
-                          "Presión mín. y máx.: válvulas seleccionadas",
-                          "Presión mín. y máx.: borrar marcadores"])
-        self.assertTrue(all(not a.icon().isNull() for a in iface.menu))
-        iface.menu[0].trigger()
+        # Todo cuelga de un solo menú, antes de «Ayuda», y la barra propia lleva el mismo orden.
+        acciones_menu = iface.ventana.menuBar().actions()
+        self.assertEqual([a.text() for a in acciones_menu], ["&RiegoLibre", "Ayuda"])
+        principales = ["Terreno y lotes", "Diseño de goteo",
+                       "Bloque de goteo (clic en un lote; Ctrl + clic para eliminar su bloque)", "",
+                       "Red principal y bomba…",
+                       "Turnos de riego (marcar bloques en el mapa y asignarles un turno)", "",
+                       "Información del objeto (clic en un lateral, tubería o válvula)",
+                       "Presión mínima y máxima", "", "Materiales y documentos"]
+        self.assertEqual([a.text() for a in plugin.menu.actions()], principales)
+        self.assertEqual([a.text() for a in plugin.barra.actions()], principales)
+        grupos = {a.text(): [b.text() for b in a.menu().actions()] for a in plugin.barra.actions() if a.menu()}
+        self.assertEqual(grupos, {
+            "Terreno y lotes": ["Topografía: curvas de CAD, imagen satelital y 3D…", "Importar lotes de CAD…",
+                                "Zonas: tabla de diseño de los lotes…"],
+            "Diseño de goteo": ["Calculadora de lateral (goteo)…", "Subunidad de riego (goteo)…",
+                                "Diseño de subunidad en el mapa (goteo)…",
+                                "Trazado automático de subunidades (goteo)…",
+                                "Diámetros de portalaterales por velocidad…"],
+            "Presión mínima y máxima": ["Todas las válvulas", "Válvulas seleccionadas", "Borrar marcadores"],
+            "Materiales y documentos": ["Base de datos de materiales…", "Lista de materiales y costos…",
+                                        "Memoria de cálculo…"]})
+        for accion in plugin.barra.actions():
+            if accion.menu():  # un clic despliega el grupo; los botones del grupo no quedan sueltos en la barra
+                self.assertEqual(plugin.barra.widgetForAction(accion).popupMode(),
+                                 QToolButton.ToolButtonPopupMode.InstantPopup)
+                self.assertFalse(accion.icon().isNull())
+        self.assertEqual(len(plugin.acciones), 18)
+        self.assertTrue(all(not a.icon().isNull() for a in plugin.acciones))
+
+        def accion(inicio):
+            return next(a for a in plugin.acciones if a.text().startswith(inicio))
+
+        accion("Topografía").trigger()
         self.assertTrue(plugin.dialogos["topografia"].isVisible())
-        iface.menu[2].trigger()
+        accion("Subunidad de riego").trigger()
         self.assertTrue(plugin.dialogos["subunidad"].isVisible())
-        iface.menu[4].trigger()
+        accion("Importar lotes").trigger()
         self.assertTrue(plugin.dialogos["lotes"].isVisible())
         # La herramienta «Bloque de goteo» se activa desde su botón; sin lotes, solo avisa.
-        iface.menu[5].setChecked(True)
+        accion("Bloque de goteo").setChecked(True)
         self.assertIs(iface.mapCanvas().mapTool(), plugin.herramienta_bloque)
         iface.mapCanvas().unsetMapTool(plugin.herramienta_bloque)
-        self.assertFalse(iface.menu[5].isChecked())
-        iface.menu[6].trigger()
+        self.assertFalse(accion("Bloque de goteo").isChecked())
+        accion("Zonas").trigger()
         self.assertTrue(plugin.dialogos["zonas"].isVisible())
         self.assertIsNotNone(plugin.dialogos["zonas"].abrir_lote)
-        iface.menu[7].trigger()
+        accion("Diámetros").trigger()
         self.assertTrue(plugin.dialogos["diametros"].isVisible())
-        iface.menu[8].trigger()
+        accion("Trazado").trigger()
         self.assertTrue(plugin.dialogos["trazado"].isVisible())
         # La herramienta «Turnos de riego» abre su panel; la ventana de la red la activa con su botón.
-        iface.menu[9].setChecked(True)
+        accion("Turnos").setChecked(True)
         self.assertIs(iface.mapCanvas().mapTool(), plugin.herramienta_turnos)
         self.assertTrue(plugin.panel_turnos.isVisible())
         iface.mapCanvas().unsetMapTool(plugin.herramienta_turnos)
-        self.assertFalse(iface.menu[9].isChecked())
-        iface.menu[10].trigger()
+        self.assertFalse(accion("Turnos").isChecked())
+        accion("Red principal").trigger()
         self.assertIsNotNone(plugin.dialogos["red"].abrir_turnos)
         plugin.dialogos["red"].boton_turnos_mapa.click()
         self.assertIs(iface.mapCanvas().mapTool(), plugin.herramienta_turnos)
         iface.mapCanvas().unsetMapTool(plugin.herramienta_turnos)
-        iface.menu[13].trigger()  # sin resultados en el proyecto: la memoria lo indica
+        accion("Memoria").trigger()  # sin resultados en el proyecto: la memoria lo indica
         self.assertIn("No hay resultados", plugin.dialogos["memoria"].etiqueta_estado.text())
         # La herramienta «Información del objeto» se activa y se desactiva desde su botón.
-        iface.menu[14].setChecked(True)
+        accion("Información").setChecked(True)
         self.assertIs(iface.mapCanvas().mapTool(), plugin.herramienta_info)
         iface.mapCanvas().unsetMapTool(plugin.herramienta_info)
-        self.assertFalse(iface.menu[14].isChecked())
-        # Los marcadores de presión salen de un botón con menú; sin ninguno, borrar solo lo avisa.
-        self.assertEqual(len(iface.widgets), 1)
-        self.assertEqual([a.text() for a in plugin.menu_limites.actions()], [a.text() for a in iface.menu[15:18]])
-        iface.menu[17].trigger()
+        self.assertFalse(accion("Información").isChecked())
+        # Sin marcadores de presión, borrar solo lo avisa.
+        accion("Borrar marcadores").trigger()
         self.assertEqual(iface.mensajes[-1], "No hay marcadores.")
         # Al cambiar la base de datos, las ventanas se rehacen para leer los catálogos nuevos:
         # las cerradas de inmediato y las abiertas cuando se vuelven a abrir.
-        iface.menu[11].trigger()
+        accion("Base de datos").trigger()
         base = plugin.dialogos["base_datos"]
         plugin.dialogos["topografia"].hide()
         subunidad = plugin.dialogos["subunidad"]
@@ -357,8 +363,13 @@ class PruebasIntegracionQgis(unittest.TestCase):
         plugin.abrir("subunidad")
         self.assertIsNot(plugin.dialogos["subunidad"], subunidad)
         self.assertIs(plugin.dialogos["base_datos"], base)
+        # Al descargar no queda nada: ni el menú ni la barra (si no, se duplican al recargar el complemento).
+        barra, menu = plugin.barra, plugin.menu
         plugin.unload()
-        self.assertEqual(iface.menu, [])
+        self.assertEqual([a.text() for a in iface.ventana.menuBar().actions()], ["Ayuda"])
+        QCoreApplication.sendPostedEvents(None, QEvent.Type.DeferredDelete)
+        self.assertTrue(sip.isdeleted(barra))
+        self.assertTrue(sip.isdeleted(menu))
 
 
 if __name__ == "__main__":

@@ -3,7 +3,7 @@
 import os
 
 from qgis.PyQt.QtGui import QIcon
-from qgis.PyQt.QtWidgets import QAction
+from qgis.PyQt.QtWidgets import QAction, QMenu, QToolButton
 
 MENU = "&RiegoLibre"
 CARPETA = os.path.dirname(__file__)
@@ -12,12 +12,12 @@ CARPETA = os.path.dirname(__file__)
 class RiegoLibrePlugin:
     def __init__(self, iface):
         self.iface = iface
+        self.menu = None  # menú propio en la barra de menús de QGIS
+        self.barra = None  # barra de herramientas propia, con el mismo orden que el menú
         self.acciones = []
         self.dialogos = {}
         self.desactualizados = set()  # ventanas abiertas cuando cambió la base de datos
         self.accion_info = None
-        self.accion_limites = None  # el botón con menú de la barra
-        self.acciones_limites = []  # sus tres opciones, también en el menú del complemento
         self.menu_limites = None
         self.herramienta_info = None
         self.dialogo_info = None
@@ -30,22 +30,49 @@ class RiegoLibrePlugin:
         self.reescribiendo = False
 
     def initGui(self):  # noqa: N802 (nombre exigido por QGIS)
-        self._agregar_accion("icon_topografia.svg", "Topografía: curvas de CAD, imagen satelital y 3D…", "topografia")
-        self._agregar_accion("icon.svg", "Calculadora de lateral (goteo)…", "lateral")
-        self._agregar_accion("icon_subunidad.svg", "Subunidad de riego (goteo)…", "subunidad")
-        self._agregar_accion("icon_mapa.svg", "Diseño de subunidad en el mapa (goteo)…", "mapa")
-        self._agregar_accion("icon_lotes.svg", "Importar lotes de CAD…", "lotes")
-        self._agregar_herramienta_bloque()
-        self._agregar_accion("icon_zonas.svg", "Zonas: tabla de diseño de los lotes…", "zonas")
-        self._agregar_accion("icon_diametros.svg", "Diámetros de portalaterales por velocidad…", "diametros")
-        self._agregar_accion("icon_trazado.svg", "Trazado automático de subunidades (goteo)…", "trazado")
-        self._agregar_herramienta_turnos()
-        self._agregar_accion("icon_red.svg", "Red principal y bomba…", "red")
-        self._agregar_accion("icon_base_datos.svg", "Base de datos de materiales…", "base_datos")
-        self._agregar_accion("icon_materiales.svg", "Lista de materiales y costos…", "materiales")
-        self._agregar_accion("icon_memoria.svg", "Memoria de cálculo…", "memoria")
-        self._agregar_herramienta_info()
-        self._agregar_limites_presion()
+        ventana = self.iface.mainWindow()
+        self.menu = QMenu(MENU, ventana)
+        self.menu.setObjectName("menuRiegoLibre")
+        ventana.menuBar().insertMenu(self.iface.firstRightStandardMenu().menuAction(), self.menu)
+        self.barra = self.iface.addToolBar("RiegoLibre")
+        self.barra.setObjectName("barraRiegoLibre")  # QGIS recuerda por este nombre dónde se dejó la barra
+        self._agregar_grupo("Terreno y lotes", "icon_topografia.svg", (
+            self._crear_accion("icon_topografia.svg", "Topografía: curvas de CAD, imagen satelital y 3D…",
+                               "topografia"),
+            self._crear_accion("icon_lotes.svg", "Importar lotes de CAD…", "lotes"),
+            self._crear_accion("icon_zonas.svg", "Zonas: tabla de diseño de los lotes…", "zonas")))
+        self._agregar_grupo("Diseño de goteo", "icon_subunidad.svg", (
+            self._crear_accion("icon.svg", "Calculadora de lateral (goteo)…", "lateral"),
+            self._crear_accion("icon_subunidad.svg", "Subunidad de riego (goteo)…", "subunidad"),
+            self._crear_accion("icon_mapa.svg", "Diseño de subunidad en el mapa (goteo)…", "mapa"),
+            self._crear_accion("icon_trazado.svg", "Trazado automático de subunidades (goteo)…", "trazado"),
+            self._crear_accion("icon_diametros.svg", "Diámetros de portalaterales por velocidad…", "diametros")))
+        # Las herramientas de mapa y lo que se abre seguido quedan a un clic, sin desplegar nada.
+        self.accion_bloque = self._crear_herramienta(
+            "icon_bloque.svg", "Bloque de goteo (clic en un lote; Ctrl + clic para eliminar su bloque)",
+            self._activar_bloque)
+        self._agregar_directa(self.accion_bloque)
+        self._separar()
+        self._agregar_directa(self._crear_accion("icon_red.svg", "Red principal y bomba…", "red"))
+        self.accion_turnos = self._crear_herramienta(
+            "icon_turnos.svg", "Turnos de riego (marcar bloques en el mapa y asignarles un turno)",
+            self._activar_turnos)
+        self._agregar_directa(self.accion_turnos)
+        self._separar()
+        self.accion_info = self._crear_herramienta(
+            "icon_info.svg", "Información del objeto (clic en un lateral, tubería o válvula)", self._activar_info)
+        self._agregar_directa(self.accion_info)
+        self.menu_limites = self._agregar_grupo("Presión mínima y máxima", "icon_presion.svg", (
+            self._crear_limite("Todas las válvulas", "Marca el emisor de menor y de mayor presión de cada "
+                               "subunidad calculada", "todas"),
+            self._crear_limite("Válvulas seleccionadas", "Lo mismo, solo de las válvulas o lotes que tenga "
+                               "seleccionados en el mapa", "seleccionadas"),
+            self._crear_limite("Borrar marcadores", "Quita los marcadores de presión del mapa", "borrar")))
+        self._separar()
+        self._agregar_grupo("Materiales y documentos", "icon_materiales.svg", (
+            self._crear_accion("icon_base_datos.svg", "Base de datos de materiales…", "base_datos"),
+            self._crear_accion("icon_materiales.svg", "Lista de materiales y costos…", "materiales"),
+            self._crear_accion("icon_memoria.svg", "Memoria de cálculo…", "memoria")))
         from qgis.core import QgsProject
         proyecto = QgsProject.instance()
         proyecto.layersAdded.connect(self._programar_guardado)
@@ -83,50 +110,45 @@ class RiegoLibrePlugin:
         finally:
             self.reescribiendo = False
 
-    def _agregar_accion(self, icono, texto, dialogo):
-        accion = QAction(QIcon(os.path.join(CARPETA, icono)), texto, self.iface.mainWindow())
+    def _crear_accion(self, icono, texto, dialogo):
+        accion = QAction(QIcon(os.path.join(CARPETA, icono)), texto, self.menu)
         accion.triggered.connect(lambda: self.abrir(dialogo))
-        self.iface.addPluginToMenu(MENU, accion)
-        self.iface.addToolBarIcon(accion)
         self.acciones.append(accion)
+        return accion
 
-    def _agregar_herramienta_info(self):
-        accion = QAction(QIcon(os.path.join(CARPETA, "icon_info.svg")),
-                         "Información del objeto (clic en un lateral, tubería o válvula)", self.iface.mainWindow())
+    def _crear_herramienta(self, icono, texto, activar):
+        """Herramienta de mapa: el botón queda hundido mientras está activa."""
+        accion = QAction(QIcon(os.path.join(CARPETA, icono)), texto, self.menu)
         accion.setCheckable(True)
-        accion.toggled.connect(self._activar_info)
-        self.iface.addPluginToMenu(MENU, accion)
-        self.iface.addToolBarIcon(accion)
-        self.accion_info = accion
+        accion.toggled.connect(activar)
         self.acciones.append(accion)
+        return accion
 
-    def _agregar_limites_presion(self):
-        """Botón con menú, como el de IRRICAD: marcadores de presión mínima y máxima de todas las subunidades,
-        de las seleccionadas, o borrarlos."""
-        from qgis.PyQt.QtWidgets import QMenu, QToolButton
-        ventana = self.iface.mainWindow()
-        icono = QIcon(os.path.join(CARPETA, "icon_presion.svg"))
-        menu = QMenu(ventana)
-        for texto, ayuda, modo in (
-                ("Presión mín. y máx.: todas las válvulas", "Marca el emisor de menor y de mayor presión de cada "
-                 "subunidad calculada", "todas"),
-                ("Presión mín. y máx.: válvulas seleccionadas", "Lo mismo, solo de las válvulas o lotes que tenga "
-                 "seleccionados en el mapa", "seleccionadas"),
-                ("Presión mín. y máx.: borrar marcadores", "Quita los marcadores de presión del mapa", "borrar")):
-            accion = QAction(icono, texto, ventana)
-            accion.setToolTip(ayuda)
-            accion.setStatusTip(ayuda)
-            accion.triggered.connect(lambda _=False, m=modo: self._limites_presion(m))
-            menu.addAction(accion)
-            self.iface.addPluginToMenu(MENU, accion)
-            self.acciones_limites.append(accion)
-        boton = QToolButton()
-        boton.setIcon(icono)
-        boton.setToolTip("Presión mínima y máxima de cada subunidad en el mapa (menú)")
-        boton.setMenu(menu)
-        boton.setPopupMode(QToolButton.ToolButtonPopupMode.InstantPopup)
-        self.menu_limites = menu
-        self.accion_limites = self.iface.addToolBarWidget(boton)
+    def _crear_limite(self, texto, ayuda, modo):
+        """Opción del botón de presión, como el de IRRICAD: marcadores de presión mínima y máxima de todas las
+        subunidades, de las seleccionadas, o borrarlos."""
+        accion = QAction(QIcon(os.path.join(CARPETA, "icon_presion.svg")), texto, self.menu)
+        accion.setToolTip(ayuda)
+        accion.setStatusTip(ayuda)
+        accion.triggered.connect(lambda _=False, m=modo: self._limites_presion(m))
+        self.acciones.append(accion)
+        return accion
+
+    def _agregar_directa(self, accion):
+        self.menu.addAction(accion)
+        self.barra.addAction(accion)
+
+    def _agregar_grupo(self, titulo, icono, acciones):
+        """Submenú en el menú y, en la barra, un solo botón que despliega las mismas opciones."""
+        grupo = self.menu.addMenu(QIcon(os.path.join(CARPETA, icono)), titulo)
+        grupo.addActions(list(acciones))
+        self.barra.addAction(grupo.menuAction())
+        self.barra.widgetForAction(grupo.menuAction()).setPopupMode(QToolButton.ToolButtonPopupMode.InstantPopup)
+        return grupo
+
+    def _separar(self):
+        self.menu.addSeparator()
+        self.barra.addSeparator()
 
     def _limites_presion(self, modo):
         from qgis.core import Qgis
@@ -155,28 +177,6 @@ class RiegoLibrePlugin:
         if resumen.sin_resultados:
             texto += " Sin laterales calculados: " + ", ".join(resumen.sin_resultados) + "."
         barra.pushMessage("RiegoLibre", texto, Qgis.MessageLevel.Info, 6)
-
-    def _agregar_herramienta_bloque(self):
-        accion = QAction(QIcon(os.path.join(CARPETA, "icon_bloque.svg")),
-                         "Bloque de goteo (clic en un lote; Ctrl + clic para eliminar su bloque)",
-                         self.iface.mainWindow())
-        accion.setCheckable(True)
-        accion.toggled.connect(self._activar_bloque)
-        self.iface.addPluginToMenu(MENU, accion)
-        self.iface.addToolBarIcon(accion)
-        self.accion_bloque = accion
-        self.acciones.append(accion)
-
-    def _agregar_herramienta_turnos(self):
-        accion = QAction(QIcon(os.path.join(CARPETA, "icon_turnos.svg")),
-                         "Turnos de riego (marcar bloques en el mapa y asignarles un turno)",
-                         self.iface.mainWindow())
-        accion.setCheckable(True)
-        accion.toggled.connect(self._activar_turnos)
-        self.iface.addPluginToMenu(MENU, accion)
-        self.iface.addToolBarIcon(accion)
-        self.accion_turnos = accion
-        self.acciones.append(accion)
 
     def _activar_turnos(self, activa):
         canvas = self.iface.mapCanvas()
@@ -265,19 +265,15 @@ class RiegoLibrePlugin:
             self.dialogo_info.close()
             self.dialogo_info.deleteLater()
             self.dialogo_info = None
-        for accion in self.acciones:
-            self.iface.removePluginMenu(MENU, accion)
-            self.iface.removeToolBarIcon(accion)
+        ventana = self.iface.mainWindow()
+        ventana.removeToolBar(self.barra)
+        self.barra.deleteLater()
+        self.barra = None
+        ventana.menuBar().removeAction(self.menu.menuAction())
+        self.menu.deleteLater()  # con él se van sus submenús y acciones
+        self.menu = None
+        self.menu_limites = None
         self.acciones = []
-        for accion in self.acciones_limites:  # solo en el menú: en la barra van dentro del botón
-            self.iface.removePluginMenu(MENU, accion)
-        self.acciones_limites = []
-        if self.accion_limites is not None:
-            self.iface.removeToolBarIcon(self.accion_limites)
-            self.accion_limites = None
-        if self.menu_limites is not None:
-            self.menu_limites.deleteLater()
-            self.menu_limites = None
         for dialogo in self.dialogos.values():
             dialogo.close()
             dialogo.deleteLater()

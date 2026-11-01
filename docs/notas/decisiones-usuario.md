@@ -22,6 +22,9 @@ Fuente: sesiones de octubre de 2026. El usuario valida la hidráulica y prueba e
   Clear Markers»; los marcadores salen en el emisor de menor y de mayor presión y, al pasar el cursor, muestran
   «Max: 21.0 m». Aquí van como rótulos fijos «Máx: 21.0 m» / «Mín: …» (`integracion/limites_presion.py`). Por confirmar
   con el usuario: que el rótulo fijo le sirva (IRRICAD lo muestra solo al pasar el cursor).
+- Menú y barra propios (2026-10-31, el usuario pidió agrupar las herramientas dispersas): ya no se usan el menú ni la barra
+  de Complementos de QGIS. Ventanas agrupadas en botones desplegables; a un clic quedan las herramientas de mapa (bloque,
+  turnos, información) y la red. Por confirmar con el usuario: el agrupamiento y qué debe quedar a un clic.
 
 ## Cambios de una IA externa
 - 2026-10-27: cambios de Gemini (válvula y cabezal con curva, horas por turno, cuartil inferior, presión estática)
