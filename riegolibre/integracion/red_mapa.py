@@ -154,8 +154,7 @@ def construir_red(capa_tuberias, punto_fuente, valvulas: List[ValvulaMapa], crs,
     except ValueError as error:
         if "no están conectadas" in str(error):
             raise ValueError(f"{error}. Compruebe que la tubería pasa a menos de {tolerancia_m:g} m "
-                             "de cada válvula y de la fuente. Si las válvulas quedaron sueltas, pulse "
-                             "«Conectar válvulas a la matriz…».") from None
+                             "de cada válvula y de la fuente.") from None
         raise
     return RedMapa(red, geometrias, {f"N{i}": p for i, p in enumerate(puntos)}, muestreador is None)
 
@@ -201,14 +200,13 @@ def estilo_red_dibujada(capa):
 def agregar_tuberia(capa, puntos, tuberia=None):
     """Agrega a la capa una tubería con los vértices dados (en el SRC de la capa) y el diámetro elegido.
 
-    `tuberia`: una `Tuberia` del catálogo (o su nombre), o None si la elige el cálculo. Devuelve la entidad
-    agregada.
+    `tuberia`: una `Tuberia` del catálogo, o None si la elige el cálculo. Devuelve la entidad agregada.
     """
     asegurar_campo_tuberia(capa)
     entidad = QgsFeature(capa.fields())
     entidad.setGeometry(QgsGeometry.fromPolylineXY([QgsPointXY(p) for p in puntos]))
     # Por nombre: si la capa ya se guardó en el GeoPackage, el primer campo es «fid».
-    entidad[CAMPO_TUBERIA] = getattr(tuberia, "nombre", tuberia)
+    entidad[CAMPO_TUBERIA] = tuberia.nombre if tuberia is not None else None
     if capa.isEditable():  # con la edición activa va al búfer, para que el usuario pueda deshacer o descartar
         capa.addFeature(entidad)
     else:
@@ -343,34 +341,6 @@ def borrar_tuberias(matriz, nodos, ids, tolerancia_m=0.5):
                    if not any(g.distance(e.geometry()) <= tolerancia_m for g in tuberias)]
         _borrar(nodos, sueltos)
     return len(ids), len(sueltos)
-
-
-def conectar_valvulas_a_la_matriz(matriz, nodos, valvulas, largo_max_m=100.0, tolerancia_m=0.5,
-                                  igualar=True, tuberia=None):
-    """Dibuja en la matriz el tramo que une cada válvula con la tubería más cercana (como «Valve Connector»).
-
-    `valvulas`: `ValvulaMapa` en el SRC de la matriz. `nodos` puede ser None; si no, los dos extremos de cada
-    tramo quedan como nodos. Con `igualar` el tramo toma el diámetro de la tubería a la que se une; si no, el
-    de `tuberia` (None: lo elige el cálculo). Devuelve el `ResultadoConexion` del núcleo.
-    """
-    from ..nucleo.conector_valvulas import conectar_valvulas
-    asegurar_campo_tuberia(matriz)
-    lineas, diametros = [], {}
-    for entidad in matriz.getFeatures():  # foto previa: un tramo nuevo no es candidato para otra válvula
-        if entidad.geometry().isEmpty():
-            continue
-        vertices = linea_simple(entidad.geometry()).asPolyline()
-        lineas.append((entidad.id(), [(p.x(), p.y()) for p in vertices]))
-        nombre = entidad[CAMPO_TUBERIA]
-        diametros[entidad.id()] = nombre if isinstance(nombre, str) and nombre.strip() else None
-    resultado = conectar_valvulas(lineas, [(v.id, (v.punto.x(), v.punto.y())) for v in valvulas],
-                                  largo_max_m, tolerancia_m)
-    for conector in resultado.conectores:
-        puntos = [QgsPointXY(*conector.desde), QgsPointXY(*conector.hasta)]
-        agregar_tuberia(matriz, puntos, diametros[conector.linea] if igualar else tuberia)
-        if nodos is not None:
-            agregar_nodos(nodos, puntos, tolerancia_m)
-    return resultado
 
 
 
