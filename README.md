@@ -293,3 +293,7 @@ RiegoLibre fue creado por **Jhonatan Chilet**. Copyright (C) 2026 Jhonatan Chile
 Es software libre bajo la licencia [GPL-3.0](LICENSE), con condiciones adicionales de la sección 7 de esa licencia: toda copia o versión modificada debe conservar la atribución al autor, y no se permite falsear el origen del programa. El texto completo está en [`riegolibre/NOTICE`](riegolibre/NOTICE) y en la ventana **Ayuda → Acerca de RiegoLibre**.
 
 El código se escribió con asistencia de inteligencia artificial (Claude, de Anthropic). La dirección del proyecto, los criterios de diseño y la validación de la hidráulica y de la interfaz son de Jhonatan Chilet.
+
+### Marcas y compatibilidad
+
+RiegoLibre es un proyecto independiente: **no está afiliado, patrocinado ni respaldado por IRRICAD ni por Lindsay Corporation**. «IRRICAD» y los demás nombres de productos o empresas citados son marcas de sus respectivos dueños y se mencionan solo para indicar compatibilidad o para describir un flujo de trabajo parecido. El código es propio; no contiene código, iconos, textos de ayuda ni bases de datos de otros programas. Las bases de IRRICAD (`.mdb`) solo se leen cuando el usuario elige su propio archivo; este repositorio no las distribuye (los `.mdb` de `tests/datos/` son datos ficticios generados con `generar_mdb.ps1`).
