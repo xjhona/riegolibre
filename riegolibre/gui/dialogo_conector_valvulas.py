@@ -13,6 +13,7 @@ from qgis.PyQt.QtWidgets import (QCheckBox, QComboBox, QDialog, QDialogButtonBox
 
 from ..nucleo.tuberias import clave_economica
 from .dialogo_tuberia_matriz import TEXTO_POR_PROGRAMA
+from .tema import aplicar_tema
 
 LARGO_MAXIMO_POR_DEFECTO_M = 100.0
 
@@ -22,6 +23,7 @@ class DialogoConectorValvulas(QDialog):
 
     def __init__(self, catalogo, elegida=None, parent=None):
         super().__init__(parent)
+        aplicar_tema(self)
         self.setWindowTitle("RiegoLibre · Conectar válvulas a la matriz")
         self.setMinimumWidth(440)
         principal = QVBoxLayout(self)
