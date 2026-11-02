@@ -165,38 +165,33 @@ class DialogoRed(QDialog):
                                         "tubería, o una válvula y la tubería que la alimenta.")
         formulario.addRow("Tolerancia de conexión:", self.spin_tolerancia)
         boton = QPushButton("Crear capas para dibujar")
-        boton.setToolTip("Crea las capas «Fuente» (punto) y «Red principal» (líneas) en el SRC "
-                         "del proyecto y activa la edición de la fuente.")
+        boton.setToolTip("Crea las capas «Fuente» (punto), «Matriz» (líneas) y «Nodos de la matriz» (puntos) "
+                         "en el SRC del proyecto y activa la edición de la fuente.")
         boton.clicked.connect(self.crear_capas_de_dibujo)
         formulario.addRow(boton)
         return grupo
 
     def crear_capas_de_dibujo(self):
         from ..integracion.persistencia import aviso_html, guardar_capas_de_dibujo
-        from ..integracion.red_mapa import CAMPO_TUBERIA, NOMBRE_CAPA_RED, estilo_red_dibujada
-        from ..integracion.subunidad_mapa import verificar_crs_metrico
+        from ..integracion.red_mapa import crear_capas_de_matriz
         proyecto = QgsProject.instance()
         try:
-            verificar_crs_metrico(proyecto.crs(), "del proyecto")
+            matriz, _nodos, ruta = crear_capas_de_matriz(proyecto)
         except ValueError as error:
             QMessageBox.warning(self, "RiegoLibre", f"{error} Cámbielo en Proyecto → Propiedades → SRC.")
             return
         fuente = QgsVectorLayer("Point?field=nombre:string(50)", "Fuente", "memory")
-        tuberias = QgsVectorLayer(f"LineString?field=nombre:string(50)&field={CAMPO_TUBERIA}:string(80)",
-                                  NOMBRE_CAPA_RED, "memory")
-        for capa in (fuente, tuberias):
-            capa.setCrs(proyecto.crs())
-        estilo_red_dibujada(tuberias)
-        proyecto.addMapLayers([fuente, tuberias])
-        ruta = guardar_capas_de_dibujo([fuente, tuberias], proyecto)
+        fuente.setCrs(proyecto.crs())
+        proyecto.addMapLayer(fuente)
+        ruta = guardar_capas_de_dibujo([fuente], proyecto) or ruta
         self.combo_fuente.setLayer(fuente)
-        self.combo_tuberias.setLayer(tuberias)
+        self.combo_tuberias.setLayer(matriz)
         if self.iface is not None:
             self.iface.setActiveLayer(fuente)
             fuente.startEditing()
             self.iface.actionAddFeature().trigger()
         self.texto.setHtml(
-            "<p>Se crearon las capas <b>Fuente</b> y <b>Red principal</b>.</p>"
+            "<p>Se crearon las capas <b>Fuente</b>, <b>Matriz</b> y <b>Nodos de la matriz</b>.</p>"
             "<p>Marque la fuente con un clic y guarde la edición. Luego pulse <b>Dibujar tubería matriz…</b> "
             "para trazar las tuberías desde la fuente hasta cada válvula (active el autoajuste para unir "
             "bien los extremos).</p>" + aviso_html(ruta))
@@ -248,14 +243,17 @@ class DialogoRed(QDialog):
         grupo = QGroupBox("Tubería matriz")
         capa = QVBoxLayout(grupo)
         ayuda = QLabel("Dibuje la red principal en el mapa, de la fuente a cada válvula, como en IRRICAD: "
-                       "elija el diámetro (o «Elegida por el programa») y haga clic punto por punto.")
+                       "elija el diámetro (o «Elegida por el programa») y haga clic punto por punto. Las "
+                       "tuberías quedan en la capa «Matriz» y sus uniones en «Nodos de la matriz», que se "
+                       "crean solas.")
         ayuda.setWordWrap(True)
         capa.addWidget(ayuda)
         self.boton_dibujar = QPushButton("Dibujar tubería matriz…")
         self.boton_dibujar.setToolTip(
-            "Abre un cuadro para elegir la capa y el diámetro y luego activa el trazo en el mapa: clic en cada "
-            "vértice, clic derecho, doble clic o Intro para terminar la tubería, Esc para salir. Con el imán "
-            "del proyecto activado los extremos se pegan a las otras tuberías, la fuente y las válvulas.")
+            "Abre un cuadro para elegir el diámetro y luego activa el trazo en el mapa, en la capa «Matriz» "
+            "(se crea sola): clic en cada vértice, clic derecho, doble clic o Intro para terminar la tubería, "
+            "Esc para salir. Cada vértice queda como un nodo en «Nodos de la matriz». Con el imán del "
+            "proyecto activado los extremos se pegan a las otras tuberías, la fuente y las válvulas.")
         self.boton_dibujar.clicked.connect(self.dibujar_tuberia_matriz)
         capa.addWidget(self.boton_dibujar)
         self.boton_cambiar_diametro = QPushButton("Cambiar el diámetro de las tuberías seleccionadas…")
@@ -264,6 +262,25 @@ class DialogoRed(QDialog):
             "catálogo o a «Elegida por el programa»).")
         self.boton_cambiar_diametro.clicked.connect(self.cambiar_diametro_seleccionadas)
         capa.addWidget(self.boton_cambiar_diametro)
+        self.boton_nodo = QPushButton("Insertar nodo en la matriz…")
+        self.boton_nodo.setToolTip(
+            "Pone a mano un nodo (junction) sobre una tubería de «Matriz», como «Mainline Pipe Junction» de "
+            "IRRICAD: clic en cada sitio (quiebre, derivación o tee), Esc para terminar. Los nodos son solo "
+            "referencias visuales: no cambian el cálculo hidráulico.")
+        self.boton_nodo.clicked.connect(self.insertar_nodo)
+        capa.addWidget(self.boton_nodo)
+        self.boton_borrar = QPushButton("Borrar las tuberías seleccionadas")
+        self.boton_borrar.setToolTip(
+            "Borra las tuberías de la capa «Matriz» que tenga seleccionadas en el mapa (con la herramienta "
+            "de selección de QGIS) y los nodos que se quedan sin tubería.")
+        self.boton_borrar.clicked.connect(self.borrar_seleccionadas)
+        self.boton_borrar_todo = QPushButton("Borrar toda la tubería matriz")
+        self.boton_borrar_todo.setToolTip("Borra todas las tuberías de la capa «Matriz» y sus nodos.")
+        self.boton_borrar_todo.clicked.connect(self.borrar_toda_la_matriz)
+        fila = QHBoxLayout()
+        fila.addWidget(self.boton_borrar)
+        fila.addWidget(self.boton_borrar_todo)
+        capa.addLayout(fila)
         self.etiqueta_matriz = QLabel()
         self.etiqueta_matriz.setWordWrap(True)
         capa.addWidget(self.etiqueta_matriz)
@@ -439,42 +456,23 @@ class DialogoRed(QDialog):
     # --------------------------------------------------------- tubería matriz dibujada
 
     def dibujar_tuberia_matriz(self):
-        """Pide capa y diámetro en un cuadro modal y activa el trazo en el mapa con ese diámetro."""
-        from ..integracion.subunidad_mapa import verificar_crs_metrico
+        """Pide el diámetro en un cuadro modal y activa el trazo en la capa «Matriz» (la crea si falta)."""
+        from ..integracion.red_mapa import crear_capas_de_matriz
         from .dialogo_tuberia_matriz import DialogoTuberiaMatriz
         if self.iface is None:
             QMessageBox.information(self, "RiegoLibre", "Dibujar la tubería en el mapa solo se puede desde QGIS.")
             return
-        capa = self.combo_tuberias.currentLayer()
+        dialogo = DialogoTuberiaMatriz(self.tuberias, self.diametro_matriz, parent=self)
+        if dialogo.exec() != QDialog.DialogCode.Accepted:
+            return
         try:
-            if capa is None and not any(isinstance(c, QgsVectorLayer) and c.geometryType() == Qgis.GeometryType.Line
-                                        for c in QgsProject.instance().mapLayers().values()):
-                capa = self._crear_capa_de_tuberias()  # el proyecto aún no tiene dónde dibujar
-            dialogo = DialogoTuberiaMatriz(self.tuberias, capa, self.diametro_matriz, parent=self)
-            if dialogo.exec() != QDialog.DialogCode.Accepted:
-                return
-            capa = dialogo.capa()
-            verificar_crs_metrico(capa.crs(), capa.name())
+            capa, nodos, _ruta = crear_capas_de_matriz()
         except ValueError as error:
-            QMessageBox.warning(self, "RiegoLibre", str(error))
+            QMessageBox.warning(self, "RiegoLibre", f"{error} Cámbielo en Proyecto → Propiedades → SRC.")
             return
         self.diametro_matriz = dialogo.tuberia()
         self.combo_tuberias.setLayer(capa)
-        self._trazar_tuberias(capa, self.diametro_matriz)
-
-    def _crear_capa_de_tuberias(self):
-        from ..integracion.persistencia import guardar_capas_de_dibujo
-        from ..integracion.red_mapa import CAMPO_TUBERIA, NOMBRE_CAPA_RED, estilo_red_dibujada
-        from ..integracion.subunidad_mapa import verificar_crs_metrico
-        proyecto = QgsProject.instance()
-        verificar_crs_metrico(proyecto.crs(), "del proyecto")
-        capa = QgsVectorLayer(f"LineString?field=nombre:string(50)&field={CAMPO_TUBERIA}:string(80)",
-                              NOMBRE_CAPA_RED, "memory")
-        capa.setCrs(proyecto.crs())
-        estilo_red_dibujada(capa)
-        proyecto.addMapLayer(capa)
-        guardar_capas_de_dibujo([capa], proyecto)
-        return capa
+        self._trazar_tuberias(capa, nodos, self.diametro_matriz)
 
     def _geometrias_de_iman(self, capa, al_mapa):
         """Tuberías ya dibujadas, fuente y válvulas (en el SRC del mapa): sus vértices y lados atraen al cursor."""
@@ -488,10 +486,10 @@ class DialogoRed(QDialog):
         geometrias += [QgsGeometry.fromPointXY(v.punto) for v in leer_valvulas(capas_de_valvulas(), crs_mapa)]
         return [g for g in geometrias if not g.isEmpty()]
 
-    def _trazar_tuberias(self, capa, tuberia):
+    def _trazar_tuberias(self, capa, nodos, tuberia):
         """Oculta la ventana y deja trazar en el mapa: cada línea terminada queda en la capa con el diámetro
         dado y se sigue con otra hasta pulsar Esc."""
-        from ..integracion.red_mapa import agregar_tuberia
+        from ..integracion.red_mapa import agregar_nodos, agregar_tuberia
         from .herramienta_puntos import HerramientaPuntos
         canvas = self.iface.mapCanvas()
         crs_mapa = canvas.mapSettings().destinationCrs()
@@ -511,7 +509,9 @@ class DialogoRed(QDialog):
             canvas.setFocus()
 
         def terminar(puntos):
-            dibujadas.append(agregar_tuberia(capa, [a_la_capa.transform(p) for p in puntos], tuberia).id())
+            en_la_capa = [a_la_capa.transform(p) for p in puntos]
+            dibujadas.append(agregar_tuberia(capa, en_la_capa, tuberia).id())
+            agregar_nodos(nodos, en_la_capa, self.spin_tolerancia.value())  # una unión en cada vértice
             canvas.refresh()
             iniciar()  # la tubería siguiente, con el mismo diámetro
 
@@ -523,7 +523,7 @@ class DialogoRed(QDialog):
             if dibujadas:
                 self.texto.setHtml(
                     f"<h3>Tubería matriz</h3><p>Se dibujaron {len(dibujadas)} tuberías en la capa "
-                    f"<b>{capa.name()}</b> ({nombre}). Si falta alguna, vuelva a pulsar "
+                    f"<b>{capa.name()}</b> ({nombre}) y sus uniones en <b>{nodos.name()}</b>. Si falta alguna, vuelva a pulsar "
                     "<b>Dibujar tubería matriz…</b>; si no, pulse <b>Calcular</b>.</p>")
                 self.pestanas.setCurrentIndex(0)
             self.show()
@@ -531,6 +531,64 @@ class DialogoRed(QDialog):
             self.activateWindow()
 
         self.iface.messageBar().pushMessage("RiegoLibre", mensajes[0] + " (Esc para terminar).",
+                                            Qgis.MessageLevel.Info, 5)
+        self.hide()
+        iniciar()
+
+    def insertar_nodo(self):
+        """Oculta la ventana y deja poner nodos a mano sobre las tuberías de «Matriz» hasta pulsar Esc."""
+        from ..integracion.red_mapa import (agregar_nodos, capa_de_matriz, crear_capas_de_matriz,
+                                            punto_en_tuberia)
+        from ..integracion.subunidad_mapa import geometria_en
+        from .herramienta_puntos import HerramientaPuntos
+        if self.iface is None:
+            QMessageBox.information(self, "RiegoLibre", "Insertar nodos en el mapa solo se puede desde QGIS.")
+            return
+        capa = capa_de_matriz()
+        if capa is None or not capa.featureCount():
+            QMessageBox.information(self, "RiegoLibre", "Primero dibuje la tubería matriz.")
+            return
+        _, nodos, _ruta = crear_capas_de_matriz()
+        canvas = self.iface.mapCanvas()
+        crs_mapa = canvas.mapSettings().destinationCrs()
+        a_la_capa = QgsCoordinateTransform(crs_mapa, capa.crs(), QgsProject.instance())
+        anterior = canvas.mapTool()
+        puestos = []
+        mensaje = "Nodo de la matriz: haga clic sobre una tubería"
+
+        def iniciar():
+            geometrias = [geometria_en(capa, e, crs_mapa) for e in capa.getFeatures()]
+            self._herramienta_puntos = HerramientaPuntos(
+                canvas, 1, geometrias, [mensaje], terminar, volver, self.iface.statusBarIface().showMessage)
+            canvas.setMapTool(self._herramienta_puntos)
+            canvas.setFocus()
+
+        def terminar(puntos):
+            sobre = punto_en_tuberia(capa, a_la_capa.transform(puntos[0]))
+            if sobre is None:
+                self.iface.messageBar().pushMessage("RiegoLibre", "El nodo debe quedar sobre una tubería de «Matriz».",
+                                                    Qgis.MessageLevel.Warning, 3)
+            elif agregar_nodos(nodos, [sobre], self.spin_tolerancia.value()):
+                puestos.append(sobre)
+                canvas.refresh()
+            else:
+                self.iface.messageBar().pushMessage("RiegoLibre", "Ahí ya hay un nodo.", Qgis.MessageLevel.Info, 3)
+            iniciar()  # el nodo siguiente
+
+        def volver():
+            self._herramienta_puntos = None
+            if canvas.mapTool() is None and anterior is not None:
+                canvas.setMapTool(anterior)
+            if puestos:
+                self.texto.setHtml(f"<h3>Tubería matriz</h3><p>Se {'puso' if len(puestos) == 1 else 'pusieron'} "
+                                   f"{len(puestos)} {'nodo' if len(puestos) == 1 else 'nodos'} en la capa "
+                                   f"<b>{nodos.name()}</b>. Los nodos son referencias: no cambian el cálculo.</p>")
+                self.pestanas.setCurrentIndex(0)
+            self.show()
+            self.raise_()
+            self.activateWindow()
+
+        self.iface.messageBar().pushMessage("RiegoLibre", mensaje + " (Esc para terminar).",
                                             Qgis.MessageLevel.Info, 5)
         self.hide()
         iniciar()
@@ -556,6 +614,46 @@ class DialogoRed(QDialog):
             return
         cambiar_tuberia(capa, ids, dialogo.tuberia())
         self._actualizar_matriz()
+        if self.iface is not None:
+            self.iface.mapCanvas().refresh()
+
+    def borrar_seleccionadas(self):
+        """Borra las tuberías seleccionadas de «Matriz» y los nodos que quedan sin tubería."""
+        capa = self._capa_matriz_para_borrar()
+        if capa is None:
+            return
+        ids = capa.selectedFeatureIds()
+        if not ids:
+            QMessageBox.warning(self, "RiegoLibre", f"Seleccione en el mapa las tuberías de «{capa.name()}» que "
+                                                    "quiere borrar (herramienta de selección de QGIS).")
+            return
+        self._borrar_tuberias(capa, ids)
+
+    def borrar_toda_la_matriz(self):
+        capa = self._capa_matriz_para_borrar()
+        if capa is None:
+            return
+        if QMessageBox.question(self, "RiegoLibre", f"¿Borrar las {capa.featureCount()} tuberías de «{capa.name()}» "
+                                                    "y sus nodos?") != QMessageBox.StandardButton.Yes:
+            return
+        self._borrar_tuberias(capa, capa.allFeatureIds())
+
+    def _capa_matriz_para_borrar(self):
+        from ..integracion.red_mapa import capa_de_matriz
+        capa = capa_de_matriz()
+        if capa is None or not capa.featureCount():
+            QMessageBox.information(self, "RiegoLibre", "Todavía no hay tubería matriz dibujada.")
+            return None
+        return capa
+
+    def _borrar_tuberias(self, capa, ids):
+        from ..integracion.red_mapa import borrar_tuberias, capa_de_nodos
+        tuberias, nodos = borrar_tuberias(capa, capa_de_nodos(), ids, self.spin_tolerancia.value())
+        self._actualizar_matriz()
+        self.texto.setHtml(f"<h3>Tubería matriz</h3><p>Se borraron {tuberias} "
+                           f"{'tubería' if tuberias == 1 else 'tuberías'} y {nodos} "
+                           f"{'nodo' if nodos == 1 else 'nodos'}.</p>")
+        self.pestanas.setCurrentIndex(0)
         if self.iface is not None:
             self.iface.mapCanvas().refresh()
 

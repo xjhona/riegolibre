@@ -174,16 +174,17 @@ Por ahora solo se calculan redes ramificadas, sin circuitos cerrados.
 
 ### Tubería matriz dibujada en el mapa
 
-La red principal se dibuja a mano, como la herramienta *Mainline Pipe* de IRRICAD. El botón **Dibujar tubería matriz…** abre primero un cuadro modal con:
+La red principal se dibuja a mano, como la herramienta *Mainline Pipe* de IRRICAD. El botón **Dibujar tubería matriz…** abre primero un cuadro modal con la **Tubería**: un diámetro del catálogo (red principal) o **Elegida por el programa**, que deja el diámetro por dimensionar (*Computer Selected* de IRRICAD).
 
-- **Capa**: la capa de líneas donde queda cada tubería (si el proyecto no tiene ninguna, se crea *Red principal*). Si la capa no tiene el campo `tuberia`, se le agrega.
-- **Tubería**: un diámetro del catálogo (red principal) o **Elegida por el programa**, que deja el diámetro por dimensionar (*Computer Selected* de IRRICAD).
+La capa no se pregunta: el programa crea solo las capas **Matriz** (líneas, como *MAINLINE_PIPES* de IRRICAD) y **Nodos de la matriz** (puntos, como *MAINLINE_JUNCTIONS*) la primera vez que se dibuja, o con **Crear capas para dibujar**, y las guarda en el GeoPackage del proyecto. Cada vértice de una tubería queda como un nodo en *Nodos de la matriz* (no se repiten los que están a menos de la tolerancia de conexión).
 
 Al aceptar, la ventana se esconde y se traza con clics en el mapa: un clic por vértice, clic derecho, doble clic o Intro terminan la tubería y se sigue con la siguiente con el mismo diámetro; Esc termina y la ventana vuelve. Con el imán del proyecto activado, los extremos se pegan a las otras tuberías, la fuente y las válvulas; no hace falta cortar las líneas en las uniones.
 
 - El diámetro se guarda en el campo `tuberia` de cada línea y se rotula en el mapa («Por dimensionar» si lo elige el programa).
 - Al calcular, las líneas con diámetro lo respetan en todos sus tramos; en las demás el dimensionamiento elige el menor que cumple la velocidad máxima y la presión (o el de menor costo total, si esa opción está activa).
 - **Cambiar el diámetro de las tuberías seleccionadas…** cambia el diámetro de las que tenga seleccionadas en el mapa (*Edit Mainline Pipe* de IRRICAD), a uno del catálogo o de nuevo a «Elegida por el programa».
+- **Insertar nodo en la matriz…** (como *Mainline Pipe Junction* de IRRICAD) esconde la ventana y deja poner nodos a mano con un clic sobre una tubería de *Matriz* (quiebres, derivaciones, tees); Esc termina. Un clic fuera de las tuberías se rechaza y donde ya hay un nodo no se repite. Los nodos, puestos solos o a mano, son solo referencias visuales y topológicas: **no cambian el cálculo hidráulico** (la red se arma con las líneas y no parte tramos en los nodos).
+- **Borrar las tuberías seleccionadas** borra de *Matriz* las que estén seleccionadas en el mapa (herramienta de selección de QGIS) y los nodos que se quedan sin tubería; **Borrar toda la tubería matriz** pide confirmación y vacía las dos capas. Un nodo en una T se queda mientras otra tubería pase por él. Borrar a mano con la edición de QGIS también sirve, pero deja los nodos.
 - Si una línea usa una tubería que ya no está en el catálogo, el cálculo avisa cuál es.
 
 ## Base de datos de materiales

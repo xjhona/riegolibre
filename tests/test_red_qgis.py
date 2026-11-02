@@ -10,8 +10,9 @@ import unittest
 from tests.test_integracion_qgis import HAY_QGIS, X0, Y0, _crear_dem, _iniciar_qgis
 
 if HAY_QGIS:
-    from qgis.core import (QgsFeature, QgsGeometry, QgsPointXY, QgsProject,
+    from qgis.core import (Qgis, QgsFeature, QgsGeometry, QgsPointXY, QgsProject,
                            QgsRasterLayer, QgsVectorLayer)
+    from qgis.PyQt.QtWidgets import QMessageBox
 
 FUENTE = (5, -45)
 # Tubería principal con un quiebre y una rama en T (dibujada al revés, desde la válvula).
@@ -233,18 +234,16 @@ class PruebasRedMapa(unittest.TestCase):
     def test_dialogo_de_tuberia_matriz(self):
         from riegolibre.gui.dialogo_tuberia_matriz import TEXTO_POR_PROGRAMA, DialogoTuberiaMatriz
         catalogo = self._catalogo()
-        dialogo = DialogoTuberiaMatriz(catalogo, self.tuberias)
+        dialogo = DialogoTuberiaMatriz(catalogo)
         self.assertEqual(dialogo.combo_tuberia.itemText(0), TEXTO_POR_PROGRAMA)
         self.assertEqual(dialogo.combo_tuberia.count(), len(catalogo) + 1)
         self.assertIsNone(dialogo.tuberia())  # por defecto la elige el programa
-        self.assertIs(dialogo.capa(), self.tuberias)
         dialogo.combo_tuberia.setCurrentIndex(3)
         self.assertEqual(dialogo.tuberia(), dialogo.combo_tuberia.itemData(3))
-        # Con una tubería recordada, el cuadro la deja marcada; al editar no pide la capa.
+        self.assertFalse(hasattr(dialogo, "combo_capa"))  # la capa «Matriz» la pone el programa
+        # Con una tubería recordada, el cuadro la deja marcada.
         recordada = DialogoTuberiaMatriz(catalogo, elegida=dialogo.tuberia(), edicion=True)
         self.assertEqual(recordada.tuberia().nombre, dialogo.tuberia().nombre)
-        self.assertIsNone(recordada.capa())
-        self.assertIsNone(recordada.combo_capa)
 
     def _dialogo_con_mapa(self, capa):
         """Ventana de la red con una interfaz y un lienzo simulados (un lienzo real deja inestable
@@ -271,11 +270,16 @@ class PruebasRedMapa(unittest.TestCase):
 
         from qgis.PyQt.QtWidgets import QDialog
 
-        from riegolibre.integracion.red_mapa import CAMPO_TUBERIA
-        capa = _capa_lineas([], "Red dibujada")
-        QgsProject.instance().addMapLayer(capa)
-        self.addCleanup(QgsProject.instance().removeMapLayer, capa.id())
-        dialogo, canvas = self._dialogo_con_mapa(capa)
+        from qgis.core import QgsCoordinateReferenceSystem
+
+        from riegolibre.integracion.red_mapa import CAMPO_TUBERIA, capa_de_matriz, capa_de_nodos
+        proyecto = QgsProject.instance()
+        crs_anterior = proyecto.crs()
+        proyecto.setCrs(QgsCoordinateReferenceSystem("EPSG:32718"))
+        self.addCleanup(proyecto.setCrs, crs_anterior)
+        self.assertIsNone(capa_de_matriz())  # aún no existe: el programa la crea al dibujar
+        antes = set(proyecto.mapLayers())
+        dialogo, canvas = self._dialogo_con_mapa(self.tuberias)
         dialogo.buscar_valvulas()
         tubo = dialogo.tuberias[-1]
         fake = mock.patch("riegolibre.gui.dialogo_tuberia_matriz.DialogoTuberiaMatriz.exec",
@@ -285,6 +289,11 @@ class PruebasRedMapa(unittest.TestCase):
                 mock.patch("riegolibre.gui.herramienta_puntos.HerramientaPuntos", _HerramientaFalsa):
             _HerramientaFalsa.creadas = []
             dialogo.dibujar_tuberia_matriz()
+        creadas = [c for i, c in proyecto.mapLayers().items() if i not in antes]
+        self.addCleanup(lambda: [proyecto.removeMapLayer(c.id()) for c in creadas])
+        capa, nodos = capa_de_matriz(), capa_de_nodos()
+        self.assertEqual({c.name() for c in creadas}, {"Matriz", "Nodos de la matriz"})
+        self.assertIs(dialogo.combo_tuberias.currentLayer(), capa)
         herramienta = dialogo._herramienta_puntos
         self.assertIsNotNone(herramienta)
         self.assertIs(canvas.setMapTool.call_args[0][0], herramienta)
@@ -301,11 +310,14 @@ class PruebasRedMapa(unittest.TestCase):
         dialogo._herramienta_puntos.terminar([_p(*p) for p in RAMA])
         self.assertEqual(capa.featureCount(), 2)
         self.assertEqual({e[CAMPO_TUBERIA] for e in capa.getFeatures()}, {tubo.nombre})
+        # Una unión en cada vértice (3 de la principal y 2 de la rama; ninguna coincide).
+        self.assertEqual(nodos.featureCount(), len(PRINCIPAL) + len(RAMA))
         # Esc termina: la ventana vuelve con el resumen.
         dialogo._herramienta_puntos.cancelar()
         self.assertIsNone(dialogo._herramienta_puntos)
         self.assertIn("2 con diámetro fijo · 0 por dimensionar", dialogo.etiqueta_matriz.text())
         self.assertIn("Se dibujaron 2 tuberías", dialogo.texto.toPlainText())
+        self.assertIn("Matriz", dialogo.texto.toPlainText())
         dialogo.calcular()
         self.assertIsNotNone(dialogo.resultado)
         self.assertEqual({dialogo.resultado.asignacion[t.id].nombre for t in dialogo.resultado.red.tramos},
@@ -342,7 +354,8 @@ class PruebasRedMapa(unittest.TestCase):
 
     def test_crear_capas_de_dibujo_trae_el_campo_de_la_tuberia(self):
         from riegolibre.gui.dialogo_red import DialogoRed
-        from riegolibre.integracion.red_mapa import CAMPO_TUBERIA, NOMBRE_CAPA_RED
+        from riegolibre.integracion.red_mapa import (CAMPO_TUBERIA, NOMBRE_CAPA_MATRIZ, NOMBRE_CAPA_NODOS,
+                                                     capa_de_matriz, capa_de_nodos)
         from qgis.core import QgsCoordinateReferenceSystem
         proyecto = QgsProject.instance()
         crs_anterior = proyecto.crs()
@@ -353,9 +366,122 @@ class PruebasRedMapa(unittest.TestCase):
         dialogo.crear_capas_de_dibujo()
         creadas = [c for i, c in proyecto.mapLayers().items() if i not in antes]
         self.addCleanup(lambda: [proyecto.removeMapLayer(c.id()) for c in creadas])
-        red = next(c for c in creadas if c.name() == NOMBRE_CAPA_RED)
+        red = next(c for c in creadas if c.name() == NOMBRE_CAPA_MATRIZ)
         self.assertGreaterEqual(red.fields().indexOf(CAMPO_TUBERIA), 0)
         self.assertTrue(red.labelsEnabled())
+        nodos = next(c for c in creadas if c.name() == NOMBRE_CAPA_NODOS)
+        self.assertIs(capa_de_matriz(), red)
+        self.assertIs(capa_de_nodos(), nodos)
+        self.assertEqual(nodos.geometryType(), Qgis.GeometryType.Point)
+
+    def test_capas_de_la_matriz_se_crean_una_sola_vez_y_se_borran_con_sus_nodos(self):
+        from qgis.core import QgsCoordinateReferenceSystem
+
+        from riegolibre.integracion.red_mapa import (agregar_nodos, agregar_tuberia, borrar_tuberias,
+                                                     crear_capas_de_matriz)
+        proyecto = QgsProject.instance()
+        crs_anterior = proyecto.crs()
+        proyecto.setCrs(QgsCoordinateReferenceSystem("EPSG:32718"))
+        self.addCleanup(proyecto.setCrs, crs_anterior)
+        antes = set(proyecto.mapLayers())
+        matriz, nodos, _ruta = crear_capas_de_matriz(proyecto)
+        self.addCleanup(lambda: [proyecto.removeMapLayer(i) for i in set(proyecto.mapLayers()) - antes])
+        otra_matriz, otros_nodos, ruta = crear_capas_de_matriz(proyecto)
+        self.assertIs(otra_matriz, matriz)
+        self.assertIs(otros_nodos, nodos)
+        self.assertIsNone(ruta)  # no se creó nada nuevo
+        self.assertEqual(len(set(proyecto.mapLayers()) - antes), 2)
+        principal = [_p(*p) for p in PRINCIPAL]
+        rama = [_p(*p) for p in RAMA]
+        primera = agregar_tuberia(matriz, principal)
+        segunda = agregar_tuberia(matriz, rama)
+        self.assertEqual(agregar_nodos(nodos, principal), 3)
+        self.assertEqual(agregar_nodos(nodos, principal), 0)  # no se repiten
+        self.assertEqual(agregar_nodos(nodos, rama), 2)
+        # Al borrar la rama se va su nodo libre; el de la T cae sobre la principal y se queda con los de ella.
+        self.assertEqual(borrar_tuberias(matriz, nodos, [segunda.id()]), (1, 1))
+        self.assertEqual((matriz.featureCount(), nodos.featureCount()), (1, 4))
+        self.assertEqual(borrar_tuberias(matriz, nodos, [primera.id(), 9999]), (1, 4))
+        self.assertEqual((matriz.featureCount(), nodos.featureCount()), (0, 0))
+
+    def test_borrar_las_seleccionadas_y_toda_la_matriz(self):
+        from unittest import mock
+
+        from qgis.core import QgsCoordinateReferenceSystem
+
+        from riegolibre.integracion.red_mapa import agregar_nodos, agregar_tuberia, crear_capas_de_matriz
+        proyecto = QgsProject.instance()
+        crs_anterior = proyecto.crs()
+        proyecto.setCrs(QgsCoordinateReferenceSystem("EPSG:32718"))
+        self.addCleanup(proyecto.setCrs, crs_anterior)
+        antes = set(proyecto.mapLayers())
+        matriz, nodos, _ruta = crear_capas_de_matriz(proyecto)
+        self.addCleanup(lambda: [proyecto.removeMapLayer(i) for i in set(proyecto.mapLayers()) - antes])
+        dialogo, _ = self._dialogo_con_mapa(matriz)
+        for linea in (PRINCIPAL, RAMA):
+            puntos = [_p(*p) for p in linea]
+            agregar_tuberia(matriz, puntos)
+            agregar_nodos(nodos, puntos)
+        dialogo._actualizar_matriz()
+        with mock.patch("riegolibre.gui.dialogo_red.QMessageBox.warning") as aviso:
+            dialogo.borrar_seleccionadas()  # nada seleccionado: avisa
+        self.assertIn("Seleccione", aviso.call_args[0][2])
+        self.assertEqual(matriz.featureCount(), 2)
+        rama = next(e for e in matriz.getFeatures() if e.geometry().length() < 50)
+        matriz.selectByIds([rama.id()])
+        dialogo.borrar_seleccionadas()
+        self.assertEqual((matriz.featureCount(), nodos.featureCount()), (1, 4))
+        self.assertIn("Se borraron 1 tubería y 1 nodo", dialogo.texto.toPlainText())
+        with mock.patch("riegolibre.gui.dialogo_red.QMessageBox.question",
+                        return_value=QMessageBox.StandardButton.No):
+            dialogo.borrar_toda_la_matriz()
+        self.assertEqual(matriz.featureCount(), 1)
+        with mock.patch("riegolibre.gui.dialogo_red.QMessageBox.question",
+                        return_value=QMessageBox.StandardButton.Yes):
+            dialogo.borrar_toda_la_matriz()
+        self.assertEqual((matriz.featureCount(), nodos.featureCount()), (0, 0))
+
+    def test_insertar_nodos_a_mano_no_cambia_el_calculo(self):
+        from unittest import mock
+
+        from qgis.core import QgsCoordinateReferenceSystem
+
+        from riegolibre.integracion.red_mapa import (agregar_tuberia, crear_capas_de_matriz, punto_en_tuberia)
+        proyecto = QgsProject.instance()
+        crs_anterior = proyecto.crs()
+        proyecto.setCrs(QgsCoordinateReferenceSystem("EPSG:32718"))
+        self.addCleanup(proyecto.setCrs, crs_anterior)
+        antes = set(proyecto.mapLayers())
+        matriz, nodos, _ruta = crear_capas_de_matriz(proyecto)
+        self.addCleanup(lambda: [proyecto.removeMapLayer(i) for i in set(proyecto.mapLayers()) - antes])
+        agregar_tuberia(matriz, [_p(*p) for p in PRINCIPAL])
+        agregar_tuberia(matriz, [_p(*p) for p in RAMA])
+        # Un punto cercano se lleva a la tubería; uno lejano no cae en ninguna.
+        sobre = punto_en_tuberia(matriz, _p(100, -45.05))
+        self.assertAlmostEqual(sobre.x(), _p(100, -45).x(), places=6)
+        self.assertAlmostEqual(sobre.y(), _p(100, -45).y(), places=6)
+        self.assertIsNone(punto_en_tuberia(matriz, _p(100, -60)))
+
+        dialogo, canvas = self._dialogo_con_mapa(matriz)
+        dialogo.buscar_valvulas()
+        dialogo.calcular()
+        antes_calculo = sorted((t.longitud_m, t.id.split(".")[1]) for t in dialogo.resultado.red.tramos)
+        with mock.patch("riegolibre.gui.herramienta_puntos.HerramientaPuntos", _HerramientaFalsa):
+            _HerramientaFalsa.creadas = []
+            dialogo.insertar_nodo()
+        herramienta = dialogo._herramienta_puntos
+        self.assertEqual(herramienta.cuantos, 1)
+        self.assertFalse(dialogo.isVisible())
+        herramienta.terminar([_p(100, -45)])  # en medio de la tubería
+        dialogo._herramienta_puntos.terminar([_p(100, -45)])  # el mismo sitio: no se repite
+        dialogo._herramienta_puntos.terminar([_p(100, -60)])  # fuera de las tuberías: se rechaza
+        dialogo._herramienta_puntos.terminar([_p(150, -30)])  # otro sitio de la principal
+        self.assertEqual(nodos.featureCount(), 2)
+        dialogo._herramienta_puntos.cancelar()
+        self.assertIn("Se pusieron 2 nodos", dialogo.texto.toPlainText())
+        dialogo.calcular()
+        despues = sorted((t.longitud_m, t.id.split(".")[1]) for t in dialogo.resultado.red.tramos)
+        self.assertEqual(despues, antes_calculo)  # los nodos no parten tramos ni cambian nada
 
     def test_dialogo_calcula_y_crea_capas(self):
         from riegolibre.gui.dialogo_red import NOMBRE_GRUPO, DialogoRed

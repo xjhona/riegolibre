@@ -161,7 +161,9 @@ def construir_red(capa_tuberias, punto_fuente, valvulas: List[ValvulaMapa], crs,
 
 # --------------------------------------------------- tubería matriz dibujada
 
-NOMBRE_CAPA_RED = "Red principal"
+NOMBRE_CAPA_MATRIZ = "Matriz"  # como «MAINLINE_PIPES» de IRRICAD
+NOMBRE_CAPA_NODOS = "Nodos de la matriz"  # como «MAINLINE_JUNCTIONS» de IRRICAD
+NOMBRES_CAPA_MATRIZ = (NOMBRE_CAPA_MATRIZ, "Red principal")  # la segunda es de proyectos anteriores
 CAMPO_TUBERIA = "tuberia"  # nombre de la tubería del catálogo; vacío = la elige el cálculo («Computer Selected»)
 TEXTO_POR_DIMENSIONAR = "Por dimensionar"
 NOMBRE_CAPA_BLOQUES = "Bloques"
@@ -226,6 +228,119 @@ def cambiar_tuberia(capa, ids, tuberia=None):
     else:
         capa.dataProvider().changeAttributeValues({id_entidad: {indice: valor} for id_entidad in ids})
     capa.triggerRepaint()
+
+
+# ---------------------------------------- capas «Matriz» y «Nodos de la matriz»
+
+
+def _capa_dibujada(nombres, geometria, proyecto):
+    """Primera capa del proyecto de RiegoLibre con alguno de los nombres y ese tipo de geometría."""
+    for capa in proyecto.mapLayers().values():
+        if (isinstance(capa, QgsVectorLayer) and capa.geometryType() == geometria and capa.name() in nombres
+                and capa.customProperty(PROPIEDAD) == "dibujo"):
+            return capa
+    return None
+
+
+def capa_de_matriz(proyecto=None):
+    """La capa de líneas «Matriz» donde se dibuja la tubería matriz, o None si aún no existe."""
+    return _capa_dibujada(NOMBRES_CAPA_MATRIZ, Qgis.GeometryType.Line, proyecto or QgsProject.instance())
+
+
+def capa_de_nodos(proyecto=None):
+    """La capa de puntos «Nodos de la matriz» (uniones en los vértices de la matriz), o None."""
+    return _capa_dibujada((NOMBRE_CAPA_NODOS,), Qgis.GeometryType.Point, proyecto or QgsProject.instance())
+
+
+def crear_capas_de_matriz(proyecto=None):
+    """Deja listas las capas «Matriz» y «Nodos de la matriz» (crea las que falten, en el SRC del proyecto).
+
+    Devuelve (matriz, nodos, ruta): `ruta` es el GeoPackage donde quedaron las capas nuevas, o None si el
+    proyecto aún no tiene archivo o no se creó ninguna.
+    """
+    from .persistencia import guardar_capas_de_dibujo
+    from .subunidad_mapa import verificar_crs_metrico
+    proyecto = proyecto or QgsProject.instance()
+    matriz, nodos = capa_de_matriz(proyecto), capa_de_nodos(proyecto)
+    nuevas = []
+    if matriz is None:
+        verificar_crs_metrico(proyecto.crs(), "del proyecto")
+        matriz = QgsVectorLayer(f"LineString?field=nombre:string(50)&field={CAMPO_TUBERIA}:string(80)",
+                                NOMBRE_CAPA_MATRIZ, "memory")
+        matriz.setCrs(proyecto.crs())
+        estilo_red_dibujada(matriz)
+        nuevas.append(matriz)
+    if nodos is None:
+        nodos = QgsVectorLayer("Point?field=nombre:string(50)", NOMBRE_CAPA_NODOS, "memory")
+        nodos.setCrs(matriz.crs())
+        nodos.setRenderer(QgsSingleSymbolRenderer(QgsMarkerSymbol.createSimple(
+            {"name": "square", "color": "#000000", "size": "2.2", "outline_color": "#ffffff",
+             "outline_width": "0.2"})))
+        nuevas.append(nodos)
+    for capa in nuevas:  # los nodos se agregan después para que queden encima de las tuberías
+        proyecto.addMapLayer(capa)
+    return matriz, nodos, (guardar_capas_de_dibujo(nuevas, proyecto) if nuevas else None)
+
+
+def agregar_nodos(capa, puntos, tolerancia_m=0.5):
+    """Agrega a la capa de nodos un nodo en cada punto (en su SRC) que no tenga ya otro a menos de la
+    tolerancia. Devuelve cuántos agregó."""
+    existentes = [e.geometry().asPoint() for e in capa.getFeatures()]
+    nuevos = []
+    for punto in puntos:
+        punto = QgsPointXY(punto)
+        if any(punto.distance(otro) <= tolerancia_m for otro in existentes):
+            continue
+        existentes.append(punto)
+        entidad = QgsFeature(capa.fields())
+        entidad.setGeometry(QgsGeometry.fromPointXY(punto))
+        nuevos.append(entidad)
+    if capa.isEditable():
+        capa.addFeatures(nuevos)
+    elif nuevos:
+        capa.dataProvider().addFeatures(nuevos)
+        capa.updateExtents()
+    capa.triggerRepaint()
+    return len(nuevos)
+
+
+def punto_en_tuberia(capa, punto, tolerancia_m=0.1):
+    """El punto de las tuberías de la capa más cercano al dado (en su SRC), o None si ninguna pasa a menos
+    de la tolerancia. Sirve para que un nodo puesto a mano quede siempre sobre la tubería."""
+    geometria_punto = QgsGeometry.fromPointXY(QgsPointXY(punto))
+    mejor = None
+    for entidad in capa.getFeatures():
+        distancia = entidad.geometry().distance(geometria_punto)
+        if distancia <= tolerancia_m and (mejor is None or distancia < mejor[0]):
+            mejor = (distancia, entidad.geometry().nearestPoint(geometria_punto).asPoint())
+    return QgsPointXY(mejor[1]) if mejor else None
+
+
+def _borrar(capa, ids):
+    capa.removeSelection()
+    if capa.isEditable():
+        capa.deleteFeatures(list(ids))
+    elif ids:
+        capa.dataProvider().deleteFeatures(list(ids))
+        capa.updateExtents()
+    capa.triggerRepaint()
+
+
+def borrar_tuberias(matriz, nodos, ids, tolerancia_m=0.5):
+    """Borra de la matriz las tuberías con esos ids y los nodos que se quedan sin tubería.
+
+    `nodos` puede ser None. Devuelve (tuberías borradas, nodos borrados).
+    """
+    existentes = set(matriz.allFeatureIds())
+    ids = [i for i in ids if i in existentes]
+    _borrar(matriz, ids)
+    sueltos = []
+    if nodos is not None:
+        tuberias = [e.geometry() for e in matriz.getFeatures()]
+        sueltos = [e.id() for e in nodos.getFeatures()
+                   if not any(g.distance(e.geometry()) <= tolerancia_m for g in tuberias)]
+        _borrar(nodos, sueltos)
+    return len(ids), len(sueltos)
 
 
 

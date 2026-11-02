@@ -22,6 +22,14 @@ Fuente: sesiones de octubre de 2026. El usuario valida la hidráulica y prueba e
   herramienta «Mainline Pipe» IRRICAD abre un cuadro con la capa y «Pipe Properties»: lista de tuberías cuya primera opción es
   «Computer Selected» (diámetro por dimensionar). Después se pide «Enter First Point / Enter Second Point». Con la tubería ya
   dibujada, «Edit Mainline Pipe» muestra el mismo cuadro para cambiarle el diámetro. Aquí: `gui/dialogo_tuberia_matriz.py`.
+- Capas de la matriz (2026-11-01, video «DH-M1»): IRRICAD tiene capas fijas MAINLINE_PIPES y MAINLINE_JUNCTIONS y no pregunta la
+  capa; los vértices son nodos («Junction» en el menú del clic derecho) en su capa aparte. Aquí: capas «Matriz» y «Nodos de la
+  matriz» creadas solas (`crear_capas_de_matriz` en `integracion/red_mapa.py`); un nodo por vértice dibujado; borrar = botones
+  de la ventana de la red. El cálculo no usa los nodos (sigue sacándolos de los extremos de las líneas).
+- Nodos (2026-11-01, video 23-38-30): el usuario aclaró que los nodos NO alteran el cálculo hidráulico: son referencias visuales y
+  topológicas (quiebres, bifurcaciones tipo tee). IRRICAD también los inserta a mano con «Mainline Pipe Junction» (cuadro con
+  capa, color, símbolo, tamaño y «Permanent»; luego clics sobre la tubería). Aquí: «Insertar nodo en la matriz…»
+  (`DialogoRed.insertar_nodo`); no se replicó el cuadro de símbolo/tamaño/«Permanent».
 - Presión mínima y máxima en el mapa (video del usuario, 2026-10-31): un botón con menú «All Valves / Selected Valves /
   Clear Markers»; los marcadores salen en el emisor de menor y de mayor presión y, al pasar el cursor, muestran
   «Max: 21.0 m». Aquí van como rótulos fijos «Máx: 21.0 m» / «Mín: …» (`integracion/limites_presion.py`). Por confirmar
