@@ -17,7 +17,7 @@ Repositorio: https://github.com/xjhona/riegolibre (rama `main`, cuenta gh `xjhon
   `QT_QPA_PLATFORM=offscreen timeout 600 "C:/Program Files/QGIS 3.44.15/bin/python-qgis-ltr.bat" -m unittest discover -s tests -t .`
 - Solo el motor: `C:\Users\Jhonatan\AppData\Local\Python\bin\python.exe -m unittest discover -s tests -t .`
   (el `python` de bash es el alias de la Tienda y no sirve).
-- Estado: ~385 pruebas pasan (el 2026-10-31 se retiró el motor de trazado automático de la red y sus pruebas). Lo nuevo de octubre no se ha probado a mano con pantalla en QGIS.
+- Estado: ~411 pruebas pasan (el 2026-10-31 se retiró el motor de trazado automático de la red y sus pruebas). Lo nuevo de octubre no se ha probado a mano con pantalla en QGIS.
 
 ## Reglas
 - Mantener el núcleo sin imports de QGIS. Compatibilidad Qt6: enums con nombre completo, `exec()`.
@@ -29,6 +29,11 @@ Repositorio: https://github.com/xjhona/riegolibre (rama `main`, cuenta gh `xjhon
   («Number of Laterals», «Even Flow», «Flushing»).
 - Toda herramienta o módulo nuevo va dentro de una de las pestañas existentes (los grupos del menú y la barra de RiegoLibre, en
   `plugin.py`). Si no guarda relación con ninguna, se crea una pestaña nueva. Nunca un botón suelto fuera de ellas.
+- Tema visual (claro/oscuro, grises, Bahnschrift): `riegolibre/gui/tema.py`. Todo `QDialog` nuevo llama `aplicar_tema(self)`
+  justo después de `super().__init__` y las gráficas `pintar_figura(figura)` antes de `self.lienzo.draw()` (`tests/test_tema.py`
+  lo exige). Los colores de estado (verde/rojo) y de turnos NO se tocan. Aplicado a todas las ventanas; faltan iconos SVG,
+  el CSS verde de la memoria (la vista previa es una hoja blanca) y aclarar la serie marrón del terreno en oscuro.
+  Para capturas: correr con la plataforma `windows` (no `offscreen`, que rompe la fuente) y `WA_DontShowOnScreen`.
 - Todo `.py` nuevo empieza con las tres líneas de autoría (copiarlas de otro archivo; `tests/test_autoria.py` lo exige).
   `LICENSE` de la raíz y `riegolibre/LICENSE` deben ser iguales; el texto legal no se traduce ni se edita.
 

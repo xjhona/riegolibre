@@ -12,6 +12,7 @@ from qgis.PyQt.QtWidgets import (QComboBox, QDialog, QDialogButtonBox, QFormLayo
                                  QLabel, QVBoxLayout)
 
 from ..nucleo.tuberias import clave_economica
+from .tema import aplicar_tema
 
 TEXTO_POR_PROGRAMA = "Elegida por el programa (por dimensionar)"
 
@@ -22,6 +23,7 @@ class DialogoTuberiaMatriz(QDialog):
 
     def __init__(self, catalogo, elegida=None, edicion=False, parent=None):
         super().__init__(parent)
+        aplicar_tema(self)
         self.setWindowTitle("RiegoLibre · Editar tubería matriz" if edicion else "RiegoLibre · Tubería matriz")
         self.setMinimumWidth(420)
         principal = QVBoxLayout(self)

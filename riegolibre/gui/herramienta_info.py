@@ -13,6 +13,7 @@ from qgis.PyQt.QtWidgets import (QApplication, QDialog, QDialogButtonBox, QPlain
 from ..integracion import info_objeto
 from ..nucleo.graficos import dibujar_perfil_lateral, referencia_emisor
 from .comunes import Figure, FigureCanvasQTAgg
+from .tema import aplicar_tema, pintar_figura
 
 TOLERANCIA_PIXELES = 10
 AYUDA = ("No hay ningún objeto calculado de RiegoLibre en ese punto.\n\n"
@@ -26,6 +27,7 @@ class DialogoInfo(QDialog):
 
     def __init__(self, parent=None):
         super().__init__(parent)
+        aplicar_tema(self)
         self.setWindowTitle("RiegoLibre · Información del objeto")
         self.setWindowFlag(Qt.WindowType.WindowStaysOnTopHint, True)
         self.resize(900, 760)
@@ -75,6 +77,7 @@ class DialogoInfo(QDialog):
         dibujar_perfil_lateral(self.figura, perfil.resultado, referencia, etiqueta,
                                ficha.titulo if ficha else None)
         self.lienzo.show()
+        pintar_figura(self.figura)
         self.lienzo.draw()
 
     def copiar(self):

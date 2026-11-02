@@ -77,8 +77,9 @@ class RiegoLibrePlugin:
             self._crear_accion("icon_materiales.svg", "Lista de materiales y costos…", "materiales"),
             self._crear_accion("icon_memoria.svg", "Memoria de cálculo…", "memoria")))
         self._separar()
-        self._agregar_grupo("Ayuda", "icon_ayuda.svg", (
+        ayuda = self._agregar_grupo("Ayuda", "icon_ayuda.svg", (
             self._crear_accion("icon_ayuda.svg", "Acerca de RiegoLibre…", "acerca"),))
+        self._agregar_apariencia(ayuda)
         from qgis.core import QgsProject
         proyecto = QgsProject.instance()
         proyecto.layersAdded.connect(self._programar_guardado)
@@ -151,6 +152,26 @@ class RiegoLibrePlugin:
         self.barra.addAction(grupo.menuAction())
         self.barra.widgetForAction(grupo.menuAction()).setPopupMode(QToolButton.ToolButtonPopupMode.InstantPopup)
         return grupo
+
+    def _agregar_apariencia(self, menu):
+        """Submenú para elegir el tema de las ventanas de RiegoLibre (claro, oscuro o el estándar de QGIS)."""
+        from .gui import tema
+        menu.addSeparator()
+        submenu = menu.addMenu("Apariencia de las ventanas")
+        opciones = {}
+
+        def elegir(nombre):
+            tema.cambiar_tema(nombre)
+            for otro, accion in opciones.items():
+                accion.setChecked(otro == nombre)
+
+        for nombre, texto in tema.NOMBRES.items():
+            accion = QAction(texto, submenu)
+            accion.setCheckable(True)
+            accion.setChecked(nombre == tema.tema_actual())
+            accion.triggered.connect(lambda _=False, n=nombre: elegir(n))
+            submenu.addAction(accion)
+            opciones[nombre] = accion  # cuelgan del submenú, que se destruye con el menú
 
     def _separar(self):
         self.menu.addSeparator()

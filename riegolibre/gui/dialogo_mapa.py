@@ -18,6 +18,7 @@ from ..nucleo.tuberias import clave_economica
 from .comunes import (ComboDiametros, ComboTuberiaPortalateral, GrupoCriterios,
                       GrupoLaterales, html_tabla, spin)
 from .panel_resultados import PanelResultadosSubunidad
+from .tema import aplicar_tema
 
 DIRECCION_PERPENDICULAR, DIRECCION_AZIMUT = "perpendicular", "azimut"
 
@@ -36,6 +37,7 @@ def _combo_capas(filtro, vacia=None):
 class DialogoMapa(QDialog):
     def __init__(self, iface, parent=None):
         super().__init__(parent)
+        aplicar_tema(self)
         self.iface = iface
         self.setWindowTitle("RiegoLibre · Diseño de subunidad en el mapa (goteo)")
         self.resize(1250, 800)

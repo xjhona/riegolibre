@@ -24,6 +24,7 @@ from ..nucleo.materiales import (articulos_de_base, asignar_articulos, exportar_
                                  exportar_excel, resumen_por_categoria, total)
 from ..nucleo.precios import buscar, cargar_lista_precios
 from .comunes import spin
+from .tema import aplicar_tema
 
 COLUMNAS = ["Categoría", "Material del diseño", "Cantidad", "Unidad", "A comprar", "Tubos",
             "Artículo de la lista de precios", "Precio unit.", "Subtotal"]
@@ -34,6 +35,7 @@ class DialogoArticulo(QDialog):
 
     def __init__(self, articulos, texto_inicial="", parent=None):
         super().__init__(parent)
+        aplicar_tema(self)
         self.setWindowTitle("Elegir artículo de la lista de precios")
         self.resize(720, 480)
         self.articulos = articulos
@@ -73,6 +75,7 @@ class DialogoArticulo(QDialog):
 class DialogoMateriales(QDialog):
     def __init__(self, iface, parent=None):
         super().__init__(parent)
+        aplicar_tema(self)
         self.iface = iface
         self.setWindowTitle("RiegoLibre · Lista de materiales y costos")
         self.resize(1250, 720)

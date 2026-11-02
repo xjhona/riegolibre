@@ -19,6 +19,7 @@ from ..integracion.imagen_satelital import FUENTES, abrir_vista_3d, imagen_para_
 from ..integracion.topografia_cad import (agregar_al_mapa, capas_que_usan, celdas_estimadas,
                                           generar_topografia, leer_dxf, parecen_coordenadas_planas)
 from .comunes import html_avisos, html_tabla, spin
+from .tema import aplicar_tema
 
 AJUSTE_CARPETA = "RiegoLibre/topografia_carpeta"
 AJUSTE_CRS = "RiegoLibre/topografia_crs"  # último sistema de coordenadas usado para un plano
@@ -53,6 +54,7 @@ def _nota(texto):
 class DialogoTopografia(QDialog):
     def __init__(self, iface, parent=None):
         super().__init__(parent)
+        aplicar_tema(self)
         self.iface = iface
         self.contenido = None
         self.setWindowTitle("RiegoLibre · Topografía: curvas de CAD, imagen satelital y vista 3D")

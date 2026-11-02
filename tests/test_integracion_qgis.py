@@ -302,7 +302,12 @@ class PruebasIntegracionQgis(unittest.TestCase):
             "Presión mínima y máxima": ["Todas las válvulas", "Válvulas seleccionadas", "Borrar marcadores"],
             "Materiales y documentos": ["Base de datos de materiales…", "Lista de materiales y costos…",
                                         "Memoria de cálculo…"],
-            "Ayuda": ["Acerca de RiegoLibre…"]})
+            "Ayuda": ["Acerca de RiegoLibre…", "", "Apariencia de las ventanas"]})
+        ayuda = next(a for a in plugin.barra.actions() if a.text() == "Ayuda").menu()
+        apariencia = next(a for a in ayuda.actions() if a.text() == "Apariencia de las ventanas").menu()
+        self.assertEqual([a.text() for a in apariencia.actions()],
+                         ["Fondo claro, texto negro", "Fondo oscuro, texto blanco", "Estándar de QGIS (sin tema)"])
+        self.assertEqual(sum(a.isChecked() for a in apariencia.actions()), 1)
         for accion in plugin.barra.actions():
             if accion.menu():  # un clic despliega el grupo; los botones del grupo no quedan sueltos en la barra
                 self.assertEqual(plugin.barra.widgetForAction(accion).popupMode(),

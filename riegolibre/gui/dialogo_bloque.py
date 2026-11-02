@@ -37,6 +37,7 @@ from ..nucleo.diametros_velocidad import serie_por_defecto, series_de_tuberias
 from ..nucleo.memoria import descripcion_telescopico
 from .comunes import (ComboDiametros, ComboTuberiaPortalateral, GrupoCriterios, GrupoLaterales, html_avisos,
                       html_estado, html_tabla, spin, spin_diametros_por_rama)
+from .tema import aplicar_tema
 
 AJUSTE_ULTIMOS = "RiegoLibre/bloque_ultimos"  # últimos parámetros usados, para un lote nuevo
 DIRECCION_AUTO, DIRECCION_USUARIO = "auto", "usuario"
@@ -68,6 +69,7 @@ def _elegir_por_dato(combo, dato):
 class DialogoBloque(QDialog):
     def __init__(self, iface, parent=None):
         super().__init__(parent)
+        aplicar_tema(self)
         self.iface = iface
         self.capa = self.entidad = None  # lote abierto
         self.bloque = None  # último trazado del lote abierto

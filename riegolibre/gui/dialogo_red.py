@@ -24,6 +24,7 @@ from ..nucleo.red import bomba_critica, perfil_ruta_critica
 from ..nucleo.turnos import TURNO_MAXIMO, color_de_turno, resumen_turnos, texto_balance
 from .comunes import (M_POR_BAR, Figure, FigureCanvasQTAgg, html_avisos, html_estado,
                       html_tabla, spin)
+from .tema import aplicar_tema, pintar_figura
 
 NOMBRE_GRUPO = "RiegoLibre · Red principal"
 
@@ -71,6 +72,7 @@ def _texto_rango(elemento):
 class DialogoRed(QDialog):
     def __init__(self, iface, parent=None):
         super().__init__(parent)
+        aplicar_tema(self)
         self.iface = iface
         self.setWindowTitle("RiegoLibre · Red principal y bomba")
         self.resize(1250, 800)
@@ -110,6 +112,8 @@ class DialogoRed(QDialog):
             "<li>Pulse <b>Dibujar tubería matriz…</b>, elija el diámetro (o «Elegida por el programa») y "
             "trace las tuberías de la fuente a cada válvula con clics en el mapa (no hace falta cortar las "
             "líneas en las uniones).</li>"
+            "<li>Pulse <b>Conectar válvulas a la matriz…</b>: dibuja el tramo que une cada válvula con la "
+            "tubería más cercana.</li>"
             "<li>Pulse <b>Calcular</b>.</li></ol>")
         resumen = QSplitter(Qt.Orientation.Vertical)
         resumen.addWidget(self.texto)
@@ -269,6 +273,13 @@ class DialogoRed(QDialog):
             "referencias visuales: no cambian el cálculo hidráulico.")
         self.boton_nodo.clicked.connect(self.insertar_nodo)
         capa.addWidget(self.boton_nodo)
+        self.boton_conectar = QPushButton("Conectar válvulas a la matriz…")
+        self.boton_conectar.setToolTip(
+            "Como «Valve Connector» de IRRICAD: dibuja en «Matriz» un tramo recto desde cada válvula que no "
+            "toca la matriz hasta la tubería más cercana, si no pasa de la longitud máxima que se indique. "
+            "Hay que hacerlo antes de calcular: todas las válvulas deben estar conectadas.")
+        self.boton_conectar.clicked.connect(self.conectar_valvulas)
+        capa.addWidget(self.boton_conectar)
         self.boton_borrar = QPushButton("Borrar las tuberías seleccionadas")
         self.boton_borrar.setToolTip(
             "Borra las tuberías de la capa «Matriz» que tenga seleccionadas en el mapa (con la herramienta "
@@ -593,6 +604,48 @@ class DialogoRed(QDialog):
         self.hide()
         iniciar()
 
+    def conectar_valvulas(self):
+        """Une cada válvula suelta con la tubería de «Matriz» más cercana (como «Valve Connector» de IRRICAD)."""
+        from ..integracion.red_mapa import (capa_de_nodos, capas_de_valvulas, conectar_valvulas_a_la_matriz,
+                                            leer_valvulas)
+        from .dialogo_conector_valvulas import DialogoConectorValvulas
+        capa = self._capa_matriz_para_borrar()
+        if capa is None:
+            return
+        valvulas = leer_valvulas(capas_de_valvulas(), capa.crs())
+        if not valvulas:
+            QMessageBox.information(self, "RiegoLibre",
+                                    "No se encontraron válvulas. Diseñe las subunidades en el mapa o cree una "
+                                    "capa de puntos con los campos «presion» (m) y «caudal_lh» (L/h).")
+            return
+        dialogo = DialogoConectorValvulas(self.tuberias, self.diametro_matriz, parent=self)
+        if dialogo.exec() != QDialog.DialogCode.Accepted:
+            return
+        resultado = conectar_valvulas_a_la_matriz(capa, capa_de_nodos(), valvulas, dialogo.largo_max_m(),
+                                                  self.spin_tolerancia.value(), dialogo.igualar(),
+                                                  dialogo.tuberia())
+        self.combo_tuberias.setLayer(capa)
+        self._actualizar_matriz()
+        hechas = len(resultado.conectores)
+        html = (f"<h3>Conectar válvulas a la matriz</h3><p>Se dibujaron <b>{hechas}</b> "
+                f"{'tramo' if hechas == 1 else 'tramos'} de conexión en <b>{capa.name()}</b>"
+                f"{f' ({sum(c.largo_m for c in resultado.conectores):,.1f} m en total)' if hechas else ''}. "
+                f"{len(resultado.ya_conectadas)} "
+                f"{'válvula ya estaba conectada' if len(resultado.ya_conectadas) == 1 else 'válvulas ya estaban conectadas'}"
+                ".</p>")
+        if resultado.fuera_de_alcance:
+            filas = "".join(f"<li>{nombre}: " + ("sin tuberías" if distancia == float("inf")
+                                                 else f"a {distancia:,.1f} m de la matriz") + "</li>"
+                            for nombre, distancia in resultado.fuera_de_alcance)
+            html += (f"<p><b>Sin conectar</b> (más lejos que {dialogo.largo_max_m():g} m): <ul>{filas}</ul>"
+                     "Dibuje la tubería hasta ellas o aumente la longitud máxima.</p>")
+        else:
+            html += "<p>Todas las válvulas están conectadas a la matriz.</p>"
+        self.texto.setHtml(html)
+        self.pestanas.setCurrentIndex(0)
+        if self.iface is not None:
+            self.iface.mapCanvas().refresh()
+
     def cambiar_diametro_seleccionadas(self):
         """Cambia el diámetro de las tuberías seleccionadas en el mapa (como «Edit Mainline Pipe» de IRRICAD)."""
         from ..integracion.red_mapa import CAMPO_TUBERIA, cambiar_tuberia
@@ -848,4 +901,5 @@ class DialogoRed(QDialog):
         if self.figura is None:
             return
         dibujar_perfil_red(self.figura, perfil_ruta_critica(red, turno))
+        pintar_figura(self.figura)
         self.lienzo.draw()

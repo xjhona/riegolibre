@@ -10,6 +10,7 @@ from qgis.PyQt.QtWidgets import QDialog, QDialogButtonBox, QLabel, QPlainTextEdi
 
 from ..nucleo.autoria import ATRIBUCION, COPYRIGHT, REPOSITORIO, USO_DE_IA
 from .dialogo_memoria import version_complemento
+from .tema import aplicar_tema
 
 CARPETA = os.path.dirname(os.path.dirname(__file__))
 
@@ -28,6 +29,7 @@ def _texto_fijo(texto):
 class DialogoAcerca(QDialog):
     def __init__(self, iface=None, parent=None):
         super().__init__(parent)
+        aplicar_tema(self)
         self.setWindowTitle("Acerca de RiegoLibre")
         self.resize(620, 460)
         principal = QVBoxLayout(self)

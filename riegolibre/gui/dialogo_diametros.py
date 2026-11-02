@@ -25,11 +25,13 @@ from ..nucleo.memoria import descripcion_telescopico
 from ..nucleo.subunidad import incumplimientos
 from ..nucleo.tuberias import clave_economica
 from .comunes import html_avisos, html_estado, html_tabla, spin, spin_diametros_por_rama
+from .tema import aplicar_tema
 
 
 class DialogoDiametros(QDialog):
     def __init__(self, iface, parent=None):
         super().__init__(parent)
+        aplicar_tema(self)
         self.iface = iface
         self.setWindowTitle("RiegoLibre · Diámetros de portalaterales por velocidad")
         self.resize(1100, 720)

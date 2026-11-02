@@ -22,6 +22,7 @@ from qgis.PyQt.QtWidgets import (QApplication, QCheckBox, QDialog, QFileDialog,
 
 from ..nucleo import cargar_catalogo_tuberias
 from ..nucleo.memoria import DatosMemoria, graficos_memoria, memoria_html
+from .tema import ESTILO_PAPEL, aplicar_tema
 
 ENTRADA_MEMORIA = ("RiegoLibre", "memoria")  # datos del documento, guardados en el proyecto
 AJUSTE_PROYECTISTA = "RiegoLibre/proyectista"
@@ -37,6 +38,7 @@ def version_complemento():
 class DialogoMemoria(QDialog):
     def __init__(self, iface, parent=None):
         super().__init__(parent)
+        aplicar_tema(self)
         self.iface = iface
         self.setWindowTitle("RiegoLibre · Memoria de cálculo")
         self.resize(1200, 820)
@@ -90,6 +92,7 @@ class DialogoMemoria(QDialog):
 
         self.vista = QTextBrowser()
         self.vista.setOpenLinks(False)
+        self.vista.setStyleSheet(ESTILO_PAPEL)
         divisor = QSplitter(Qt.Orientation.Horizontal)
         divisor.addWidget(izquierda)
         divisor.addWidget(self.vista)

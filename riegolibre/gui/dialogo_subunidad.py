@@ -19,11 +19,13 @@ from ..nucleo.tuberias import clave_economica
 from .comunes import (ComboDiametros, ComboTuberiaPortalateral, GrupoCriterios,
                       GrupoLaterales, spin)
 from .panel_resultados import PanelResultadosSubunidad
+from .tema import aplicar_tema
 
 
 class DialogoSubunidad(QDialog):
     def __init__(self, iface, parent=None):
         super().__init__(parent)
+        aplicar_tema(self)
         self.iface = iface
         self.setWindowTitle("RiegoLibre · Subunidad de riego (goteo)")
         self.resize(1200, 760)

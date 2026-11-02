@@ -17,11 +17,13 @@ from ..nucleo import (Lateral, PresionInsuficiente, cargar_catalogo_emisores,
 from .comunes import (M_POR_BAR, Figure, FigureCanvasQTAgg, descripcion_emisor,
                       enlazar_cintas, html_avisos, html_estado, html_tabla)
 from .comunes import spin as _spin
+from .tema import aplicar_tema, pintar_figura
 
 
 class DialogoLateral(QDialog):
     def __init__(self, iface, parent=None):
         super().__init__(parent)
+        aplicar_tema(self)
         self.iface = iface
         self._capa_elegida = None  # id de la capa donde quedó seleccionado el lateral elegido en el mapa
         self.setWindowTitle("RiegoLibre · Calculadora de lateral (goteo)")
@@ -370,4 +372,5 @@ class DialogoLateral(QDialog):
         lineas = ejes.get_legend_handles_labels()
         lineas_t = terreno.get_legend_handles_labels()
         ejes.legend(lineas[0] + lineas_t[0], lineas[1] + lineas_t[1], loc="best", fontsize=8)
+        pintar_figura(self.figura)
         self.lienzo.draw()

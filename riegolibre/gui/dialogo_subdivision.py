@@ -17,11 +17,13 @@ from qgis.PyQt.QtWidgets import (QApplication, QButtonGroup, QDialog, QDialogBut
 from ..nucleo.subdivision import (AUTO_AREA, AUTO_CAUDAL, AUTO_NUMERO, DISTANCIA, HILERAS, NINGUNO, NUMERO,
                                   ParametrosSubdivision)
 from .comunes import html_tabla, spin
+from .tema import aplicar_tema
 
 
 class DialogoSubdivision(QDialog):
     def __init__(self, parent, capa, entidad, params_bloque, angulo_deg, nombre, valores_bloque):
         super().__init__(parent)
+        aplicar_tema(self)
         self.capa, self.entidad = capa, entidad
         self.params_bloque, self.angulo = params_bloque, angulo_deg
         self.nombre = nombre or "Lote"

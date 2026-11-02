@@ -22,6 +22,7 @@ from ..nucleo.trazado import (LADOS_AMBOS, LADOS_UNO, ParametrosTrazado, buscar_
 from ..nucleo.tuberias import clave_economica
 from .comunes import (ComboDiametros, ComboTuberiaPortalateral, GrupoCriterios,
                       GrupoLaterales, html_avisos, html_estado, html_tabla, spin)
+from .tema import aplicar_tema
 
 ALCANCE_HIDRAULICO, ALCANCE_FIJO = "hidraulico", "fijo"
 ORIGEN_SUGERIDA, ORIGEN_PROPIO = "Sugerida", "Su azimut"
@@ -59,6 +60,7 @@ def eliminar_grupos(patron):
 class DialogoTrazado(QDialog):
     def __init__(self, iface, parent=None):
         super().__init__(parent)
+        aplicar_tema(self)
         self.iface = iface
         self.setWindowTitle("RiegoLibre · Trazado automático de subunidades (goteo)")
         self.resize(1300, 820)

@@ -30,6 +30,13 @@ Fuente: sesiones de octubre de 2026. El usuario valida la hidráulica y prueba e
   topológicas (quiebres, bifurcaciones tipo tee). IRRICAD también los inserta a mano con «Mainline Pipe Junction» (cuadro con
   capa, color, símbolo, tamaño y «Permanent»; luego clics sobre la tubería). Aquí: «Insertar nodo en la matriz…»
   (`DialogoRed.insertar_nodo`); no se replicó el cuadro de símbolo/tamaño/«Permanent».
+- Valve Connector (2026-11-02, video 00-07-37): el usuario explicó que la matriz solo se dimensiona si todas las válvulas están
+  conectadas a ella, hay una fuente asignada y los turnos están configurados; esta herramienta resuelve el primer punto. En
+  IRRICAD es de un solo paso: cuadro (Match nearest pipe, longitud máxima 100 m, capa/ancho/tubería en gris cuando «Match» está
+  marcado) → OK → dibuja a la vez todos los tramos válvula–matriz (barra de estado: «Automatically connect valves to the nearest
+  mainline»). Aquí: «Conectar válvulas a la matriz…» en la ventana de la red (`DialogoRed.conectar_valvulas`,
+  `gui/dialogo_conector_valvulas.py`); no se replicaron capa ni ancho de línea (la capa siempre es «Matriz»). Por confirmar: que
+  IRRICAD conecte también a las tuberías de conexión ya dibujadas, y si «Permanent Junctions»/«Depth» hacen falta.
 - Presión mínima y máxima en el mapa (video del usuario, 2026-10-31): un botón con menú «All Valves / Selected Valves /
   Clear Markers»; los marcadores salen en el emisor de menor y de mayor presión y, al pasar el cursor, muestran
   «Max: 21.0 m». Aquí van como rótulos fijos «Máx: 21.0 m» / «Mín: …» (`integracion/limites_presion.py`). Por confirmar

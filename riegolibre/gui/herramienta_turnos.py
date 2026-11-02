@@ -17,6 +17,7 @@ from qgis.PyQt.QtWidgets import (QAbstractItemView, QDialog, QHBoxLayout, QHeade
 
 from ..integracion import turnos_mapa
 from ..nucleo.turnos import (COLOR_SELECCION, TURNO_MAXIMO, color_de_turno, siguiente_turno, texto_balance)
+from .tema import aplicar_tema
 
 TOLERANCIA_PIXELES = 8  # distancia a una válvula suelta para marcarla
 ARRASTRE_PIXELES = 5  # menos que esto es un clic, no un rectángulo
@@ -39,6 +40,7 @@ class PanelTurnos(QDialog):
 
     def __init__(self, parent=None):
         super().__init__(parent)
+        aplicar_tema(self)
         self.setWindowTitle("RiegoLibre · Turnos de riego")
         self.setWindowFlag(Qt.WindowType.WindowStaysOnTopHint, True)
         self.resize(440, 600)

@@ -16,11 +16,13 @@ from ..integracion.lotes import agregar_al_mapa, importar_lotes, ruta_por_defect
 from ..integracion.topografia_cad import capas_que_usan, leer_dxf
 from .comunes import html_avisos, html_tabla
 from .dialogo_topografia import AJUSTE_CARPETA, AJUSTE_CRS, _nota
+from .tema import aplicar_tema
 
 
 class DialogoLotes(QDialog):
     def __init__(self, iface, parent=None):
         super().__init__(parent)
+        aplicar_tema(self)
         self.iface = iface
         self.contenido = None
         self.setWindowTitle("RiegoLibre · Importar lotes de CAD")

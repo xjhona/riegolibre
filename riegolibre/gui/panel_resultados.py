@@ -15,6 +15,7 @@ from ..nucleo.graficos import (dibujar_perfil_subunidad, puntos_perfil_subunidad
 from ..nucleo.memoria import avisos_subunidad, descripcion_telescopico
 from .comunes import (M_POR_BAR, Figure, FigureCanvasQTAgg, html_avisos,
                       html_estado, html_tabla)
+from .tema import pintar_figura
 
 
 def nombre_rama(resultado, rama):
@@ -165,4 +166,5 @@ class PanelResultadosSubunidad(QTabWidget):
             return
         dibujar_perfil_subunidad(self.figura, puntos_perfil_subunidad(r), r.presion_entrada_m,
                                  *referencia_emisor(emisor))
+        pintar_figura(self.figura)
         self.lienzo.draw()

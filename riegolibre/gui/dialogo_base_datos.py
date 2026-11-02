@@ -22,6 +22,7 @@ from ..nucleo.edicion_base import (CAMPOS, CATEGORIAS, NUMERO_OPCIONAL, NUMERO, 
                                    guardar_registro, registro_nuevo, validar)
 from ..nucleo.importar_irricad import importar_irricad
 from ..nucleo.mdb import ErrorMdb
+from .tema import aplicar_tema
 
 AJUSTE_CARPETA = "riegolibre/base_datos/carpeta_mdb"
 NOMBRES_PESTANAS_IRRICAD = {11: "Pumps (bombas)", 12: "Outlets (aspersores, microaspersores, hidrantes)",
@@ -100,6 +101,7 @@ class DialogoRegistro(QDialog):
 
     def __init__(self, categoria, registro, base, parent=None, nuevo=False):
         super().__init__(parent)
+        aplicar_tema(self)
         self.categoria, self.base, self.original = categoria, base, registro
         self.registro = None  # el registro editado, solo si se aceptó
         self.setWindowTitle(f"RiegoLibre · {'Nuevo registro' if nuevo else 'Editar registro'} "
@@ -190,6 +192,7 @@ class DialogoBaseDatos(QDialog):
 
     def __init__(self, iface, parent=None):
         super().__init__(parent)
+        aplicar_tema(self)
         self.iface = iface
         self.setWindowTitle("RiegoLibre · Base de datos de materiales")
         self.resize(1200, 680)

@@ -26,6 +26,7 @@ from ..nucleo import PresionInsuficiente, cargar_catalogo_emisores, cargar_catal
 from ..nucleo.subunidad import limites_presion_emisor
 from ..nucleo.tuberias import clave_economica
 from .comunes import html_avisos, spin_diametros_por_rama
+from .tema import aplicar_tema, sombra_solo_lectura
 
 # Columnas
 (C_ZONA, C_PROCESAR, C_CAUDAL, C_VALVULA_DESEADA, C_VALVULA_REAL, C_EMISORES, C_PERMITIDA_MIN, C_PERMITIDA_MAX,
@@ -68,6 +69,7 @@ def _texto(valor, decimales=2):
 class DialogoZonas(QDialog):
     def __init__(self, iface, parent=None):
         super().__init__(parent)
+        aplicar_tema(self)
         self.iface = iface
         self.abrir_lote = None  # función (capa, entidad) para abrir un lote en «Bloque de goteo»
         self.setWindowTitle("RiegoLibre · Zonas (configuración del diseño)")
@@ -123,7 +125,7 @@ class DialogoZonas(QDialog):
         self.texto = QTextBrowser()
         self.texto.setHtml(
             "<p>Una fila por lote. Diseñe cada lote con la herramienta <b>Bloque de goteo</b>; aquí se ven "
-            "todas las zonas juntas. Edite las celdas blancas (doble clic), marque las zonas en "
+            "todas las zonas juntas. Edite las celdas sin sombrear (doble clic), marque las zonas en "
             "<b>Procesar</b> y pulse <b>Calcular las zonas marcadas</b>. Doble clic en el nombre acerca el "
             "mapa a la zona.</p>")
 
@@ -213,7 +215,7 @@ class DialogoZonas(QDialog):
         if editable:
             flags |= Qt.ItemFlag.ItemIsEditable
         else:
-            item.setBackground(QBrush(QColor(0, 0, 0, 12)))
+            item.setBackground(QBrush(sombra_solo_lectura()))
         item.setFlags(flags)
         if columna != C_ZONA:
             item.setTextAlignment(Qt.AlignmentFlag.AlignRight | Qt.AlignmentFlag.AlignVCenter)
