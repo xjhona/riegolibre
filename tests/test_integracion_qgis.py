@@ -283,7 +283,7 @@ class PruebasIntegracionQgis(unittest.TestCase):
         # Todo cuelga de un solo menú, antes de «Ayuda», y la barra propia lleva el mismo orden.
         acciones_menu = iface.ventana.menuBar().actions()
         self.assertEqual([a.text() for a in acciones_menu], ["&RiegoLibre", "Ayuda"])
-        principales = ["Terreno y lotes", "Diseño de goteo",
+        principales = ["Terreno y lotes", "Diseño de goteo", "Diseño de aspersión",
                        "Bloque de goteo (clic en un lote; Ctrl + clic para eliminar su bloque)", "",
                        "Fuente de agua (clic en el mapa donde están la bomba y el cabezal)",
                        "Red principal y bomba…",
@@ -301,6 +301,7 @@ class PruebasIntegracionQgis(unittest.TestCase):
                                 "Diseño de subunidad en el mapa (goteo)…",
                                 "Trazado automático de subunidades (goteo)…",
                                 "Diámetros de portalaterales por velocidad…"],
+            "Diseño de aspersión": ["Calculadora de lateral de aspersión…"],
             "Presión mínima y máxima": ["Todas las válvulas", "Válvulas seleccionadas", "Borrar marcadores"],
             "Materiales y documentos": ["Base de datos de materiales…", "Lista de materiales y costos…",
                                         "Memoria de cálculo…"],

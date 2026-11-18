@@ -1,0 +1,60 @@
+{
+  "_nota": "Aspersores genéricos de referencia: caudal de orificio (Cd 0.95) a la presión nominal y diámetro mojado típico. Reemplazar por los de la base de IRRICAD (Outlets/Nozzles) o del fabricante.",
+  "aspersores": [
+    {
+      "nombre": "Aspersor de impacto 1/2\" boquilla 3.5 mm",
+      "caudal_nominal_m3h": 0.798,
+      "presion_nominal_m": 30,
+      "diametro_mojado_m": 24,
+      "exponente": 0.5,
+      "boquilla_mm": 3.5,
+      "presion_min_m": 20,
+      "presion_max_m": 40,
+      "cv": 0.0
+    },
+    {
+      "nombre": "Aspersor de impacto 1/2\" boquilla 4.0 mm",
+      "caudal_nominal_m3h": 1.043,
+      "presion_nominal_m": 30,
+      "diametro_mojado_m": 26,
+      "exponente": 0.5,
+      "boquilla_mm": 4.0,
+      "presion_min_m": 20,
+      "presion_max_m": 40,
+      "cv": 0.0
+    },
+    {
+      "nombre": "Aspersor de impacto 1/2\" boquilla 4.5 mm",
+      "caudal_nominal_m3h": 1.32,
+      "presion_nominal_m": 30,
+      "diametro_mojado_m": 28,
+      "exponente": 0.5,
+      "boquilla_mm": 4.5,
+      "presion_min_m": 20,
+      "presion_max_m": 45,
+      "cv": 0.0
+    },
+    {
+      "nombre": "Aspersor de impacto 3/4\" boquilla 5.0 mm",
+      "caudal_nominal_m3h": 1.76,
+      "presion_nominal_m": 35,
+      "diametro_mojado_m": 31,
+      "exponente": 0.5,
+      "boquilla_mm": 5.0,
+      "presion_min_m": 25,
+      "presion_max_m": 50,
+      "cv": 0.0
+    },
+    {
+      "nombre": "Aspersor de impacto 3/4\" boquilla 6.0 mm",
+      "caudal_nominal_m3h": 2.534,
+      "presion_nominal_m": 35,
+      "diametro_mojado_m": 34,
+      "exponente": 0.5,
+      "boquilla_mm": 6.0,
+      "presion_min_m": 25,
+      "presion_max_m": 50,
+      "cv": 0.0
+    }
+  ]
+}

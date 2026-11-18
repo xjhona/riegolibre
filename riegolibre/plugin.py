@@ -54,6 +54,8 @@ class RiegoLibrePlugin:
             self._crear_accion("icon_mapa.svg", "Diseño de subunidad en el mapa (goteo)…", "mapa"),
             self._crear_accion("icon_trazado.svg", "Trazado automático de subunidades (goteo)…", "trazado"),
             self._crear_accion("icon_diametros.svg", "Diámetros de portalaterales por velocidad…", "diametros")))
+        self._agregar_grupo("Diseño de aspersión", "icon_aspersion.svg", (
+            self._crear_accion("icon_aspersion.svg", "Calculadora de lateral de aspersión…", "aspersion"),))
         # Las herramientas de mapa y lo que se abre seguido quedan a un clic, sin desplegar nada.
         self.accion_bloque = self._crear_herramienta(
             "icon_bloque.svg", "Bloque de goteo (clic en un lote; Ctrl + clic para eliminar su bloque)",
@@ -392,6 +394,8 @@ class RiegoLibrePlugin:
                 from .gui.dialogo_lotes import DialogoLotes as Clase
             elif nombre == "bloque":
                 from .gui.dialogo_bloque import DialogoBloque as Clase
+            elif nombre == "aspersion":
+                from .gui.dialogo_aspersion import DialogoAspersion as Clase
             elif nombre == "diametros":
                 from .gui.dialogo_diametros import DialogoDiametros as Clase
             elif nombre == "zonas":

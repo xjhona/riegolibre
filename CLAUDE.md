@@ -17,7 +17,7 @@ Repositorio: https://github.com/xjhona/riegolibre (rama `main`, cuenta gh `xjhon
   `QT_QPA_PLATFORM=offscreen timeout 600 "C:/Program Files/QGIS 3.44.15/bin/python-qgis-ltr.bat" -m unittest discover -s tests -t .`
 - Solo el motor: `C:\Users\Jhonatan\AppData\Local\Python\bin\python.exe -m unittest discover -s tests -t .`
   (el `python` de bash es el alias de la Tienda y no sirve).
-- Estado: ~425 pruebas pasan (el 2026-10-31 se retiró el motor de trazado automático de la red y sus pruebas). Lo nuevo de octubre no se ha probado a mano con pantalla en QGIS.
+- Estado: ~445 pruebas pasan (el 2026-10-31 se retiró el motor de trazado automático de la red y sus pruebas). Lo nuevo de octubre no se ha probado a mano con pantalla en QGIS.
 
 ## Reglas
 - Mantener el núcleo sin imports de QGIS. Compatibilidad Qt6: enums con nombre completo, `exec()`.
@@ -41,8 +41,8 @@ Repositorio: https://github.com/xjhona/riegolibre (rama `main`, cuenta gh `xjhon
 - GeoPackage: el primer campo es `fid`; nunca `setAttributes` posicional en capas que ya pudieron guardarse.
 - Un `QMessageBox` dentro de una prueba la deja colgada: usar `QT_QPA_PLATFORM=offscreen` y `timeout`.
 - Bash y Edit convierten `\u200b` y `\n` escritos en heredoc: usar `chr()`.
-- La lista de precios `BaseDatos_Costos_COT-2026-001.csv` no está en el repo; en este computador no existe
-  `%APPDATA%\RiegoLibre\base_datos.json` (se usa el catálogo genérico).
+- La lista de precios `BaseDatos_Costos_COT-2026-001.csv` no está en el repo. En este computador sí existe
+  `%APPDATA%\RiegoLibre\base_datos.json` (importada el 2026-10-11): las ventanas muestran sus tuberías, no las genéricas.
 
 ## Estado al 2026-10-31
 Hecho: lateral, subunidad, diseño en el mapa, trazado automático de subunidades, red principal y bomba (botón «Fuente de agua»:
@@ -53,7 +53,8 @@ topografía de CAD + satelital + 3D, lotes y bloque de goteo completo, diámetro
 
 Pendientes principales (lista viva y «Por confirmar» en `PENDIENTES.md`):
 1. Probar a mano en QGIS, con un terreno real, las ventanas nuevas.
-2. Riego por aspersión (el usuario dará las pestañas Outlets/Nozzles del .mdb).
+2. Riego por aspersión: hecha la calculadora de lateral (`nucleo/aspersion.py`); falta el bloque en el mapa y
+   las pestañas Outlets/Nozzles del .mdb (las dará el usuario).
 3. Importar bombas (pestaña Pumps) y precios de válvulas/equipos en la lista de materiales.
 4. Turnos automáticos que equilibren el caudal.
 5. Presión estática: ignora la presión de entrada (subestima un poco con bomba).

@@ -13,6 +13,7 @@ riegolibre/                 Complemento de QGIS (esta carpeta es la que se insta
 │   ├── emisores.py         Goteros y cintas: q = k·h^x, autocompensados
 │   ├── tuberias.py         Tuberías y catálogo
 │   ├── lateral.py          Lateral emisor por emisor, presión requerida, longitud máxima
+│   ├── aspersion.py        Aspersión: aspersor y elevador, marco, pluviometría, lateral de aspersores
 │   ├── portalateral.py     Portalateral (laterales a uno o ambos lados)
 │   ├── subunidad.py        Subunidad (entrada en extremo o centro) y selección de diámetro
 │   ├── red.py              Red principal ramificada: turnos, diámetros, clases y bomba
@@ -72,6 +73,7 @@ Todas las herramientas están en el menú **RiegoLibre** (en la barra de menús 
 | --- | --- |
 | **Terreno y lotes** (despliega) | Topografía, Importar lotes de CAD, Importar diseño del MCP, Zonas |
 | **Diseño de goteo** (despliega) | Calculadora de lateral, Subunidad de riego, Diseño de subunidad en el mapa, Trazado automático, Diámetros de portalaterales |
+| **Diseño de aspersión** (despliega) | Calculadora de lateral de aspersión |
 | **Bloque de goteo** | Herramienta de mapa, a un clic |
 | **Fuente de agua** | Herramienta de mapa, a un clic |
 | **Red principal y bomba** | Ventana de la red, a un clic |
@@ -283,6 +285,13 @@ Se exporta a **PDF**, a **ODT**, que se abre y edita en Word o LibreOffice, o a 
 
 **Convención de pendiente.** Positiva cuando el terreno sube desde la entrada hacia el final.
 
+**Aspersión** (`nucleo/aspersion.py`, primera etapa).
+- El aspersor sigue q = k·hᵇ con la presión en la boquilla. Entre el lateral y la boquilla se descuentan la altura del elevador y su pérdida (Darcy a lo largo del tubo más K = 1 de la te). Así el aspersor se comporta como un emisor más y el lateral se calcula con el mismo motor paso a paso del goteo.
+- El primer aspersor va a medio espaciamiento de la entrada. La presión de entrada se fija para que el caudal medio sea el nominal (presión media = nominal).
+- El lateral cumple si la diferencia de presión entre boquillas no pasa el 20 % de la nominal (regla de Christiansen, un 10 % de caudal) y ningún aspersor sale de su rango de trabajo. *Número máximo de aspersores* busca el lateral más largo que lo cumple.
+- Marco rectangular o triangular: pluviometría = q / (Se·Sl). La separación máxima es una fracción del diámetro mojado según el viento: menos de 2 m/s, 60 %; de 2 a 4 m/s, 50 %; más de 4 m/s, 40 % (triangular, +5 %). Si la pluviometría supera la infiltración básica del suelo hay escorrentía. El tiempo de riego es la lámina bruta entre la pluviometría.
+- El catálogo `datos/aspersores.json` trae aspersores genéricos (caudal de orificio con Cd 0.95). Los de IRRICAD llegarán con las pestañas *Outlets* y *Nozzles*.
+
 ## Importar un diseño del servidor MCP
 
 El servidor MCP de [`mcp_riegolibre/`](mcp_riegolibre/README.md) diseña un proyecto a partir de instrucciones,
@@ -322,7 +331,8 @@ Código: `integracion/importar_mcp.py` y `gui/dialogo_importar_mcp.py`.
 - [ ] Base de datos: edición de registros (fase 2) y válvulas y filtros en el cálculo (fase 3)
 - [x] Memoria de cálculo (PDF, ODT y HTML)
 - [x] Elección de diámetros de la red por costo (tubería + energía de bombeo)
-- [ ] Riego por aspersión
+- [x] Riego por aspersión, primera etapa: calculadora de lateral de aspersión
+- [ ] Riego por aspersión: bloque en el mapa, red y aspersores de la base de IRRICAD
 
 ## Autoría y licencia
 
