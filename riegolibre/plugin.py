@@ -26,6 +26,9 @@ class RiegoLibrePlugin:
         self.dialogo_info = None
         self.accion_bloque = None
         self.herramienta_bloque = None
+        self.accion_fuente = None
+        self.colocador_fuente = None
+        self.ventana_oculta = None  # ventana que se esconde mientras se marca la fuente en el mapa
         self.accion_turnos = None
         self.herramienta_turnos = None
         self.panel_turnos = None
@@ -56,6 +59,10 @@ class RiegoLibrePlugin:
             self._activar_bloque)
         self._agregar_directa(self.accion_bloque)
         self._separar()
+        self.accion_fuente = self._crear_herramienta(
+            "icon_fuente.svg", "Fuente de agua (clic en el mapa donde están la bomba y el cabezal)",
+            self._activar_fuente)
+        self._agregar_directa(self.accion_fuente)
         self._agregar_directa(self._crear_accion("icon_red.svg", "Red principal y bomba…", "red"))
         self.accion_turnos = self._crear_herramienta(
             "icon_turnos.svg", "Turnos de riego (marcar bloques en el mapa y asignarles un turno)",
@@ -205,6 +212,42 @@ class RiegoLibrePlugin:
             texto += " Sin laterales calculados: " + ", ".join(resumen.sin_resultados) + "."
         barra.pushMessage("RiegoLibre", texto, Qgis.MessageLevel.Info, 6)
 
+    def _activar_fuente(self, activa):
+        if activa:
+            if self.colocador_fuente is None:
+                from .gui.herramienta_fuente import ColocarFuente
+                self.colocador_fuente = ColocarFuente(self.iface, self.iface.mainWindow(),
+                                                      self._fuente_colocada, self._fuente_terminada)
+            if not self.colocador_fuente.iniciar():
+                self._fuente_terminada()
+        elif self.colocador_fuente is not None:
+            self.colocador_fuente.cancelar()
+
+    def _fuente_terminada(self):
+        """La herramienta ya no está activa (se colocó la fuente o se canceló): suelta el botón y devuelve la ventana."""
+        self.accion_fuente.setChecked(False)
+        ventana, self.ventana_oculta = self.ventana_oculta, None
+        if ventana is not None:
+            ventana.show()
+            ventana.raise_()
+            ventana.activateWindow()
+
+    def _fuente_colocada(self, capa):
+        """Las ventanas que piden la fuente quedan apuntando a la capa (la del bloque, solo si no tenía una)."""
+        red = self.dialogos.get("red")
+        if red is not None:
+            red.combo_fuente.setLayer(capa)
+        bloque = self.dialogos.get("bloque")
+        if bloque is not None and bloque.combo_fuente.currentLayer() is None:
+            bloque.combo_fuente.setLayer(capa)
+
+    def _fuente_desde_red(self):
+        """Botón de la ventana de la red: se esconde mientras se marca la fuente en el mapa."""
+        red = self.dialogos["red"]
+        red.hide()
+        self.ventana_oculta = red
+        self.accion_fuente.setChecked(True)
+
     def _activar_turnos(self, activa):
         canvas = self.iface.mapCanvas()
         if activa:
@@ -278,6 +321,9 @@ class RiegoLibrePlugin:
             self.herramienta_bloque = None
         from .integracion.bloque_mapa import olvidar_eliminaciones
         olvidar_eliminaciones()  # suelta las capas guardadas para deshacer
+        if self.colocador_fuente is not None:
+            self.colocador_fuente.cancelar()
+            self.colocador_fuente = None
         if self.herramienta_turnos is not None:
             self.iface.mapCanvas().unsetMapTool(self.herramienta_turnos)
             self.herramienta_turnos = None
@@ -360,6 +406,7 @@ class RiegoLibrePlugin:
                 dialogo.abrir_lote = self._abrir_lote
             elif nombre == "red":
                 dialogo.abrir_turnos = lambda: self.accion_turnos.setChecked(True)
+                dialogo.abrir_fuente = self._fuente_desde_red
         if not mostrar:
             return
         dialogo.show()

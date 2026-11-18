@@ -72,6 +72,7 @@ Todas las herramientas están en el menú **RiegoLibre** (en la barra de menús 
 | **Terreno y lotes** (despliega) | Topografía, Importar lotes de CAD, Zonas |
 | **Diseño de goteo** (despliega) | Calculadora de lateral, Subunidad de riego, Diseño de subunidad en el mapa, Trazado automático, Diámetros de portalaterales |
 | **Bloque de goteo** | Herramienta de mapa, a un clic |
+| **Fuente de agua** | Herramienta de mapa, a un clic |
 | **Red principal y bomba** | Ventana de la red, a un clic |
 | **Turnos de riego** | Herramienta de mapa, a un clic |
 | **Información del objeto** | Herramienta de mapa, a un clic |
@@ -138,8 +139,19 @@ Los marcadores van en la capa *Presión mínima y máxima* (campos `tipo`, `pres
 Menú **RiegoLibre → Red principal y bomba**:
 
 1. Cada subunidad diseñada en el mapa deja una capa *Válvula · nombre* con su caudal y presión requerida. También sirve cualquier capa de puntos con los campos `presion` (m) y `caudal_lh` (L/h).
-2. Dibuje la **fuente** (punto de la bomba y el cabezal) y las **tuberías** hasta cada válvula. No hace falta cortar las líneas en las uniones: los extremos, las uniones en T, la fuente y las válvulas se detectan dentro de una tolerancia.
+2. Marque la **fuente de agua** (punto de la bomba y el cabezal) con el botón **Fuente de agua** (siguiente sección) y dibuje las **tuberías** hasta cada válvula. No hace falta cortar las líneas en las uniones: los extremos, las uniones en T, la fuente y las válvulas se detectan dentro de una tolerancia.
 3. Pulse **Buscar válvulas**, asigne el **turno** de riego de cada una y pulse **Calcular**. Los turnos se asignan en la tabla o, más cómodo, en el mapa (siguiente sección).
+
+### Fuente de agua en el mapa
+
+El botón **Fuente de agua** de la barra de RiegoLibre (o **Colocar la fuente de agua…** en la ventana de la red, que se esconde mientras se marca) es el *Water Supply* de IRRICAD: de ese punto arranca la tubería matriz.
+
+- Un **clic** en el mapa deja la fuente en ese punto; con el imán del proyecto activado se pega a un extremo de tubería o a una válvula (y la herramienta atrae por sí sola a los vértices de la capa *Red principal* y de las válvulas). Esc o clic derecho cancelan.
+- La fuente es la capa de puntos **Fuente** (cuadro azul como la bomba de los resultados, rotulada «Fuente»), con un solo punto. Si el proyecto no la tiene, se crea en el SRC del proyecto (debe ser métrico) y se guarda en el GeoPackage junto al proyecto, como las demás capas de dibujo.
+- Si ya hay una fuente, pregunta antes de cambiarla de lugar: la nueva **reemplaza** a la anterior (siempre un solo punto). Si la capa estaba en edición, el cambio se confirma sin cerrar la edición.
+- La ventana de la red, si está abierta, queda con esa capa en «Capa de la fuente», y la ventana del bloque de goteo también si no tenía fuente elegida; al calcular no hay que tocar nada más. Sin fuente colocada, el cálculo avisa que falta.
+
+Código: `integracion/fuente_mapa.py` (capa, estilo, reemplazo) y `gui/herramienta_fuente.py` (el clic, con `HerramientaPuntos`).
 
 ### Turnos de riego en el mapa
 
