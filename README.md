@@ -36,6 +36,7 @@ riegolibre/                 Complemento de QGIS (esta carpeta es la que se insta
 │   ├── trazado_mapa.py     Trazado automático: geometrías, pendiente del DEM, alcance de laterales y capas
 │   ├── red_mapa.py         Topología de la red principal dibujada y capas de resultado
 │   ├── turnos_mapa.py      Turnos de riego pintados en el mapa (capa «Turnos de riego»)
+│   ├── importar_mcp.py     Rehace en el mapa un diseño del servidor MCP (capas propias del complemento)
 │   ├── materiales_mapa.py  Metrado a partir de las capas de resultado del proyecto
 │   └── memoria_mapa.py     Resúmenes guardados en las capas y plano general
 └── gui/                    Ventanas: lateral, subunidad, diseño en el mapa, trazado automático, red, base de datos,
@@ -69,7 +70,7 @@ Todas las herramientas están en el menú **RiegoLibre** (en la barra de menús 
 
 | En la barra | Contiene |
 | --- | --- |
-| **Terreno y lotes** (despliega) | Topografía, Importar lotes de CAD, Zonas |
+| **Terreno y lotes** (despliega) | Topografía, Importar lotes de CAD, Importar diseño del MCP, Zonas |
 | **Diseño de goteo** (despliega) | Calculadora de lateral, Subunidad de riego, Diseño de subunidad en el mapa, Trazado automático, Diámetros de portalaterales |
 | **Bloque de goteo** | Herramienta de mapa, a un clic |
 | **Fuente de agua** | Herramienta de mapa, a un clic |
@@ -281,6 +282,31 @@ Se exporta a **PDF**, a **ODT**, que se abre y edita en Word o LibreOffice, o a 
 - Hazen-Williams como alternativa.
 
 **Convención de pendiente.** Positiva cuando el terreno sube desde la entrada hacia el final.
+
+## Importar un diseño del servidor MCP
+
+El servidor MCP de [`mcp_riegolibre/`](mcp_riegolibre/README.md) diseña un proyecto a partir de instrucciones,
+sin QGIS. **RiegoLibre → Terreno y lotes → Importar diseño del MCP…** lo convierte en un borrador para terminar en
+QGIS: se elige el `…_datos.json` que escribe `exportar_proyecto` y, con esos datos, se rehacen los bloques con las
+mismas funciones de la herramienta *Bloque de goteo* (no se copian las geometrías del GeoJSON del servidor):
+
+- una capa de lotes «Lotes · proyecto» con los parámetros del bloque guardados en cada lote (campo `bloque`,
+  como al pulsar *Aplicar y calcular*), y el grupo *RiegoLibre · lote* con laterales, portalateral y válvula;
+  con `subdivision`, cada sub-bloque es un lote (`lote-1`, `lote-2`…);
+- el DEM (`terreno.tipo = dem`) como capa ráster; un terreno `plano` o `puntos` se escribe antes como `.asc`
+  junto al archivo de datos;
+- la `fuente` en la capa «Fuente»; `red.matriz` en «Matriz» y «Nodos de la matriz», con las válvulas unidas
+  como *Conector de válvulas*. Si el diseño no trae la matriz se puede dar un GeoJSON de líneas aparte (la
+  ventana propone `matriz_trazada.geojson` si está junto a los datos);
+- con más de un turno, los turnos repartidos como el servidor, pintados en «Turnos de riego»;
+- una `cinta` definida en el diseño (no en la base de datos) se agrega a la base de datos si se marca la
+  casilla; si no, sirve solo para esta importación y para recalcular un lote habrá que agregarla.
+
+Las capas pasan al GeoPackage del proyecto como las demás. Después se sigue como con un diseño hecho a mano:
+*Red principal y bomba*, materiales y memoria. Si el proyecto ya tiene lotes con los mismos nombres, la importación
+se detiene para no pisarlos. Con el caso Fruveg (61 lotes, DEM de 1 m) da los mismos portalaterales que el
+servidor y presiones en la válvula a menos de 0.1 m (el complemento lee el DEM por celda y el servidor interpola).
+Código: `integracion/importar_mcp.py` y `gui/dialogo_importar_mcp.py`.
 
 ## Hoja de ruta
 

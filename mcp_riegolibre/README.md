@@ -39,12 +39,32 @@ las indicaciones del usuario (caminos, bordes). Cada válvula se une a la matriz
 dimensiona con `nucleo/red.py`. Lo práctico es diseñar primero sin matriz para ver dónde quedan las
 válvulas (`valvula_xy`) y luego dibujarla.
 
+## Llevar el diseño a QGIS
+
+`exportar_proyecto` escribe `<nombre>_datos.json`. En QGIS, **RiegoLibre → Terreno y lotes → Importar diseño del
+MCP…** toma ese archivo y rehace el diseño con las herramientas del complemento: lotes con sus parámetros del
+bloque de goteo, laterales, portalaterales y válvulas, DEM, fuente, tubería matriz (con las válvulas unidas) y
+turnos, en las mismas capas que se hacen a mano. Queda como un borrador para revisar lote por lote con *Bloque de
+goteo*, calcular la red y la bomba y sacar materiales y memoria. Conviene guardar antes el proyecto de QGIS
+(las capas van a su GeoPackage) y dejar el DEM y el GeoJSON de los lotes junto al archivo de datos: si las rutas
+guardadas no existen, se buscan allí. El GeoJSON que exporta el servidor sirve para mirar el resultado; el
+complemento no lo usa.
+
 ## Diferencias con el complemento
 
 - El terreno es llano, un plano inclinado, puntos acotados (IDW) o un DEM en ASCII Grid (`.asc`); no lee
   otros formatos de ráster.
 - La subdivisión recorta los sub-bloques con un algoritmo simple (Sutherland-Hodgman); en lotes muy
   cóncavos o con huecos puede dejar bordes de más.
+- El servidor interpola el DEM entre celdas y el complemento toma el valor de la celda: al importar el diseño
+  en QGIS, la presión en la válvula puede variar unos centímetros (en Fruveg, menos de 0.1 m) y, en un caso
+  límite, el diámetro elegido.
+- La dirección automática de los laterales usa la pendiente de un plano ajustado al lote; el complemento usa
+  el relieve real del DEM, así que con `azimut_laterales_deg` vacío la dirección puede cambiar al importar.
+  Para conservarla, fíjela con `azimut_laterales_deg`.
+- Lo que no pasa a QGIS al importar: los criterios de `red` (velocidad, presión mínima, pérdidas del cabezal,
+  succión, eficiencia) se ponen a mano en *Red principal y bomba* (la ventana de importación los recuerda);
+  la red y la bomba se calculan allí.
 - Los diseños viven en memoria mientras el servidor está abierto; para retomarlos, vuelva a diseñar con
   el archivo `_datos.json` exportado.
 
