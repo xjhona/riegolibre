@@ -82,6 +82,18 @@ class PruebasMotor(unittest.TestCase):
         self.assertEqual([s.nombre for s in p.subunidades], ["A"])
         self.assertTrue(any(e.startswith("B:") for e in p.errores))
 
+    def test_cinta_definida_en_el_proyecto(self):
+        cinta = {"nombre": "Cinta PC 1.6 L/h", "diametro_interior_mm": 13.7, "k_emisor": 1.6, "exponente_emisor": 0.0,
+                 "espaciamiento_m": 0.3, "presion_min_compensacion_m": 10, "presion_max_m": 30, "cv": 0.02}
+        p = motor.disenar_proyecto({"goteo": {"cinta": cinta, "separacion_hileras_m": 3.0},
+                                    "lotes": [{"nombre": "A", "contorno": rectangulo(0, 0, 60, 30)}]})
+        s = p.resumen()["subunidades"][0]
+        self.assertTrue(s["cumple"], s["motivos"])
+        self.assertGreaterEqual(s["presion_emisor_min_m"], 10)
+        with self.assertRaisesRegex(ValueError, "desconocidos"):
+            motor.disenar_proyecto({"goteo": {"cinta": dict(cinta, caudal=2), "separacion_hileras_m": 3.0},
+                                    "lotes": [{"nombre": "A", "contorno": rectangulo(0, 0, 60, 30)}]})
+
     def test_nombre_ambiguo(self):
         with self.assertRaisesRegex(ValueError, "ambiguo"):
             motor.disenar_proyecto({"goteo": dict(GOTEO, emisor="autocompensado"),

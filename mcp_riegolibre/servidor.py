@@ -78,7 +78,10 @@ def disenar_proyecto(proyecto: dict) -> str:
       «goteo» para cambiarla solo en ese lote}]. O bien lotes_geojson: ruta a un GeoJSON de polígonos
       (campo_nombre: atributo con el nombre); entonces «lotes» solo lleva ajustes por nombre.
     - goteo (para todos los lotes):
-        emisor + tuberia_lateral (nombre o parte única del nombre), o cinta (de la base de datos);
+        emisor + tuberia_lateral (nombre o parte única del nombre), o cinta (de la base de datos) o definida
+        aquí como dict con los campos de «Edit Tape» de IRRICAD: nombre, diametro_interior_mm, k_emisor,
+        exponente_emisor, espaciamiento_m, y opcionales c_hazen, cv, longitud_equivalente_m (barb factor),
+        presion_entrada_m, presion_min_m, presion_max_m, presion_min_compensacion_m, presion_nominal_m;
         espaciamiento_emisores_m, primer_emisor_m (por omisión, medio espaciamiento);
         separacion_hileras_m, laterales_por_hilera, separacion_en_hilera_m, cabecera_m, costados_m;
         azimut_laterales_deg (None: automático);

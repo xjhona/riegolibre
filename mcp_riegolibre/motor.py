@@ -34,7 +34,7 @@ from riegolibre.nucleo import (ConexionLateral, CriteriosDiseno, CriteriosRed, D
                                cargar_catalogo_tuberias, dimensionar_red, disenar_subunidad, longitud_maxima,
                                memoria_html, punto_bomba, resumen_red, resumen_subunidad,
                                subunidad_desde_conexiones)
-from riegolibre.nucleo.base_datos import cintas_activas  # noqa: E402
+from riegolibre.nucleo.base_datos import Cinta, cintas_activas  # noqa: E402
 from riegolibre.nucleo.bloque import Bloque, ParametrosBloque, distancia_sobre_polilinea, trazar_bloque  # noqa: E402
 from riegolibre.nucleo.conector_valvulas import conectar_valvulas, punto_mas_cercano  # noqa: E402
 from riegolibre.nucleo.memoria import descripcion_telescopico  # noqa: E402
@@ -52,7 +52,7 @@ TOLERANCIA_CONEXION_M = 0.05
 GOTEO_POR_OMISION = {
     "emisor": None,  # nombre (o parte del nombre) de un emisor del catálogo
     "tuberia_lateral": None,  # nombre (o parte) de la manguera del lateral
-    "cinta": None,  # o un lateral con gotero integrado de la base de datos (reemplaza emisor y manguera)
+    "cinta": None,  # o un lateral con gotero integrado: nombre en la base de datos, o sus datos (dict de Cinta)
     "espaciamiento_emisores_m": None,  # obligatorio salvo con «cinta»
     "primer_emisor_m": None,  # por omisión, medio espaciamiento
     "separacion_hileras_m": None,  # obligatorio
@@ -409,9 +409,24 @@ def _config_goteo(goteo: dict, lote: dict) -> dict:
     return c
 
 
+def _cinta(dato) -> Cinta:
+    """La cinta por nombre (base de datos) o definida en el proyecto con los campos de IRRICAD («Edit Tape»)."""
+    if not isinstance(dato, dict):
+        return _buscar(list(cintas_activas().values()), dato, "La cinta")
+    campos = set(Cinta.__dataclass_fields__)
+    desconocidos = set(dato) - campos
+    if desconocidos:
+        raise ValueError("Campos de «cinta» desconocidos: " + ", ".join(sorted(desconocidos))
+                         + ". Válidos: " + ", ".join(sorted(campos)))
+    try:
+        return Cinta(**dato)
+    except TypeError as error:
+        raise ValueError(f"«cinta» incompleta: {error}") from error
+
+
 def _lateral_y_emisor(c: dict):
     if c["cinta"]:
-        cinta = _buscar(list(cintas_activas().values()), c["cinta"], "La cinta")
+        cinta = _cinta(c["cinta"])
         espaciamiento = float(c["espaciamiento_emisores_m"] or cinta.espaciamiento_m)
         return cinta.tuberia(), cinta.emisor(), espaciamiento
     if not c["emisor"] or not c["tuberia_lateral"]:
