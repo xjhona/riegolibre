@@ -1,0 +1,137 @@
+{
+  "nombre": "Fundo demo",
+  "epsg": 32718,
+  "fuente": [
+    300000,
+    8650000
+  ],
+  "terreno": {
+    "tipo": "plano",
+    "cota_m": 120,
+    "origen": [
+      300000,
+      8650000
+    ],
+    "pendiente_x": -0.004,
+    "pendiente_y": 0.012
+  },
+  "goteo": {
+    "emisor": "autocompensado 1.6",
+    "tuberia_lateral": "PE 16 mm (pared 1.0",
+    "espaciamiento_emisores_m": 0.5,
+    "separacion_hileras_m": 3.0,
+    "laterales_por_hilera": 2,
+    "separacion_en_hilera_m": 0.8,
+    "portalateral": "centro",
+    "variacion_caudal_max_pct": 10
+  },
+  "lotes": [
+    {
+      "nombre": "L1",
+      "contorno": [
+        [
+          300020,
+          8650020
+        ],
+        [
+          300220,
+          8650020
+        ],
+        [
+          300220,
+          8650140
+        ],
+        [
+          300020,
+          8650140
+        ]
+      ]
+    },
+    {
+      "nombre": "L2",
+      "contorno": [
+        [
+          300240,
+          8650020
+        ],
+        [
+          300420,
+          8650030
+        ],
+        [
+          300400,
+          8650180
+        ],
+        [
+          300250,
+          8650160
+        ]
+      ]
+    },
+    {
+      "nombre": "L3",
+      "contorno": [
+        [
+          300020,
+          8650160
+        ],
+        [
+          300230,
+          8650170
+        ],
+        [
+          300200,
+          8650320
+        ],
+        [
+          300020,
+          8650300
+        ]
+      ],
+      "subdivision": {
+        "longitud_max_lateral_m": 120,
+        "caudal_max_m3h": 30
+      }
+    }
+  ],
+  "red": {
+    "turnos": 2,
+    "largo_max_conector_m": 150,
+    "matriz": [
+      [
+        [
+          300000,
+          8650000
+        ],
+        [
+          300010,
+          8650010
+        ],
+        [
+          300010,
+          8650330
+        ]
+      ],
+      [
+        [
+          300010,
+          8650010
+        ],
+        [
+          300430,
+          8650010
+        ]
+      ],
+      [
+        [
+          300232,
+          8650010
+        ],
+        [
+          300232,
+          8650330
+        ]
+      ]
+    ]
+  }
+}
