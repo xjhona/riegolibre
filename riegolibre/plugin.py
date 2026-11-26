@@ -46,6 +46,7 @@ class RiegoLibrePlugin:
             self._crear_accion("icon_topografia.svg", "Topografía: curvas de CAD, imagen satelital y 3D…",
                                "topografia"),
             self._crear_accion("icon_lotes.svg", "Importar lotes de CAD…", "lotes"),
+            self._crear_accion("icon_lotes.svg", "Importar diseño del MCP…", "importar_mcp"),
             self._crear_accion("icon_zonas.svg", "Zonas: tabla de diseño de los lotes…", "zonas")))
         self._agregar_grupo("Diseño de goteo", "icon_subunidad.svg", (
             self._crear_accion("icon.svg", "Calculadora de lateral (goteo)…", "lateral"),
@@ -395,12 +396,14 @@ class RiegoLibrePlugin:
                 from .gui.dialogo_diametros import DialogoDiametros as Clase
             elif nombre == "zonas":
                 from .gui.dialogo_zonas import DialogoZonas as Clase
+            elif nombre == "importar_mcp":
+                from .gui.dialogo_importar_mcp import DialogoImportarMcp as Clase
             elif nombre == "acerca":
                 from .gui.dialogo_acerca import DialogoAcerca as Clase
             else:
                 from .gui.dialogo_memoria import DialogoMemoria as Clase
             dialogo = self.dialogos[nombre] = Clase(self.iface, self.iface.mainWindow())
-            if nombre == "base_datos":
+            if nombre in ("base_datos", "importar_mcp"):
                 dialogo.base_cambiada.connect(self._base_cambiada)
             elif nombre == "zonas":
                 dialogo.abrir_lote = self._abrir_lote

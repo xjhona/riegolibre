@@ -295,6 +295,7 @@ class PruebasIntegracionQgis(unittest.TestCase):
         grupos = {a.text(): [b.text() for b in a.menu().actions()] for a in plugin.barra.actions() if a.menu()}
         self.assertEqual(grupos, {
             "Terreno y lotes": ["Topografía: curvas de CAD, imagen satelital y 3D…", "Importar lotes de CAD…",
+                                "Importar diseño del MCP…",
                                 "Zonas: tabla de diseño de los lotes…"],
             "Diseño de goteo": ["Calculadora de lateral (goteo)…", "Subunidad de riego (goteo)…",
                                 "Diseño de subunidad en el mapa (goteo)…",
@@ -314,7 +315,7 @@ class PruebasIntegracionQgis(unittest.TestCase):
                 self.assertEqual(plugin.barra.widgetForAction(accion).popupMode(),
                                  QToolButton.ToolButtonPopupMode.InstantPopup)
                 self.assertFalse(accion.icon().isNull())
-        self.assertEqual(len(plugin.acciones), 20)
+        self.assertEqual(len(plugin.acciones), 21)
         self.assertTrue(all(not a.icon().isNull() for a in plugin.acciones))
 
         def accion(inicio):
