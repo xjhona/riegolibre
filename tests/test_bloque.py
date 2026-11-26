@@ -273,6 +273,26 @@ class PruebasBloque(unittest.TestCase):
         with self.assertRaises(ValueError):
             trazar_bloque(self.lote, ParametrosBloque(**base, puntos_portalateral=((500.0, 0.0), (500.0, 80.0))))
 
+    def test_portalateral_dibujado_fuera_del_lote_conecta_desde_el_borde(self):
+        base = dict(separacion_m=2.0, cabecera_m=0.0, angulo_deg=0.0, portalateral=PORTA_MANUAL)
+        # Por un camino a 3 m del borde oeste: cada lateral empieza en el borde y riega todo el largo.
+        b = trazar_bloque(self.lote, ParametrosBloque(**base, puntos_portalateral=((-3.0, 0.0), (-3.0, 80.0))))
+        self.assertEqual(b.hileras, 40)
+        self.assertEqual(len(b.laterales), 40)
+        for lat in b.laterales:
+            self.assertAlmostEqual(lat.inicio[0], 0.0)
+            self.assertAlmostEqual(lat.longitud_m, 90.0)
+            self.assertEqual(lat.lado, "B")
+        self.assertAlmostEqual(b.portalateral[0][0], -3.0)
+        self.assertTrue(any("empiezan en el borde" in a and "120.0 m" in a for a in b.avisos), b.avisos)
+        # En diagonal, alejándose: a más de 10 m del borde ya no se conecta.
+        b = trazar_bloque(self.lote, ParametrosBloque(**base, puntos_portalateral=((5.0, 0.0), (-15.0, 80.0))))
+        self.assertTrue(all(lat.inicio[1] <= 60.0 for lat in b.laterales))  # x = -10 en y = 60
+        self.assertTrue(any("a más de 10 m del lote" in a for a in b.avisos), b.avisos)
+        # Lejos del todo: no caben laterales.
+        with self.assertRaises(ValueError):
+            trazar_bloque(self.lote, ParametrosBloque(**base, puntos_portalateral=((-15.0, 0.0), (-15.0, 80.0))))
+
     def test_portalateral_dibujado_parcial_avisa_de_hileras_sin_laterales(self):
         base = dict(separacion_m=2.0, cabecera_m=0.0, angulo_deg=0.0, portalateral=PORTA_MANUAL)
         b = trazar_bloque(self.lote, ParametrosBloque(**base, puntos_portalateral=((30.0, 0.0), (30.0, 40.0))))

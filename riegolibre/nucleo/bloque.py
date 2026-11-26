@@ -47,6 +47,9 @@ NOMBRES_CONEXION = {CONEXION_EXTREMO: "Prolongación del extremo", CONEXION_LADO
                     CONEXION_RAMAL_VALVULA: "Ramal de la válvula"}
 
 TOLERANCIA_PORTALATERAL_M = 1.0  # para enderezar el portalateral que sigue un borde irregular
+# Portalateral dibujado que pasa fuera del lote (por un camino): hasta esta distancia del borde, los laterales
+# de esas hileras empiezan en el borde del lote.
+CONEXION_LATERAL_MAX_M = 10.0
 
 
 @dataclass(frozen=True)
@@ -439,12 +442,25 @@ def _disponer(plano, params, cota=None):
         portalateral = _simplificar(anclas, tolerancia)
     desplazamientos = _desplazamientos(params)
     laterales, hileras = [], set()
+    desde_borde, metros_fuera = 0, 0.0
     for k, y_eje in enumerate(ejes):
         for d in desplazamientos:
             y = y_eje + d
             xp = _x_en(portalateral, y)
             tramos = plano.tramos(y, params.cabecera_m)
             tramo = next((t for t in tramos if t[0] - tolerancia <= xp <= t[1] + tolerancia), None)
+            if tramo is None and manual and tramos:
+                # El portalateral dibujado pasa fuera del lote: el lateral empieza en el borde más cercano y
+                # va hasta el otro.
+                a, b = min(tramos, key=lambda t: min(abs(t[0] - xp), abs(t[1] - xp)))
+                cerca, lejos = (a, b) if abs(a - xp) <= abs(b - xp) else (b, a)
+                if (abs(cerca - xp) <= CONEXION_LATERAL_MAX_M
+                        and abs(lejos - cerca) >= max(params.longitud_min_m, EPS)):
+                    laterales.append((y, cerca, lejos, k))
+                    hileras.add(k)
+                    desde_borde += 1
+                    metros_fuera += abs(cerca - xp)
+                continue
             if tramo is None:
                 continue
             a, b = tramo
@@ -452,9 +468,13 @@ def _disponer(plano, params, cota=None):
                 if abs(extremo - xp) >= max(params.longitud_min_m, EPS):
                     laterales.append((y, xp, extremo, k))
                     hileras.add(k)
+    if desde_borde:
+        avisos.append(f"En {desde_borde} laterales el portalateral dibujado pasa fuera del lote: empiezan en el "
+                      f"borde. Los {metros_fuera:.1f} m entre el portalateral y esos laterales no se dibujan ni "
+                      "se calculan.")
     if manual and laterales and len(hileras) < len(ejes):
-        avisos.append(f"En {len(ejes) - len(hileras)} hileras el portalateral dibujado queda fuera del lote: "
-                      "allí no hay laterales.")
+        avisos.append(f"En {len(ejes) - len(hileras)} hileras el portalateral dibujado queda a más de "
+                      f"{CONEXION_LATERAL_MAX_M:g} m del lote: allí no hay laterales.")
     if len(desplazamientos) > 1 and laterales:
         # El portalateral llega hasta los laterales de las hileras de los extremos.
         y_bajo = min(lat[0] for lat in laterales)

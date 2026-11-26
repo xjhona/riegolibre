@@ -29,7 +29,7 @@ from ..nucleo import PresionInsuficiente, cargar_catalogo_emisores, cargar_catal
 from ..nucleo.bloque import (PORTA_ALTO, PORTA_BAJO, PORTA_CENTRO, PORTA_DISTANCIA, PORTA_FINAL, PORTA_INICIO,
                              PORTA_MANUAL,
                              VALV_ALTO, VALV_AUTO, VALV_BAJO, VALV_CENTRO, VALV_FINAL, VALV_INICIO, VALV_PORCENTAJE, VALV_PUNTO,
-                             ParametrosBloque, azimut_entre)
+                             CONEXION_LATERAL_MAX_M, ParametrosBloque, azimut_entre)
 from ..nucleo.subunidad import incumplimientos
 from ..nucleo.tuberias import clave_economica
 from ..integracion.bloque_mapa import DIMENSIONADO_COSTO, DIMENSIONADO_VELOCIDAD
@@ -263,7 +263,8 @@ class DialogoBloque(QDialog):
         self.boton_portalateral.setToolTip(
             "Como «Manual» de IRRICAD: haga clic en los vértices del portalateral (imán a los bordes del lote); "
             "clic derecho, doble clic o Intro para terminar. Con la dirección automática, los laterales quedan "
-            "perpendiculares a la línea; la línea no puede retroceder respecto de esa perpendicular.")
+            "perpendiculares a la línea; la línea no puede retroceder respecto de esa perpendicular. Si pasa fuera "
+            f"del lote (por un camino, a menos de {CONEXION_LATERAL_MAX_M:g} m), los laterales empiezan en el borde.")
         self.boton_portalateral.clicked.connect(self.dibujar_portalateral)
         formulario_porta.addRow(self.boton_portalateral)
         self.combo_dimensionado = QComboBox()
