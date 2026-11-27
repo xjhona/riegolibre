@@ -374,6 +374,26 @@ class PruebasRedMapa(unittest.TestCase):
         self.assertIs(capa_de_nodos(), nodos)
         self.assertEqual(nodos.geometryType(), Qgis.GeometryType.Point)
 
+    def test_la_ventana_propone_la_matriz_y_la_fuente(self):
+        """Con capas de laterales antes en el orden alfabético (diseño importado), se elige «Matriz»."""
+        from qgis.core import QgsCoordinateReferenceSystem
+
+        from riegolibre.gui.dialogo_red import DialogoRed
+        from riegolibre.integracion.red_mapa import crear_capas_de_matriz
+        proyecto = QgsProject.instance()
+        crs_anterior = proyecto.crs()
+        proyecto.setCrs(QgsCoordinateReferenceSystem("EPSG:32718"))
+        self.addCleanup(proyecto.setCrs, crs_anterior)
+        antes = set(proyecto.mapLayers())
+        laterales = _capa_lineas([PRINCIPAL])
+        laterales.setName("Laterales · A")
+        proyecto.addMapLayer(laterales)
+        matriz, _nodos, _ruta = crear_capas_de_matriz(proyecto)
+        self.addCleanup(lambda: [proyecto.removeMapLayer(i) for i in set(proyecto.mapLayers()) - antes])
+        dialogo = DialogoRed(iface=None)
+        self.assertIs(dialogo.combo_tuberias.currentLayer(), matriz)
+        self.assertIs(dialogo.combo_fuente.currentLayer(), self.fuente)
+
     def test_capas_de_la_matriz_se_crean_una_sola_vez_y_se_borran_con_sus_nodos(self):
         from qgis.core import QgsCoordinateReferenceSystem
 

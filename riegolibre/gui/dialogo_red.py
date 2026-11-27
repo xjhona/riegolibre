@@ -181,7 +181,19 @@ class DialogoRed(QDialog):
                          "en el SRC del proyecto.")
         boton.clicked.connect(self.crear_capas_de_dibujo)
         formulario.addRow(boton)
+        self._proponer_capas()
         return grupo
+
+    def _proponer_capas(self):
+        """Si ya existen «Matriz» y «Fuente», las deja elegidas (si no, la lista toma la primera capa por
+        orden alfabético, que con un diseño importado es la de laterales de un lote)."""
+        from ..integracion.fuente_mapa import capa_de_fuente
+        from ..integracion.red_mapa import capa_de_matriz
+        matriz, fuente = capa_de_matriz(), capa_de_fuente()
+        if matriz is not None:
+            self.combo_tuberias.setLayer(matriz)
+        if fuente is not None:
+            self.combo_fuente.setLayer(fuente)
 
     def _colocar_fuente(self):
         if self.abrir_fuente is None:
