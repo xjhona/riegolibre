@@ -14,7 +14,7 @@ from riegolibre.nucleo import ficha as texto
 from riegolibre.nucleo.ficha import Ficha
 from riegolibre.nucleo.red import bomba_critica
 
-from . import edicion
+from . import dibujos, edicion
 
 
 def _desde_hasta(red) -> Dict[str, Tuple[tuple, tuple]]:
@@ -125,6 +125,13 @@ def _ficha_lote_sin_calcular(proyecto, i) -> Ficha:
     return Ficha(f"Lote {nombre}", "\n".join(lineas))
 
 
+def _ficha_dibujo(proyecto, i) -> Ficha:
+    e = dibujos.lista(proyecto.datos)[i]
+    lineas = ["Capa: DIBUJO (no entra en el cálculo)"] + [f"{k}: {v}" for k, v in dibujos.medidas(e)]
+    titulo = edicion.nombre_objeto(proyecto.datos, ("dibujo", i))
+    return Ficha(titulo[0].upper() + titulo[1:], "\n".join(lineas))
+
+
 def ficha_en(proyecto, p, tolerancia: float) -> Optional[Ficha]:
     """La ficha del objeto bajo el punto p (coordenadas del proyecto), o None si no hay nada."""
     if proyecto.fuente and math.dist(p, proyecto.fuente) <= tolerancia:
@@ -142,6 +149,8 @@ def ficha_en(proyecto, p, tolerancia: float) -> Optional[Ficha]:
         if mejor and any(t.id == mejor[1] for t in proyecto.red.red.tramos):
             return _ficha_tramo(proyecto, mejor[1])
     objeto = edicion.objeto_en(proyecto.datos, p, tolerancia)
+    if objeto and objeto[0] == "dibujo":
+        return _ficha_dibujo(proyecto, objeto[1])
     if objeto and objeto[0] == "matriz":
         return _ficha_matriz(proyecto, objeto[1])
     # La subunidad que contiene el punto (un lote subdividido tiene varias)

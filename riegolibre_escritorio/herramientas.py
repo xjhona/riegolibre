@@ -26,7 +26,7 @@ from PySide6.QtCore import QPointF, QRectF, Qt
 from PySide6.QtGui import QBrush, QColor, QPainterPath, QPen, QPolygonF
 from PySide6.QtWidgets import QGraphicsItem, QGraphicsPathItem, QGraphicsRectItem
 
-from . import edicion
+from . import dibujos, edicion
 
 TOLERANCIA_PX = 10
 COLOR_DIBUJO = "#ff6f00"
@@ -379,9 +379,9 @@ class HerramientaSeleccion(Herramienta):
         datos = self.editor.datos()
         if self.seleccion is not None:
             tipo, i = self.seleccion
-            validos = {"lote": len(datos.get("lotes", [])), "matriz": len(edicion.matriz(datos)),
+            validos = {"dibujo": len(dibujos.lista(datos)), "lote": len(datos.get("lotes", [])), "matriz": len(edicion.matriz(datos)),
                        "fuente": 1 if datos.get("fuente") else 0}
-            if i >= validos[tipo]:
+            if i >= validos.get(tipo, i + 1):
                 self.seleccion = None
         self._pintar()
 
@@ -399,6 +399,15 @@ class HerramientaSeleccion(Herramienta):
             return
         tipo = self.seleccion[0]
         anillos = self._geometria()
+        if tipo == "dibujo":  # la figura (circunferencia, arco…) y sus puntos de control
+            original = dibujos.lista(self.editor.datos())[self.seleccion[1]]
+            puntos = anillos[0]
+            if original["tipo"] == "circulo" and self._arrastre and self._arrastre[0][1] == 0:
+                (cx, cy), (x0, y0) = puntos[0], original["puntos"][0]
+                puntos = [puntos[0], (original["puntos"][1][0] + cx - x0, original["puntos"][1][1] + cy - y0)]
+            self._trazo(dibujos.geometria({"tipo": original["tipo"], "puntos": puntos}), ancho=3.0)
+            self._vertices(puntos)
+            return
         for anillo in anillos:
             if tipo == "fuente":
                 self._vertices(anillo, lado=12)

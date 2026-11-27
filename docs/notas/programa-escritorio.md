@@ -123,3 +123,14 @@ Pedido del usuario el 2026-11-26: un programa tipo IRRICAD que se instale y corr
 - `Tuberia` no es hashable (tiene una lista): agrupar por nombre.
 - Computer use: la ventana es de `pythonw.exe` (pedir acceso con ese nombre); el cuadro Guardar no acepta rutas en
   la carpeta temporal de Claude.
+
+## Dibujo libre: capa DIBUJO (2026-11-27)
+- Pedido del usuario con captura de IRRICAD (botón «Polyline» de la barra «Draw»): dibujar polilíneas,
+  circunferencias, etc. en la capa «DRAWING», en español DIBUJO. No entra en el cálculo.
+- Botón desplegable al pie de la barra vertical (`QToolButton` con `MenuButtonPopup`): muestra la última figura
+  elegida y la flecha abre Polilínea, Línea, Polígono, Rectángulo, Circunferencia y Arco (también en el menú Dibujo).
+- `dibujos.py` (sin Qt): `datos["dibujos"]` = [{"tipo", "puntos"}]; circunferencia = [centro, punto de ella];
+  arco = [inicio, intermedio, fin]; rectángulo = 4 esquinas (editar una esquina lo vuelve polígono).
+  `edicion.py` delega en él los objetos `("dibujo", i)`: selección (antes que el lote), vértices, imán, borrar,
+  deshacer. Ficha de información con radio, longitud, perímetro y área. Herramientas: `herramientas_dibujo.py`.
+- Falta la prueba a mano del usuario.

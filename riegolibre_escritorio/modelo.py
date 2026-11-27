@@ -24,6 +24,7 @@ from typing import Dict, List, Optional
 
 from mcp_riegolibre import motor
 
+from . import dibujos
 from .capas import completar_estilos
 from .edicion import anillos_lote
 
@@ -405,6 +406,7 @@ class ProyectoRiego:
         La imagen de fondo solo cuenta si no hay nada más (si no, cada descarga con margen agrandaría la zona)."""
         puntos = [p for lote in self.datos.get("lotes", []) for anillo in anillos_lote(lote) for p in anillo]
         puntos += [p for linea in self.matriz for p in linea]
+        puntos += [p for e in dibujos.lista(self.datos) for p in dibujos.geometria(e)]
         for _, linea in self.curvas + self.dibujo:
             puntos += [linea[0], min(linea), max(linea), min(linea, key=lambda p: p[1]), max(linea, key=lambda p: p[1])]
         if self.fuente:

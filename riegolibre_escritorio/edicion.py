@@ -14,6 +14,8 @@ import copy
 import math
 from typing import Dict, List, Optional, Sequence, Tuple
 
+from . import dibujos
+
 Punto = Tuple[float, float]
 Objeto = Tuple[str, int]
 
@@ -123,6 +125,8 @@ def fuente(datos: dict) -> Optional[Punto]:
 
 def vertices(datos: dict, objeto: Objeto) -> List[List[Punto]]:
     """Los anillos (lote) o la polilínea (matriz, como un solo anillo) del objeto."""
+    if objeto[0] == "dibujo":  # capa DIBUJO
+        return dibujos.vertices(datos, objeto[1])
     tipo, i = objeto
     if tipo == "lote":
         return anillos_lote(datos["lotes"][i])
@@ -132,6 +136,8 @@ def vertices(datos: dict, objeto: Objeto) -> List[List[Punto]]:
 
 
 def nombre_objeto(datos: dict, objeto: Objeto) -> str:
+    if objeto[0] == "dibujo":  # capa DIBUJO
+        return dibujos.nombre(datos, objeto[1])
     tipo, i = objeto
     if tipo == "lote":
         return f"lote «{datos['lotes'][i].get('nombre', '?')}»"
@@ -148,7 +154,7 @@ def puntos_iman(datos: dict) -> List[Punto]:
     puntos += [p for linea in matriz(datos) for p in linea]
     if fuente(datos):
         puntos.append(fuente(datos))
-    return puntos
+    return puntos + dibujos.puntos_iman(datos)
 
 
 def segmentos_iman(datos: dict) -> List[Tuple[Punto, Punto]]:
@@ -158,7 +164,7 @@ def segmentos_iman(datos: dict) -> List[Tuple[Punto, Punto]]:
             segmentos += [(anillo[k], anillo[(k + 1) % len(anillo)]) for k in range(len(anillo))] if len(anillo) > 1 else []
     for linea in matriz(datos):
         segmentos += list(zip(linea, linea[1:]))
-    return segmentos
+    return segmentos + dibujos.segmentos_iman(datos)
 
 
 def imantar(p: Punto, datos: dict, tolerancia: float, puntos_extra: Sequence[Punto] = (),
@@ -195,6 +201,9 @@ def objeto_en(datos: dict, p: Punto, tolerancia: float) -> Optional[Objeto]:
             mejor = (d, ("matriz", i))
     if mejor:
         return mejor[1]
+    i = dibujos.objeto_en(datos, p, tolerancia)  # un trazo de la capa DIBUJO, antes que el lote
+    if i is not None:
+        return ("dibujo", i)
     candidatos = []
     for i, lote in enumerate(datos.get("lotes", [])):
         anillos = anillos_lote(lote)
@@ -221,6 +230,8 @@ def vertice_en(datos: dict, objeto: Objeto, p: Punto, tolerancia: float) -> Opti
 
 def borde_en(datos: dict, objeto: Objeto, p: Punto, tolerancia: float) -> Optional[Tuple[int, int, Punto]]:
     """(anillo, k, punto) del borde del objeto a menos de `tolerancia`: el nuevo vértice iría tras el k."""
+    if objeto[0] == "dibujo":  # capa DIBUJO
+        return dibujos.borde_en(datos, objeto[1], p, tolerancia)
     tipo = objeto[0]
     mejor = None
     for a, anillo in enumerate(vertices(datos, objeto)):
@@ -301,6 +312,8 @@ def agregar_matriz(datos: dict, linea: Sequence[Punto]) -> dict:
 
 
 def mover_vertice(datos: dict, objeto: Objeto, vertice: Tuple[int, int], p: Punto) -> dict:
+    if objeto[0] == "dibujo":  # capa DIBUJO
+        return dibujos.mover_vertice(datos, objeto[1], vertice[1], p)
     nuevo = copy.deepcopy(datos)
     tipo, i = objeto
     a, k = vertice
@@ -318,6 +331,8 @@ def mover_vertice(datos: dict, objeto: Objeto, vertice: Tuple[int, int], p: Punt
 
 
 def insertar_vertice(datos: dict, objeto: Objeto, anillo: int, despues_de: int, p: Punto) -> dict:
+    if objeto[0] == "dibujo":  # capa DIBUJO
+        return dibujos.insertar_vertice(datos, objeto[1], despues_de, p)
     nuevo = copy.deepcopy(datos)
     tipo, i = objeto
     q = (float(p[0]), float(p[1]))
@@ -333,6 +348,8 @@ def insertar_vertice(datos: dict, objeto: Objeto, anillo: int, despues_de: int, 
 
 
 def borrar_vertice(datos: dict, objeto: Objeto, vertice: Tuple[int, int]) -> dict:
+    if objeto[0] == "dibujo":  # capa DIBUJO
+        return dibujos.borrar_vertice(datos, objeto[1], vertice[1])
     tipo, i = objeto
     a, k = vertice
     minimo = 3 if tipo == "lote" else 2
@@ -353,6 +370,8 @@ def borrar_vertice(datos: dict, objeto: Objeto, vertice: Tuple[int, int]) -> dic
 
 
 def borrar(datos: dict, objeto: Objeto) -> dict:
+    if objeto[0] == "dibujo":  # capa DIBUJO
+        return dibujos.borrar(datos, objeto[1])
     nuevo = copy.deepcopy(datos)
     tipo, i = objeto
     if tipo == "fuente":

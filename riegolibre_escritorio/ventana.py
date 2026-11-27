@@ -15,9 +15,10 @@ from typing import Optional
 from PySide6.QtCore import QEventLoop, QRectF, QThread, Qt, Signal
 from PySide6.QtGui import QAction, QActionGroup, QColor, QKeySequence, QUndoCommand, QUndoStack
 from PySide6.QtWidgets import (QApplication, QDialog, QDockWidget, QFileDialog, QHeaderView, QLabel, QMainWindow,
-                               QMessageBox, QProgressDialog, QTableWidget, QTableWidgetItem, QToolBar)
+                               QMenu, QMessageBox, QProgressDialog, QTableWidget, QTableWidgetItem, QToolBar,
+                               QToolButton)
 
-from . import VERSION, archivo, edicion, fichas, herramientas
+from . import VERSION, archivo, edicion, fichas, herramientas, herramientas_dibujo
 from .barra_capas import BarraCapas
 from .dialogo_bloque import DialogoBloque
 from .dialogos import DialogoFicha, DialogoNuevo, DialogoTurnos, TablaAtributos
@@ -287,17 +288,54 @@ class VentanaPrincipal(QMainWindow):
             self.menu_dibujo.addAction(accion)
             self.herramientas[clase.nombre] = herramienta
             self.acciones_herramientas[clase.nombre] = accion
+        self._crear_boton_dibujo(barra, grupo)
         self.addToolBar(Qt.ToolBarArea.LeftToolBarArea, barra)
-        botones = [barra.widgetForAction(a) for a in self.acciones_herramientas.values()]
+        botones = [b for b in (barra.widgetForAction(a) for a in self.acciones_herramientas.values()) if b is not None]
+        botones.append(self.boton_dibujo)
+        for boton in botones:
+            boton.setStyleSheet("text-align: left; padding-left: 8px;")
         ancho = max(b.sizeHint().width() for b in botones)
+        figura = self.boton_dibujo.defaultAction()
+        for accion in self.boton_dibujo.menu().actions():  # que quepa la figura de nombre más largo
+            self.boton_dibujo.setDefaultAction(accion)
+            ancho = max(ancho, self.boton_dibujo.sizeHint().width())
+        self.boton_dibujo.setDefaultAction(figura)
         for boton in botones:  # todos del mismo ancho, alineados a la izquierda
             boton.setFixedWidth(ancho)
-            boton.setStyleSheet("text-align: left; padding-left: 8px;")
         self.barra_dibujo = barra
         self.usar_herramienta("seleccion")
 
+    def _crear_boton_dibujo(self, barra, grupo):
+        """Botón desplegable del dibujo libre (capa DIBUJO), como la barra «Draw» de IRRICAD: muestra la última
+        figura elegida; la flecha abre la lista (polilínea, línea, polígono, rectángulo, circunferencia, arco)."""
+        menu = QMenu(self)
+        self.menu_dibujo.addSeparator()
+        submenu = self.menu_dibujo.addMenu("Dibujo libre (capa DIBUJO)")
+        boton = QToolButton(self)
+        boton.setPopupMode(QToolButton.ToolButtonPopupMode.MenuButtonPopup)
+        boton.setToolButtonStyle(Qt.ToolButtonStyle.ToolButtonTextOnly)
+        boton.setMenu(menu)
+        for clase, texto, ayuda in herramientas_dibujo.HERRAMIENTAS_DIBUJO:
+            accion = QAction(texto, self)
+            accion.setCheckable(True)
+            accion.setToolTip(ayuda + " (la flecha muestra las demás figuras)")
+            accion.setStatusTip(ayuda)
+            accion.triggered.connect(lambda _=False, n=clase.nombre: self.usar_herramienta(n))
+            grupo.addAction(accion)
+            menu.addAction(accion)
+            submenu.addAction(accion)
+            self.herramientas[clase.nombre] = clase(self.lienzo, self)
+            self.acciones_herramientas[clase.nombre] = accion
+            if boton.defaultAction() is None:
+                boton.setDefaultAction(accion)
+        barra.addSeparator()
+        barra.addWidget(boton)
+        self.boton_dibujo = boton
+
     def usar_herramienta(self, nombre: str):
         self.acciones_herramientas[nombre].setChecked(True)
+        if nombre.startswith("dibujo_"):
+            self.boton_dibujo.setDefaultAction(self.acciones_herramientas[nombre])
         self.lienzo.fijar_herramienta(self.herramientas[nombre])
         self.lienzo.setFocus()
 

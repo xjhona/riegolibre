@@ -21,6 +21,7 @@ from PySide6.QtWidgets import (QGraphicsEllipseItem, QGraphicsItem, QGraphicsPat
 
 from riegolibre.nucleo.turnos import PALETA as PALETA_TURNOS
 
+from . import dibujos
 from .capas import CAPAS
 
 FACTOR_ZOOM = 1.25
@@ -568,6 +569,7 @@ def dibujar_proyecto(lienzo: Lienzo, proyecto, conservar_vista=False) -> Dict[st
     dibujar_imagen(lienzo, capas["IMAGEN_SATELITAL"], proyecto)
     dibujar_curvas(lienzo, capas["CURVAS_NIVEL"], proyecto.curvas)
     dibujar_lineas_cad(lienzo, capas["DIBUJO_CAD"], proyecto.dibujo)
+    dibujos.pintar(lienzo, capas["DIBUJO"], proyecto.datos)
 
     # Lotes sin subunidad calculada (por ejemplo, con error): solo el contorno, en rojo
     subunidades = proyecto.subunidades

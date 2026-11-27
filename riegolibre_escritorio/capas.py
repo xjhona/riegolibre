@@ -12,6 +12,7 @@ from typing import Dict, Optional
 # nombre: (color, tipo de línea, grosor, descripción), de arriba abajo
 CAPAS = {
     "TEXTO": ("#212121", "solida", 1.0, "Rótulos de los lotes y de la fuente"),
+    "DIBUJO": ("#000000", "solida", 1.5, "Dibujo libre: polilíneas, líneas, polígonos, rectángulos, circunferencias y arcos (DRAWING)"),
     "FUENTE": ("#0277bd", "solida", 1.0, "Fuente de agua: bomba y cabezal"),
     "VÁLVULAS": ("#6a1b9a", "solida", 1.0, "Válvula de cada subunidad"),
     "RED_PRINCIPAL": ("#c62828", "solida", 4.0, "Red principal calculada y conectores de válvula (color por diámetro)"),
