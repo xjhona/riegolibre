@@ -108,6 +108,8 @@ class RiegoLibrePlugin:
     def _guardar_capas(self):
         from .integracion.persistencia import guardar_capas_temporales
         self.guardado_pendiente = False
+        if getattr(self, "descargado", False):
+            return []
         try:
             return guardar_capas_temporales()
         except OSError as error:
@@ -120,7 +122,15 @@ class RiegoLibrePlugin:
         proyecto se vuelve a escribir para que apunte a ellas."""
         if self.reescribiendo or not self._guardar_capas():
             return
+        # QGIS avisa que guardó un .qgz antes de terminar de comprimirlo: si se reescribe aquí mismo, la
+        # compresión que sigue pisa el archivo con las capas aún en memoria. Se reescribe al terminar.
+        from qgis.PyQt.QtCore import QTimer
+        QTimer.singleShot(0, self._reescribir_proyecto)
+
+    def _reescribir_proyecto(self):
         from qgis.core import QgsProject
+        if getattr(self, "descargado", False) or not QgsProject.instance().fileName():
+            return
         self.reescribiendo = True
         try:
             QgsProject.instance().write()
@@ -312,6 +322,7 @@ class RiegoLibrePlugin:
 
     def unload(self):
         from qgis.core import QgsProject
+        self.descargado = True  # los guardados diferidos que aún esperan ya no deben tocar el proyecto
         proyecto = QgsProject.instance()
         for senal, ranura in ((proyecto.layersAdded, self._programar_guardado),
                               (proyecto.projectSaved, self._proyecto_guardado)):
