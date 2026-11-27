@@ -91,9 +91,52 @@ class PruebasEdicion(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, "menos de 3"):
             edicion.borrar_vertice(edicion.borrar_vertice(datos, ("lote", 0), (0, 0)), ("lote", 0), (0, 0))
         self.assertNotIn("fuente", edicion.borrar(datos, ("fuente", 0)))
-        self.assertNotIn("matriz", edicion.borrar(datos, ("matriz", 0))["red"])
+        self.assertNotIn("matriz", edicion.borrar(edicion.borrar(datos, ("matriz", 0)), ("matriz", 0))["red"])
         self.assertEqual([l["nombre"] for l in edicion.borrar(datos, ("lote", 1))["lotes"]], ["A", "C"])
         self.assertEqual(datos, original)
+
+    def test_matriz_en_tramos_y_nodos(self):
+        """Como IRRICAD: un tramo por cada par de clics y un nodo en cada extremo, compartido entre tramos."""
+        a, b, c, d, e = (X0, Y0), (X0 + 10, Y0), (X0 + 20, Y0 + 5), (X0 + 30, Y0 + 5), (X0 + 45, Y0)
+        datos = edicion.agregar_matriz({}, [a, b, c, d, e])  # 5 clics: 4 tramos y 5 nodos
+        self.assertEqual(edicion.matriz(datos), [[a, b], [b, c], [c, d], [d, e]])
+        self.assertEqual(edicion.nodos_matriz(datos), [a, b, c, d, e])
+        self.assertEqual(datos["red"]["matriz"][1], [list(b), list(c)])
+        # Una polilínea del MCP se lee en tramos
+        self.assertEqual(edicion.matriz({"red": {"matriz": [[a, b, c]]}}), [[a, b], [b, c]])
+
+        # Un ramal que empieza sobre el medio de un tramo lo parte: nodo compartido (una T)
+        medio = (X0 + 5, Y0)
+        t = edicion.agregar_matriz(datos, [medio, (X0 + 5, Y0 - 30)])
+        self.assertEqual(len(edicion.matriz(t)), 6)
+        self.assertEqual(len(edicion.tramos_en_nodo(edicion.matriz(t), medio)), 3)
+        with self.assertRaisesRegex(ValueError, "une 3 tramos"):
+            edicion.quitar_nodo(t, medio)
+
+        # Mover un nodo arrastra los dos tramos que llegan a él
+        nuevo = edicion.mover_vertice(datos, ("nodo", 2), (0, 0), (X0 + 20, Y0 + 9))
+        self.assertEqual(edicion.matriz(nuevo)[1][1], (X0 + 20, Y0 + 9))
+        self.assertEqual(edicion.matriz(nuevo)[2][0], (X0 + 20, Y0 + 9))
+        nuevo = edicion.mover_vertice(datos, ("matriz", 0), (0, 1), (X0 + 10, Y0 + 2))  # extremo de un tramo
+        self.assertEqual(edicion.matriz(nuevo)[1][0], (X0 + 10, Y0 + 2))
+        # El imán no toma el nodo que se mueve, pero sí los otros extremos de sus tramos
+        sin, otros = edicion.datos_para_iman(datos, ("nodo", 2), (0, 0))
+        self.assertEqual(sorted(otros), sorted([b, d]))
+        self.assertNotIn(c, edicion.nodos_matriz(sin))
+
+        # Partir un tramo agrega un nodo; quitarlo une los dos tramos
+        q = (X0 + 37.5, Y0 + 2.5)
+        partido = edicion.insertar_vertice(datos, ("matriz", 3), 0, 0, q)
+        self.assertEqual(edicion.matriz(partido)[3:], [[d, q], [q, e]])
+        self.assertEqual(edicion.matriz(edicion.quitar_nodo(partido, q)), edicion.matriz(datos))
+        unido = edicion.borrar(datos, ("nodo", 1))
+        self.assertEqual(edicion.matriz(unido), [[a, c], [c, d], [d, e]])
+        # Quitar un extremo suelto borra su tramo; Ctrl + clic en el extremo de un tramo quita ese nodo
+        self.assertEqual(edicion.matriz(edicion.borrar(datos, ("nodo", 0))), [[b, c], [c, d], [d, e]])
+        self.assertEqual(edicion.borrar_vertice(datos, ("matriz", 0), (0, 1)), unido)
+        # Clic: el nodo antes que el tramo
+        self.assertEqual(edicion.objeto_en(datos, (X0 + 10.2, Y0), 1.0), ("nodo", 1))
+        self.assertEqual(edicion.objeto_en(datos, (X0 + 5, Y0 + 0.3), 1.0), ("matriz", 0))
 
     def test_lote_con_anillos_se_normaliza_al_editar(self):
         datos = {"lotes": [{"nombre": "X", "anillos": [rectangulo(0, 0, 10, 10) + [rectangulo(0, 0, 10, 10)[0]]]}]}
@@ -207,7 +250,10 @@ class PruebasFichas(unittest.TestCase):
         self.assertIn(f"Válvula {s.nombre}", ficha.titulo)
         self.assertIn("Las presiones por turno aparecen", ficha.texto)
         self.assertIn("Fuente de agua", fichas.ficha_en(p, p.fuente, 0.5).titulo)
-        self.assertIn("Tubería matriz 1", fichas.ficha_en(p, (X0 - 20, Y0 + 10), 0.5).titulo)
+        self.assertIn("Tubería matriz, tramo 1", fichas.ficha_en(p, (X0 - 20, Y0 + 10), 0.5).titulo)
+        ficha = fichas.ficha_en(p, (X0 - 20, Y0 + 40), 0.5)  # el codo de la matriz es un nodo
+        self.assertIn("Nodo 2 de la matriz", ficha.titulo)
+        self.assertIn("Tramos que llegan = 1, 2", ficha.texto)
         self.assertIn("Válvula B", fichas.ficha_en(p, (X0 + 75, Y0 + 3), 0.5).titulo)  # dentro del lote B
         self.assertIsNone(fichas.ficha_en(p, (X0 + 500, Y0 + 500), 0.5))
 
@@ -286,13 +332,26 @@ class PruebasVentanaEdicion(unittest.TestCase):
         from PySide6.QtTest import QTest
         QTest.keyClick(self.v.lienzo, tecla)
 
-    def dibujar(self, herramienta, puntos, terminar="derecho"):
+    def accion_menu(self, x, y, texto):
+        """La acción del menú del clic derecho en (x, y) con ese texto (busca en los submenús)."""
+        from riegolibre_escritorio.menu_mapa import armar_menu
+        pendientes = [armar_menu(self.v, x, y)]
+        while pendientes:
+            menu = pendientes.pop()
+            for accion in menu.actions():
+                if accion.menu():
+                    pendientes.append(accion.menu())
+                elif accion.text() == texto:
+                    return accion
+        self.fail(f"No está «{texto}» en el menú")
+
+    def dibujar(self, herramienta, puntos, terminar="menu"):
         from PySide6.QtCore import Qt
         self.v.usar_herramienta(herramienta)
         for x, y in puntos:
             self.clic(x, y)
-        if terminar == "derecho":
-            self.clic(*puntos[-1], boton=Qt.MouseButton.RightButton)
+        if terminar == "menu":  # clic derecho → «Terminar el trazo»
+            self.accion_menu(*puntos[-1], "Terminar el trazo").trigger()
         elif terminar == "intro":
             self.tecla(Qt.Key.Key_Return)
 
@@ -331,7 +390,12 @@ class PruebasVentanaEdicion(unittest.TestCase):
         self.dibujar("fuente", [(X0 - 20, Y0 - 20)], terminar=None)
         self.assertEqual(v.proyecto.fuente, (X0 - 20, Y0 - 20))
         self.dibujar("matriz", [(X0 - 18, Y0 - 19), (X0 - 20, Y0 + 40), (X0 + 130, Y0 + 40)])
-        self.assertEqual(v.proyecto.matriz, [[(X0 - 20, Y0 - 20), (X0 - 20, Y0 + 40), (X0 + 130, Y0 + 40)]])
+        # Un tramo por cada par de clics, y tres nodos en su capa
+        self.assertEqual(v.proyecto.matriz, [[(X0 - 20, Y0 - 20), (X0 - 20, Y0 + 40)],
+                                             [(X0 - 20, Y0 + 40), (X0 + 130, Y0 + 40)]])
+        self.assertEqual(len(v.lienzo.capas["NODOS_MATRIZ"].elementos), 3)
+        self.assertEqual(len(v.lienzo.capas["MATRIZ_DIBUJADA"].elementos), 2)
+        self.assertEqual(v.tabla_atributos.tabla_nodos.rowCount(), 3)
 
         # Red principal
         v.abrir_red()
@@ -343,9 +407,9 @@ class PruebasVentanaEdicion(unittest.TestCase):
         # Mover un vértice de la matriz: la red se vuelve a calcular sola
         v.usar_herramienta("seleccion")
         self.clic(X0 + 50, Y0 + 40)
-        self.assertEqual(v.seleccion, ("matriz", 0))
+        self.assertEqual(v.seleccion, ("matriz", 1))
         self.arrastrar((X0 + 130, Y0 + 40), (X0 + 140, Y0 + 45))
-        self.assertEqual(v.proyecto.matriz[0][2], (X0 + 140, Y0 + 45))
+        self.assertEqual(v.proyecto.matriz[1][1], (X0 + 140, Y0 + 45))
         self.assertIsNotNone(v.proyecto.red)
         self.assertNotEqual(v.proyecto.resumen()["metrados_m"], {})
 
@@ -361,7 +425,7 @@ class PruebasVentanaEdicion(unittest.TestCase):
         self.assertEqual(len(v.proyecto.subunidades), 1)
         v.deshacer()
         v.deshacer()  # también el vértice de la matriz
-        self.assertEqual(v.proyecto.matriz[0][2], (X0 + 130, Y0 + 40))
+        self.assertEqual(v.proyecto.matriz[1][1], (X0 + 130, Y0 + 40))
         self.assertEqual(v.proyecto.resumen()["bomba"], cdt)
         self.assertIn("Deshacer", v.acciones["deshacer"].text())
 
@@ -385,6 +449,69 @@ class PruebasVentanaEdicion(unittest.TestCase):
         self.mensajes.warning.assert_not_called()
         self.assertEqual(v.proyecto.datos, datos)
         self.assertIsNotNone(v.proyecto.red)
+
+    def test_menu_del_clic_derecho(self):
+        from PySide6.QtCore import QPoint
+        from PySide6.QtGui import QContextMenuEvent
+        from PySide6.QtWidgets import QApplication
+        from riegolibre_escritorio import ventana
+        v = self.v
+        datos = edicion.agregar_lote(v.proyecto.datos, rectangulo(0, 0, 60, 30))
+        datos = edicion.fijar_fuente(datos, (X0 - 20, Y0 - 20))
+        v.aplicar(edicion.agregar_matriz(datos, [(X0 - 20, Y0 - 20), (X0 - 20, Y0 + 40), (X0 + 130, Y0 + 40)]),
+                  "Diseño")
+        v.usar_herramienta("seleccion")
+
+        # El clic derecho abre el menú en el punto (no termina ni selecciona nada por sí solo)
+        with mock.patch.object(ventana, "armar_menu") as armar:
+            evento = QContextMenuEvent(QContextMenuEvent.Reason.Mouse, self._px(X0 + 30, Y0 + 15), QPoint(5, 5))
+            QApplication.sendEvent(v.lienzo.viewport(), evento)
+        (_v, x, y), _ = armar.call_args
+        self.assertAlmostEqual(x, X0 + 30, delta=0.6)
+        self.assertAlmostEqual(y, Y0 + 15, delta=0.6)
+        armar.return_value.exec.assert_called_once()
+
+        # Seleccionar objeto y quitar la selección
+        self.assertFalse(self.accion_menu(X0 + 30, Y0 + 15, "Quitar la selección").isEnabled())
+        self.accion_menu(X0 + 30, Y0 + 15, "Seleccionar objeto").trigger()
+        self.assertEqual(v.seleccion, ("lote", 0))
+        self.accion_menu(X0 + 500, Y0 + 500, "Quitar la selección").trigger()
+        self.assertIsNone(v.seleccion)
+        self.assertFalse(self.accion_menu(X0 + 500, Y0 + 500, "Seleccionar objeto").isEnabled())
+
+        # Capas: ocultar la de nodos
+        self.accion_menu(X0, Y0, "NODOS_MATRIZ").trigger()
+        self.assertFalse(v.proyecto.estilos_capas["NODOS_MATRIZ"]["visible"])
+        self.assertFalse(v.lienzo.capas["NODOS_MATRIZ"].elementos[0].isVisible())
+
+        # Modificar: partir un tramo y quitar el nodo; borrar un tramo; deshacer
+        self.accion_menu(X0 + 50, Y0 + 40, "Partir el tramo aquí (nodo nuevo)").trigger()
+        self.assertEqual(len(v.proyecto.matriz), 3)
+        self.accion_menu(X0 + 50, Y0 + 40, "Quitar el nodo (une sus tramos)").trigger()
+        self.assertEqual(len(v.proyecto.matriz), 2)
+        self.accion_menu(X0 - 20, Y0 + 10, "Borrar el tramo 1 de la tubería matriz").trigger()
+        self.assertEqual(v.proyecto.matriz, [[(X0 - 20, Y0 + 40), (X0 + 130, Y0 + 40)]])
+        v.deshacer()
+        self.assertEqual(len(v.proyecto.matriz), 2)
+
+        # Información del objeto y zoom al objeto
+        self.accion_menu(X0 - 20, Y0 + 40, "Información del objeto").trigger()
+        self.assertIn("Nodo 2", v.dialogo_ficha.windowTitle())
+        self.accion_menu(X0 - 20, Y0 + 10, "Al objeto").trigger()
+
+        # Terminar y Reiniciar solo mientras se dibuja
+        self.assertFalse(self.accion_menu(X0, Y0, "Terminar el trazo").isEnabled())
+        v.usar_herramienta("matriz")
+        self.clic(X0 + 130, Y0 + 40)
+        self.clic(X0 + 130, Y0 + 90)
+        self.accion_menu(X0 + 130, Y0 + 90, "Reiniciar el trazo").trigger()
+        self.assertFalse(v.herramientas["matriz"].trazando)
+        self.assertEqual(len(v.proyecto.matriz), 2)
+        self.clic(X0 + 130, Y0 + 40)
+        self.clic(X0 + 130, Y0 + 90)
+        self.accion_menu(X0 + 130, Y0 + 90, "Terminar el trazo").trigger()
+        self.assertEqual(len(v.proyecto.matriz), 3)
+        self.assertEqual(len(edicion.nodos_matriz(v.proyecto.datos)), 4)
 
     def test_bloque_de_goteo_por_lote_y_turnos(self):
         from PySide6.QtWidgets import QDialog

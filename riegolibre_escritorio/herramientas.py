@@ -3,12 +3,15 @@
 # RiegoLibre: software libre; ver los archivos LICENSE y NOTICE (autoría y condiciones adicionales).
 """Herramientas del mapa (la barra vertical de la izquierda, como en IRRICAD).
 
-- Seleccionar: clic en un lote, un tramo de la matriz o la fuente; arrastrar un vértice lo mueve; doble clic
-  en un borde agrega un vértice; Ctrl + clic en un vértice lo quita; Supr borra el objeto; doble clic dentro
-  de un lote abre su bloque de goteo. Arrastrar en un lugar vacío desplaza el mapa.
-- Lote: polígono con clics; clic derecho, doble clic o Intro termina; Esc cancela; Retroceso quita el último.
+- Seleccionar: clic en un lote, un tramo o un nodo de la matriz o la fuente; arrastrar un vértice lo mueve (un
+  nodo arrastra todos sus tramos); doble clic en un borde agrega un vértice (en un tramo: lo parte con un nodo);
+  Ctrl + clic en un vértice lo quita (un nodo une sus dos tramos); Supr borra el objeto; doble clic dentro de un
+  lote abre su bloque de goteo. Arrastrar en un lugar vacío desplaza el mapa.
+- Lote: polígono con clics; doble clic o Intro termina; Esc cancela; Retroceso quita el último.
 - Fuente de agua: un clic; reemplaza la anterior («Water Supply»).
-- Tubería matriz: polilínea, igual que el lote («Mainline Pipe»).
+- Tubería matriz: con clics, igual que el lote («Mainline Pipe»); queda un tramo entre cada par de clics.
+- Clic derecho (cualquier herramienta): el menú del mapa, que arma la ventana (como el de IRRICAD); mientras se
+  dibuja trae «Terminar» y «Reiniciar» el trazo.
 - Información: clic en un objeto muestra su ficha («Object Info»).
 
 Todas usan el imán: el punto se pega al vértice (cuadro) o al borde (rombo) más cercano a menos de
@@ -198,8 +201,17 @@ class HerramientaTrazo(Herramienta):
     def ayuda(self):
         if not self.puntos:
             return f"{self.que}: indique el primer punto."
-        return (f"{self.que}: indique el siguiente punto ({len(self.puntos)} hasta ahora). Clic derecho, doble clic "
-                "o Intro termina; Retroceso quita el último; Esc cancela. Mayús: sin imán.")
+        return (f"{self.que}: indique el siguiente punto ({len(self.puntos)} hasta ahora). Doble clic o Intro "
+                "termina; Retroceso quita el último; Esc cancela; clic derecho: menú. Mayús: sin imán.")
+
+    @property
+    def trazando(self) -> bool:
+        return bool(self.puntos)
+
+    def reiniciar(self):
+        """Borra lo que se lleva dibujado y sigue con la misma herramienta («Restart» de IRRICAD)."""
+        self.cancelar()
+        self.editor.mensaje(self.ayuda())
 
     def cancelar(self):
         self.puntos, self.cursor_xy = [], None
@@ -231,10 +243,7 @@ class HerramientaTrazo(Herramienta):
             self._pintar()
             self.editor.mensaje(self.ayuda())
             return True
-        if evento.button() == Qt.MouseButton.RightButton:
-            self.terminar()
-            return True
-        return False
+        return False  # el clic derecho abre el menú del mapa
 
     def mover(self, evento, x, y):
         p = self._imantar(evento, x, y)
@@ -353,7 +362,8 @@ class HerramientaSeleccion(Herramienta):
 
     def ayuda(self):
         if self.seleccion is None:
-            return "Seleccionar: haga clic en un lote, un tramo de la matriz o la fuente. Arrastre para mover el mapa."
+            return ("Seleccionar: haga clic en un lote, un tramo o un nodo de la matriz o la fuente. Arrastre para "
+                    "mover el mapa; clic derecho: menú.")
         return (f"Seleccionado: {edicion.nombre_objeto(self.editor.datos(), self.seleccion)}. Arrastre un vértice "
                 "para moverlo; doble clic en un borde agrega un vértice; Ctrl + clic en un vértice lo quita; Supr "
                 "borra; doble clic dentro de un lote abre su bloque de goteo.")
@@ -380,7 +390,7 @@ class HerramientaSeleccion(Herramienta):
         if self.seleccion is not None:
             tipo, i = self.seleccion
             validos = {"dibujo": len(dibujos.lista(datos)), "lote": len(datos.get("lotes", [])), "matriz": len(edicion.matriz(datos)),
-                       "fuente": 1 if datos.get("fuente") else 0}
+                       "nodo": len(edicion.nodos_matriz(datos)), "fuente": 1 if datos.get("fuente") else 0}
             if i >= validos.get(tipo, i + 1):
                 self.seleccion = None
         self._pintar()
@@ -409,7 +419,7 @@ class HerramientaSeleccion(Herramienta):
             self._vertices(puntos)
             return
         for anillo in anillos:
-            if tipo == "fuente":
+            if tipo in ("fuente", "nodo"):
                 self._vertices(anillo, lado=12)
             else:
                 self._trazo(anillo, ancho=3.0, cerrar=tipo == "lote")
@@ -423,15 +433,16 @@ class HerramientaSeleccion(Herramienta):
             vertice = edicion.vertice_en(datos, self.seleccion, (x, y), self.tolerancia)
             if vertice is not None:
                 if evento.modifiers() & Qt.KeyboardModifier.ControlModifier:
-                    self._aplicar(edicion.borrar_vertice, self.seleccion, vertice, texto="Quitar vértice")
+                    self._aplicar(edicion.borrar_vertice, self.seleccion, vertice,
+                                  texto="Quitar vértice" if self.seleccion[0] == "lote" else "Quitar nodo")
                 else:
                     self._arrastre = (vertice, edicion.vertices(datos, self.seleccion)[vertice[0]][vertice[1]])
                 return True
         objeto = edicion.objeto_en(datos, (x, y), self.tolerancia)
         if objeto != self.seleccion:
             self.seleccionar(objeto)
-        if objeto is not None and objeto[0] == "fuente":  # la fuente se arrastra directamente
-            self._arrastre = ((0, 0), edicion.fuente(datos))
+        if objeto is not None and objeto[0] in ("fuente", "nodo"):  # la fuente y los nodos se arrastran directamente
+            self._arrastre = ((0, 0), edicion.vertices(datos, objeto)[0][0])
             return True
         return False  # arrastrar desde un lote o la matriz sigue desplazando el mapa
 
@@ -440,10 +451,8 @@ class HerramientaSeleccion(Herramienta):
             return False
         datos = self.editor.datos()
         (a, k), _ = self._arrastre
-        # El imán no debe tomar el propio vértice: se busca sin el objeto, más sus otros vértices
-        otros = [p for j, anillo in enumerate(edicion.vertices(datos, self.seleccion)) for m, p in enumerate(anillo)
-                 if (j, m) != (a, k)]
-        p = self.imantar(evento, x, y, datos=edicion.borrar(datos, self.seleccion), puntos_extra=otros)
+        sin, otros = edicion.datos_para_iman(datos, self.seleccion, (a, k))
+        p = self.imantar(evento, x, y, datos=sin, puntos_extra=otros)
         self._arrastre = ((a, k), p)
         self._pintar()
         return True
@@ -456,7 +465,8 @@ class HerramientaSeleccion(Herramienta):
         self._quitar_marca()
         original = edicion.vertices(self.editor.datos(), self.seleccion)[vertice[0]][vertice[1]]
         if math.dist(original, p) > 1e-9:
-            texto = "Mover la fuente" if self.seleccion[0] == "fuente" else "Mover vértice"
+            texto = "Mover la fuente" if self.seleccion[0] == "fuente" else (
+                "Mover vértice" if self.seleccion[0] == "lote" else "Mover nodo")
             self._aplicar(edicion.mover_vertice, self.seleccion, vertice, p, texto=texto)
         else:
             self._pintar()
@@ -466,11 +476,12 @@ class HerramientaSeleccion(Herramienta):
         if evento.button() != Qt.MouseButton.LeftButton:
             return False
         datos = self.editor.datos()
-        if self.seleccion is not None and self.seleccion[0] != "fuente":
+        if self.seleccion is not None and self.seleccion[0] in ("lote", "matriz"):
             borde = edicion.borde_en(datos, self.seleccion, (x, y), self.tolerancia)
             if borde is not None and edicion.vertice_en(datos, self.seleccion, (x, y), self.tolerancia) is None:
                 anillo, k, p = borde
-                self._aplicar(edicion.insertar_vertice, self.seleccion, anillo, k, p, texto="Agregar vértice")
+                texto = "Agregar vértice" if self.seleccion[0] == "lote" else "Partir tramo"
+                self._aplicar(edicion.insertar_vertice, self.seleccion, anillo, k, p, texto=texto)
                 return True
         objeto = edicion.objeto_en(datos, (x, y), self.tolerancia)
         if objeto is not None and objeto[0] == "lote":

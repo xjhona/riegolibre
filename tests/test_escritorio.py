@@ -17,7 +17,7 @@ from unittest import mock
 
 from mcp_riegolibre import motor
 from riegolibre.nucleo.red import bomba_critica
-from riegolibre_escritorio import archivo, modelo
+from riegolibre_escritorio import archivo, edicion, modelo
 from riegolibre_escritorio.capas import CAPAS, completar_estilos
 from riegolibre_escritorio.modelo import PARAMETROS_RED, ProyectoRiego
 
@@ -84,7 +84,10 @@ class PruebasModelo(unittest.TestCase):
     def test_red_igual_al_servidor_con_los_mismos_criterios(self):
         p = self.importar()
         p.calcular_red({"perdida_valvula_m": 0.0})  # el servidor usa 0 m si el diseño no la da
-        esperado = motor.disenar_proyecto(datos_prueba()).resumen()
+        # El programa parte la matriz en un tramo por cada par de vértices (nodos como en IRRICAD)
+        datos = datos_prueba()
+        datos["red"]["matriz"] = edicion.partir_en_tramos(datos["red"]["matriz"])
+        esperado = motor.disenar_proyecto(datos).resumen()
         obtenido = p.resumen()
         for clave in ("red", "bomba", "turnos", "metrados_m"):
             self.assertEqual(obtenido[clave], esperado[clave], clave)

@@ -23,6 +23,7 @@ from riegolibre.nucleo.turnos import PALETA as PALETA_TURNOS
 
 from . import dibujos
 from .capas import CAPAS
+from .edicion import nodos_matriz, tramos_en_nodo
 
 FACTOR_ZOOM = 1.25
 PAUSA_ZOOM_MS = 250  # tras tanto sin zoom, las curvas de nivel dejan el borrador y se pintan con calidad completa
@@ -77,9 +78,11 @@ def _pluma(color, ancho, estilo=Qt.PenStyle.SolidLine):
 
 
 class Lienzo(QGraphicsView):
-    """Vista del mapa. Emite `coordenadas(x, y)` al mover el ratón, en las coordenadas del proyecto."""
+    """Vista del mapa. Emite `coordenadas(x, y)` al mover el ratón, en las coordenadas del proyecto, y
+    `menu_contextual(x, y, posición global)` con el clic derecho (el menú lo arma la ventana)."""
 
     coordenadas = Signal(float, float)
+    menu_contextual = Signal(float, float, object)
 
     def __init__(self, parent=None):
         super().__init__(parent)
@@ -322,8 +325,9 @@ class Lienzo(QGraphicsView):
             return
         super().keyPressEvent(evento)
 
-    def contextMenuEvent(self, evento):  # noqa: N802 (Qt) — el clic derecho lo usan las herramientas
+    def contextMenuEvent(self, evento):  # noqa: N802 (Qt) — clic derecho: menú como el de IRRICAD
         evento.accept()
+        self.menu_contextual.emit(*self.de_escena(self.mapToScene(evento.pos())), evento.globalPos())
 
 
 CADA_MAESTRA = 5  # una curva maestra cada cinco equidistancias, como en los planos topográficos
@@ -565,6 +569,7 @@ def dibujar_proyecto(lienzo: Lienzo, proyecto, conservar_vista=False) -> Dict[st
     capas = {nombre: lienzo.nueva_capa(nombre, estilos[nombre]) for nombre in CAPAS}
     texto, fuente, valvulas = capas["TEXTO"], capas["FUENTE"], capas["VÁLVULAS"]
     red, matriz, porta = capas["RED_PRINCIPAL"], capas["MATRIZ_DIBUJADA"], capas["PORTALATERALES"]
+    nodos = capas["NODOS_MATRIZ"]
     laterales, lotes = capas["LATERALES"], capas["LOTES"]
     dibujar_imagen(lienzo, capas["IMAGEN_SATELITAL"], proyecto)
     dibujar_curvas(lienzo, capas["CURVAS_NIVEL"], proyecto.curvas)
@@ -601,9 +606,14 @@ def dibujar_proyecto(lienzo: Lienzo, proyecto, conservar_vista=False) -> Dict[st
         ys = [p[1] for a in s.anillos for p in a]
         lienzo.rotulo(texto, (min(xs) + max(xs)) / 2, (min(ys) + max(ys)) / 2, f"{s.nombre}  T{s.turno}",
                       texto.color, negrita=True, z=7)
-    if proyecto.matriz:
-        lienzo.lineas(matriz, proyecto.matriz, matriz.color, matriz.ancho, z=3, estilo=matriz.linea,
-                      info="Tubería matriz dibujada")
+    tramos = proyecto.matriz
+    for i, tramo in enumerate(tramos):
+        lienzo.lineas(matriz, [tramo], matriz.color, matriz.ancho, z=3, estilo=matriz.linea,
+                      info=f"Tubería matriz · tramo {i + 1} · {math.dist(*tramo):.1f} m")
+    for i, p in enumerate(nodos_matriz(proyecto.datos)):
+        llegan = len(tramos_en_nodo(tramos, p))
+        lienzo.simbolo(nodos, *p, nodos.color, "cuadrado", 6 + nodos.ancho, z=3.5,
+                       info=f"Nodo {i + 1} de la matriz · {llegan} tramo{'s' if llegan != 1 else ''}")
     lienzo.diametros = []
     if proyecto.red is not None:
         r = proyecto.red.resultado

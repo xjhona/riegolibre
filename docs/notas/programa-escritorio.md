@@ -107,6 +107,21 @@ Pedido del usuario el 2026-11-26: un programa tipo IRRICAD que se instale y corr
   de 25 m, para no recorrer miles de tramos en cada movimiento del ratón). Cuentan en `extension()`.
 - Lotes y líneas entran en un solo paso de deshacer. Falta la prueba a mano del usuario con un plano real.
 
+## Matriz en tramos con nodos y menú del clic derecho (2026-11-27)
+- Pedido del usuario con captura de IRRICAD: la matriz no es un solo elemento; se parte en un tramo por cada par de
+  clics (5 clics = 4 tramos y 5 nodos) y los nodos van en su propia capa (NODOS_MATRIZ, como MAINLINE_JUNCTIONS).
+- `edicion.partir_en_tramos`: `red.matriz` se guarda en polilíneas de dos puntos; las de más puntos (diseños del MCP)
+  se parten al leerlas, y un tramo se parte donde otro termina sobre él (una T). Un nodo es `("nodo", i)`: se
+  selecciona antes que el tramo, se arrastra con todos sus tramos; quitarlo une sus dos tramos (o borra el tramo si es
+  un extremo suelto; con tres o más tramos no se puede). Doble clic en un tramo lo parte con un nodo nuevo.
+- La red se calcula con los tramos (`modelo.calcular_red` pasa `cfg["matriz"]` partida): cada codo es un nodo de la
+  red y puede cambiar de diámetro. Por eso el Fundo demo puede dar otra repartición de diámetros que el servidor MCP
+  con la polilínea entera (no se volvió a medir: `muestras/` no está en este computador).
+- Clic derecho = menú de IRRICAD (`menu_mapa.py`): Seleccionar objeto, Quitar la selección, Capas (ver/ocultar),
+  Información del objeto, Terminar y Reiniciar el trazo (solo mientras se dibuja; antes el clic derecho terminaba el
+  trazo), Modificar (partir tramo, quitar nodo o vértice, bloque de goteo, borrar) y Zooms. No se hicieron «Invert
+  Selection», «Selection Filter» ni «Select ▸»: el programa selecciona un objeto a la vez.
+
 ## Números de referencia (Fundo demo, `muestras/demo_mcp/Fundo_demo_datos.json`)
 - Complemento en QGIS (importar + «Red principal y bomba» con valores por omisión): 31.257 L/s, **CDT 30.056 m,
   13.166 kW**; 140 mm 681.7 m, 200 mm 14.1 m, 63 mm 432.5 m, 90 mm 375.1 m.

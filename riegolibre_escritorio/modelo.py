@@ -26,7 +26,7 @@ from mcp_riegolibre import motor
 
 from . import dibujos
 from .capas import completar_estilos
-from .edicion import anillos_lote
+from .edicion import anillos_lote, matriz as tramos_matriz
 
 # Desde cuántos lotes por calcular conviene repartirlos entre procesos.
 LOTES_MIN_PARALELO = 4
@@ -109,7 +109,8 @@ class ProyectoRiego:
 
     @property
     def matriz(self) -> List[List[tuple]]:
-        return [[(float(p[0]), float(p[1])) for p in linea] for linea in (self.datos.get("red") or {}).get("matriz") or []]
+        """Los tramos de la tubería matriz ([P1, P2] cada uno; ver `edicion.partir_en_tramos`)."""
+        return tramos_matriz(self.datos)
 
     @property
     def turnos(self) -> int:
@@ -377,6 +378,7 @@ class ProyectoRiego:
         cfg = dict(motor.RED_POR_OMISION)
         cfg.update(self.datos.get("red") or {})
         cfg.update(self.parametros_red)
+        cfg["matriz"] = self.matriz  # en tramos: cada nodo dibujado es un nodo de la red
         try:
             self.red = motor.disenar_red(self.subunidades, self.fuente, cfg, self.terreno)
         except ValueError as error:

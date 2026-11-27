@@ -128,6 +128,11 @@ class BarraCapas(QWidget):
         self._cargando = False
         self._mostrar_propiedades()
 
+    def fijar_visible(self, nombre: str, visible: bool):
+        """Marca o desmarca «ver» de la capa, como si se hiciera en la tabla (emite `visibilidad`)."""
+        self.tabla.item(list(CAPAS).index(nombre), COL_VER).setCheckState(
+            Qt.CheckState.Checked if visible else Qt.CheckState.Unchecked)
+
     def capa_actual(self):
         fila = self.tabla.currentRow()
         return list(CAPAS)[fila] if 0 <= fila < len(CAPAS) else None

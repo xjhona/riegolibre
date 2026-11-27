@@ -104,13 +104,33 @@ def _ficha_fuente(proyecto) -> Ficha:
                               "potencia_kw": b.potencia_kw, "potencia_hp": b.potencia_hp})
 
 
+def _numero_nodo(nodos, p) -> str:
+    return next((str(k + 1) for k, q in enumerate(nodos) if math.dist(p, q) <= edicion.EPS_NODO), "?")
+
+
+def _cota(terreno, p) -> str:
+    return f", cota = {terreno.cota_o_cero(*p):.2f} m" if terreno.tiene_cotas else ""
+
+
 def _ficha_matriz(proyecto, i) -> Ficha:
-    linea = edicion.matriz(proyecto.datos)[i]
-    lineas = ["TUBERÍA MATRIZ DIBUJADA · polilínea 2D", "Capa = MATRIZ_DIBUJADA", f"Línea = {i + 1}",
-              f"Vértices = {len(linea)},  longitud = {edicion.longitud(linea):.2f} m", ""]
-    lineas += [f"  V{k + 1}: x = {p[0]:.2f} m, y = {p[1]:.2f} m" for k, p in enumerate(linea)]
+    tramo = edicion.matriz(proyecto.datos)[i]
+    nodos = edicion.nodos_matriz(proyecto.datos)
+    lineas = ["TRAMO DE TUBERÍA MATRIZ DIBUJADA · línea 2D", "Capa = MATRIZ_DIBUJADA", f"Tramo = {i + 1}",
+              f"Longitud = {edicion.longitud(tramo):.2f} m", ""]
+    for nombre, p in zip(("Desde", "Hasta"), tramo):
+        lineas.append(f"  {nombre} el nodo {_numero_nodo(nodos, p)}: x = {p[0]:.2f} m, y = {p[1]:.2f} m"
+                      + _cota(proyecto.terreno, p))
     lineas += ["", "Diámetro = selección automática al calcular «Red principal y bomba»."]
-    return Ficha(f"Tubería matriz {i + 1}", "\n".join(lineas))
+    return Ficha(f"Tubería matriz, tramo {i + 1}", "\n".join(lineas))
+
+
+def _ficha_nodo(proyecto, i) -> Ficha:
+    p = edicion.nodos_matriz(proyecto.datos)[i]
+    llegan = sorted(j + 1 for j, _k in edicion.tramos_en_nodo(edicion.matriz(proyecto.datos), p))
+    lineas = ["NODO DE LA TUBERÍA MATRIZ · punto 2D", "Capa = NODOS_MATRIZ", f"Nodo = {i + 1}",
+              f"  x = {p[0]:.2f} m, y = {p[1]:.2f} m" + _cota(proyecto.terreno, p), "",
+              "Tramos que llegan = " + ", ".join(map(str, llegan))]
+    return Ficha(f"Nodo {i + 1} de la matriz", "\n".join(lineas))
 
 
 def _ficha_lote_sin_calcular(proyecto, i) -> Ficha:
@@ -151,6 +171,8 @@ def ficha_en(proyecto, p, tolerancia: float) -> Optional[Ficha]:
     objeto = edicion.objeto_en(proyecto.datos, p, tolerancia)
     if objeto and objeto[0] == "dibujo":
         return _ficha_dibujo(proyecto, objeto[1])
+    if objeto and objeto[0] == "nodo":
+        return _ficha_nodo(proyecto, objeto[1])
     if objeto and objeto[0] == "matriz":
         return _ficha_matriz(proyecto, objeto[1])
     # La subunidad que contiene el punto (un lote subdividido tiene varias)

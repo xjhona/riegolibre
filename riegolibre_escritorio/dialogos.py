@@ -3,6 +3,7 @@
 # RiegoLibre: software libre; ver los archivos LICENSE y NOTICE (autoría y condiciones adicionales).
 """Cuadros pequeños del programa: proyecto nuevo, turnos de riego, ficha de un objeto y tabla de atributos."""
 
+import math
 from typing import Dict, Optional
 
 from PySide6.QtCore import Qt, Signal
@@ -212,17 +213,20 @@ def _item(valor, decimales=None):
 
 
 class TablaAtributos(QTabWidget):
-    """Lotes y tramos de la matriz dibujada. Clic: selecciona en el mapa; doble clic en un lote: su bloque."""
+    """Lotes, tramos y nodos de la matriz dibujada. Clic: selecciona en el mapa; doble clic en un lote: su bloque."""
 
-    elegido = Signal(object)  # objeto de `edicion` («lote», i) o («matriz», i)
+    elegido = Signal(object)  # objeto de `edicion` («lote», i), («matriz», i) o («nodo», i)
     abrir_lote = Signal(int)
 
     def __init__(self, parent=None):
         super().__init__(parent)
         self.tabla_lotes = self._tabla(["Lote", "Vértices", "Área (ha)", "Turno", "Parámetros propios"])
-        self.tabla_matriz = self._tabla(["Línea", "Vértices", "Longitud (m)", "Desde", "Hasta"])
+        self.tabla_matriz = self._tabla(["Tramo", "Longitud (m)", "Nodo inicial", "Nodo final", "Desde", "Hasta"])
+        self.tabla_nodos = self._tabla(["Nodo", "Este (m)", "Norte (m)", "Tramos"])
         self.addTab(self.tabla_lotes, "Lotes")
         self.addTab(self.tabla_matriz, "Tubería matriz")
+        self.addTab(self.tabla_nodos, "Nodos de la matriz")
+        self.tabla_nodos.cellClicked.connect(lambda fila, _c: self.elegido.emit(("nodo", fila)))
         self.tabla_lotes.cellClicked.connect(lambda fila, _c: self.elegido.emit(("lote", fila)))
         self.tabla_lotes.cellDoubleClicked.connect(lambda fila, _c: self.abrir_lote.emit(fila))
         self.tabla_matriz.cellClicked.connect(lambda fila, _c: self.elegido.emit(("matriz", fila)))
@@ -251,21 +255,32 @@ class TablaAtributos(QTabWidget):
             for j, valor in enumerate([nombre, len(anillos[0]) if anillos else 0, area / 10000,
                                        fijos.get(nombre, "automático"), propios or "—"]):
                 self.tabla_lotes.setItem(i, j, _item(valor, 3 if j == 2 else None))
-        lineas = edicion.matriz(datos)
-        self.tabla_matriz.setRowCount(len(lineas))
-        for i, linea in enumerate(lineas):
-            valores = [i + 1, len(linea), edicion.longitud(linea), f"{linea[0][0]:.1f}, {linea[0][1]:.1f}",
-                       f"{linea[-1][0]:.1f}, {linea[-1][1]:.1f}"]
+        tramos = edicion.matriz(datos)
+        nodos = edicion.nodos_matriz(datos)
+
+        def numero(p):
+            return next(k + 1 for k, q in enumerate(nodos) if math.dist(p, q) <= edicion.EPS_NODO)
+
+        self.tabla_matriz.setRowCount(len(tramos))
+        for i, (a, b) in enumerate(tramos):
+            valores = [i + 1, edicion.longitud([a, b]), numero(a), numero(b), f"{a[0]:.1f}, {a[1]:.1f}",
+                       f"{b[0]:.1f}, {b[1]:.1f}"]
             for j, valor in enumerate(valores):
-                self.tabla_matriz.setItem(i, j, _item(valor, 2 if j == 2 else None))
+                self.tabla_matriz.setItem(i, j, _item(valor, 2 if j == 1 else None))
+        self.tabla_nodos.setRowCount(len(nodos))
+        for i, p in enumerate(nodos):
+            llegan = sorted(j + 1 for j, _k in edicion.tramos_en_nodo(tramos, p))
+            for j, valor in enumerate([i + 1, p[0], p[1], ", ".join(map(str, llegan))]):
+                self.tabla_nodos.setItem(i, j, _item(valor, 2 if j in (1, 2) else None))
 
     def marcar(self, objeto: Optional[tuple]):
-        for tabla in (self.tabla_lotes, self.tabla_matriz):
+        tablas = {"lote": self.tabla_lotes, "matriz": self.tabla_matriz, "nodo": self.tabla_nodos}
+        for tabla in tablas.values():
             tabla.blockSignals(True)
             tabla.clearSelection()
             tabla.blockSignals(False)
-        if objeto and objeto[0] in ("lote", "matriz"):
-            tabla = self.tabla_lotes if objeto[0] == "lote" else self.tabla_matriz
+        if objeto and objeto[0] in tablas:
+            tabla = tablas[objeto[0]]
             if objeto[1] < tabla.rowCount():
                 tabla.blockSignals(True)
                 tabla.selectRow(objeto[1])

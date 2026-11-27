@@ -20,6 +20,7 @@ from PySide6.QtWidgets import (QApplication, QDialog, QDockWidget, QFileDialog, 
 
 from . import VERSION, archivo, edicion, fichas, herramientas, herramientas_dibujo
 from .barra_capas import BarraCapas
+from .menu_mapa import armar_menu
 from .dialogo_bloque import DialogoBloque
 from .dialogos import DialogoFicha, DialogoNuevo, DialogoTurnos, TablaAtributos
 from .dialogo_red import DialogoRed
@@ -119,6 +120,7 @@ class VentanaPrincipal(QMainWindow):
         self.lienzo = Lienzo(self)
         self.setCentralWidget(self.lienzo)
         self.lienzo.coordenadas.connect(self._mostrar_coordenadas)
+        self.lienzo.menu_contextual.connect(self._menu_mapa)
 
         self.barra_capas = BarraCapas()
         self.barra_capas.visibilidad.connect(self._visibilidad_capa)
@@ -410,8 +412,33 @@ class VentanaPrincipal(QMainWindow):
         self.acciones["bloque"].setEnabled(bool(objeto and objeto[0] == "lote"))
 
     def _elegir_en_tabla(self, objeto):
+        self.seleccionar_objeto(objeto)
+        self.acercar_a_objeto(objeto)
+
+    def seleccionar_objeto(self, objeto):
+        """Pasa a la herramienta Seleccionar con ese objeto (None: sin selección)."""
         self.usar_herramienta("seleccion")
         self.herramientas["seleccion"].seleccionar(objeto)
+
+    def aplicar_cambio(self, funcion, *args, texto=""):
+        """Un cambio de `edicion` pedido desde un menú; el error (ValueError) va a la barra de estado."""
+        try:
+            datos = funcion(self.proyecto.datos, *args)
+        except ValueError as error:
+            self.mensaje(str(error))
+            return
+        if funcion is edicion.borrar:
+            self.herramientas["seleccion"].seleccionar(None)
+        self.aplicar(datos, texto)
+
+    def _menu_mapa(self, x, y, posicion):
+        """Clic derecho en el mapa: el menú de `menu_mapa` (como el de IRRICAD)."""
+        if not self._ocupado:
+            armar_menu(self, x, y).exec(posicion)
+
+    def acercar_a_objeto(self, objeto):
+        if objeto is None:
+            return
         puntos = [p for anillo in edicion.vertices(self.proyecto.datos, objeto) for p in anillo]
         if puntos:
             xs, ys = [p[0] for p in puntos], [p[1] for p in puntos]

@@ -6,8 +6,14 @@
 Los datos son los del `…_datos.json` del servidor MCP (lotes con `contorno` y `huecos`, `fuente`, `red.matriz`,
 `goteo`). Cada cambio devuelve una copia nueva de los datos: así deshacer es volver a la copia anterior.
 
-Un objeto se nombra con una tupla: `("lote", i)`, `("matriz", i)` (la i-ésima polilínea) o `("fuente", 0)`.
-Un vértice, con `(anillo, k)`; en la matriz el anillo es siempre 0.
+Un objeto se nombra con una tupla: `("lote", i)`, `("matriz", i)` (el i-ésimo tramo), `("nodo", i)` o
+`("fuente", 0)`. Un vértice, con `(anillo, k)`; en la matriz el anillo es siempre 0.
+
+La tubería matriz es una red de tramos rectos unidos por nodos, como «Mainline Pipe» y las uniones
+(MAINLINE_JUNCTIONS) de IRRICAD: lo que se dibuja de un trazo se parte en un tramo por cada par de clics y cada
+extremo es un nodo compartido. Mover un nodo arrastra los extremos de todos sus tramos; partir o unir tramos agrega
+o quita nodos. Los datos guardan los tramos en `red.matriz` (polilíneas de dos puntos); las de más puntos que
+traiga un diseño del MCP se parten al leerlas.
 """
 
 import copy
@@ -107,14 +113,57 @@ def _fijar_anillos(lote: dict, anillos: List[List[Punto]]):
         lote.pop("huecos", None)
 
 
+EPS_NODO = 1e-6  # m: dos extremos más cerca que esto son el mismo nodo
+
+
+def _unicos(puntos: Sequence[Punto]) -> List[Punto]:
+    unicos: List[Punto] = []
+    for p in puntos:
+        if not any(math.dist(p, q) <= EPS_NODO for q in unicos):
+            unicos.append(p)
+    return unicos
+
+
+def partir_en_tramos(lineas) -> List[List[Punto]]:
+    """Cada polilínea se parte en tramos de dos puntos (sin tramos de largo cero), y cada tramo se parte donde
+    otro termina sobre él (una «T»: el nodo queda compartido)."""
+    tramos = []
+    for linea in lineas:
+        puntos = _puntos(linea)
+        tramos += [[a, b] for a, b in zip(puntos, puntos[1:]) if math.dist(a, b) > EPS_NODO]
+    extremos = _unicos([p for t in tramos for p in t])
+    resultado = []
+    for a, b in tramos:
+        interiores = []
+        for q in extremos:
+            if (_cercano_en_segmento(q, a, b)[0] <= EPS_NODO and math.dist(q, a) > EPS_NODO
+                    and math.dist(q, b) > EPS_NODO):
+                interiores.append((math.dist(a, q), q))
+        puntos = [a] + [q for _d, q in sorted(interiores)] + [b]
+        resultado += [[p, q] for p, q in zip(puntos, puntos[1:])]
+    return resultado
+
+
 def matriz(datos: dict) -> List[List[Punto]]:
-    return [_puntos(linea) for linea in (datos.get("red") or {}).get("matriz") or []]
+    """Los tramos de la tubería matriz: [[P1, P2], ...]."""
+    return partir_en_tramos((datos.get("red") or {}).get("matriz") or [])
+
+
+def nodos_matriz(datos: dict) -> List[Punto]:
+    """Los nodos de la matriz: los extremos de los tramos, sin repetir, en el orden en que aparecen."""
+    return _unicos([p for tramo in matriz(datos) for p in tramo])
+
+
+def tramos_en_nodo(tramos: Sequence[Sequence[Punto]], p: Punto) -> List[Tuple[int, int]]:
+    """(tramo, extremo 0 o 1) de los tramos que llegan al nodo p."""
+    return [(i, k) for i, tramo in enumerate(tramos) for k in (0, 1) if math.dist(tramo[k], p) <= EPS_NODO]
 
 
 def _fijar_matriz(datos: dict, lineas: List[List[Punto]]):
     red = datos.setdefault("red", {})
-    if lineas:
-        red["matriz"] = [[list(p) for p in linea] for linea in lineas]
+    tramos = partir_en_tramos(lineas)
+    if tramos:
+        red["matriz"] = [[list(p) for p in tramo] for tramo in tramos]
     else:
         red.pop("matriz", None)
 
@@ -132,6 +181,8 @@ def vertices(datos: dict, objeto: Objeto) -> List[List[Punto]]:
         return anillos_lote(datos["lotes"][i])
     if tipo == "matriz":
         return [matriz(datos)[i]]
+    if tipo == "nodo":
+        return [[nodos_matriz(datos)[i]]]
     return [[fuente(datos)]] if fuente(datos) else []
 
 
@@ -143,6 +194,8 @@ def nombre_objeto(datos: dict, objeto: Objeto) -> str:
         return f"lote «{datos['lotes'][i].get('nombre', '?')}»"
     if tipo == "matriz":
         return f"tramo {i + 1} de la tubería matriz"
+    if tipo == "nodo":
+        return f"nodo {i + 1} de la tubería matriz"
     return "fuente de agua"
 
 
@@ -190,11 +243,17 @@ def imantar(p: Punto, datos: dict, tolerancia: float, puntos_extra: Sequence[Pun
 
 
 def objeto_en(datos: dict, p: Punto, tolerancia: float) -> Optional[Objeto]:
-    """El objeto bajo el cursor: la fuente, luego la matriz (a menos de `tolerancia`), luego el lote más pequeño
-    que contiene el punto (o cuyo borde está a menos de `tolerancia`)."""
+    """El objeto bajo el cursor: la fuente, luego un nodo de la matriz, luego un tramo (a menos de `tolerancia`),
+    luego el lote más pequeño que contiene el punto (o cuyo borde está a menos de `tolerancia`)."""
     if fuente(datos) and math.dist(p, fuente(datos)) <= tolerancia:
         return ("fuente", 0)
     mejor = None
+    for i, q in enumerate(nodos_matriz(datos)):
+        d = math.dist(p, q)
+        if d <= tolerancia and (mejor is None or d < mejor[0]):
+            mejor = (d, ("nodo", i))
+    if mejor:
+        return mejor[1]
     for i, linea in enumerate(matriz(datos)):
         d = min((_cercano_en_segmento(p, a, b)[0] for a, b in zip(linea, linea[1:])), default=math.inf)
         if d <= tolerancia and (mejor is None or d < mejor[0]):
@@ -323,11 +382,34 @@ def mover_vertice(datos: dict, objeto: Objeto, vertice: Tuple[int, int], p: Punt
         anillos = anillos_lote(nuevo["lotes"][i])
         anillos[a][k] = (float(p[0]), float(p[1]))
         _fijar_anillos(nuevo["lotes"][i], anillos)
-    else:
-        lineas = matriz(nuevo)
-        lineas[i][k] = (float(p[0]), float(p[1]))
-        _fijar_matriz(nuevo, lineas)
+    else:  # tramo o nodo: se mueve el nodo con los extremos de todos los tramos que llegan a él
+        tramos = matriz(nuevo)
+        viejo = tramos[i][k] if tipo == "matriz" else nodos_matriz(nuevo)[i]
+        for j, extremo in tramos_en_nodo(tramos, viejo):
+            tramos[j][extremo] = (float(p[0]), float(p[1]))
+        tramos = [t for t in tramos if math.dist(t[0], t[1]) > EPS_NODO]
+        if not tramos:
+            raise ValueError("El tramo quedaría de largo cero.")
+        _fijar_matriz(nuevo, tramos)
     return nuevo
+
+
+def datos_para_iman(datos: dict, objeto: Objeto, vertice: Tuple[int, int]):
+    """Al arrastrar un vértice: (datos sin lo que se mueve, puntos que sí atraen). El imán no debe tomar el propio
+    vértice: en un lote o la fuente se quita el objeto; en la matriz, los tramos que llegan al nodo (sus otros
+    extremos siguen atrayendo)."""
+    tipo, i = objeto
+    if tipo not in ("matriz", "nodo"):
+        otros = [p for j, anillo in enumerate(vertices(datos, objeto)) for m, p in enumerate(anillo)
+                 if (j, m) != tuple(vertice)]
+        return borrar(datos, objeto), otros
+    tramos = matriz(datos)
+    p = tramos[i][vertice[1]] if tipo == "matriz" else nodos_matriz(datos)[i]
+    llegan = tramos_en_nodo(tramos, p)
+    quitar = {j for j, _k in llegan}
+    sin = copy.deepcopy(datos)
+    _fijar_matriz(sin, [t for j, t in enumerate(tramos) if j not in quitar])
+    return sin, [tramos[j][1 - k] for j, k in llegan]
 
 
 def insertar_vertice(datos: dict, objeto: Objeto, anillo: int, despues_de: int, p: Punto) -> dict:
@@ -340,10 +422,35 @@ def insertar_vertice(datos: dict, objeto: Objeto, anillo: int, despues_de: int, 
         anillos = anillos_lote(nuevo["lotes"][i])
         anillos[anillo].insert(despues_de + 1, q)
         _fijar_anillos(nuevo["lotes"][i], anillos)
-    elif tipo == "matriz":
-        lineas = matriz(nuevo)
-        lineas[i].insert(despues_de + 1, q)
-        _fijar_matriz(nuevo, lineas)
+    elif tipo == "matriz":  # el tramo se parte en dos con un nodo nuevo
+        tramos = matriz(nuevo)
+        a, b = tramos[i]
+        if math.dist(a, q) <= EPS_NODO or math.dist(b, q) <= EPS_NODO:
+            raise ValueError("Ya hay un nodo en ese punto.")
+        tramos[i:i + 1] = [[a, q], [q, b]]
+        _fijar_matriz(nuevo, tramos)
+    return nuevo
+
+
+def quitar_nodo(datos: dict, p: Punto) -> dict:
+    """Quita el nodo p: si une dos tramos, quedan en uno solo; si es un extremo suelto, se borra su tramo."""
+    tramos = matriz(datos)
+    llegan = tramos_en_nodo(tramos, p)
+    if not llegan:
+        raise ValueError("No hay un nodo de la matriz en ese punto.")
+    if len(llegan) > 2:
+        raise ValueError(f"No se puede quitar el nodo: une {len(llegan)} tramos (borre antes los que sobran).")
+    nuevo = copy.deepcopy(datos)
+    if len(llegan) == 2:
+        (j1, k1), (j2, k2) = llegan
+        a, b = tramos[j1][1 - k1], tramos[j2][1 - k2]
+        if math.dist(a, b) <= EPS_NODO:
+            raise ValueError("No se puede quitar el nodo: los dos tramos vuelven al mismo punto.")
+        tramos[min(j1, j2)] = [a, b]
+        del tramos[max(j1, j2)]
+    else:
+        del tramos[llegan[0][0]]
+    _fijar_matriz(nuevo, tramos)
     return nuevo
 
 
@@ -352,7 +459,11 @@ def borrar_vertice(datos: dict, objeto: Objeto, vertice: Tuple[int, int]) -> dic
         return dibujos.borrar_vertice(datos, objeto[1], vertice[1])
     tipo, i = objeto
     a, k = vertice
-    minimo = 3 if tipo == "lote" else 2
+    if tipo == "matriz":
+        return quitar_nodo(datos, matriz(datos)[i][k])
+    if tipo == "nodo":
+        return quitar_nodo(datos, nodos_matriz(datos)[i])
+    minimo = 3
     actuales = vertices(datos, objeto)[a]
     if len(actuales) <= minimo:
         raise ValueError(f"No se puede quitar el vértice: el {nombre_objeto(datos, objeto)} quedaría con menos de "
@@ -362,24 +473,22 @@ def borrar_vertice(datos: dict, objeto: Objeto, vertice: Tuple[int, int]) -> dic
         anillos = anillos_lote(nuevo["lotes"][i])
         del anillos[a][k]
         _fijar_anillos(nuevo["lotes"][i], anillos)
-    else:
-        lineas = matriz(nuevo)
-        del lineas[i][k]
-        _fijar_matriz(nuevo, lineas)
     return nuevo
 
 
 def borrar(datos: dict, objeto: Objeto) -> dict:
     if objeto[0] == "dibujo":  # capa DIBUJO
         return dibujos.borrar(datos, objeto[1])
-    nuevo = copy.deepcopy(datos)
     tipo, i = objeto
+    if tipo == "nodo":
+        return quitar_nodo(datos, nodos_matriz(datos)[i])
+    nuevo = copy.deepcopy(datos)
     if tipo == "fuente":
         nuevo.pop("fuente", None)
     elif tipo == "matriz":
-        lineas = matriz(nuevo)
-        del lineas[i]
-        _fijar_matriz(nuevo, lineas)
+        tramos = matriz(nuevo)
+        del tramos[i]
+        _fijar_matriz(nuevo, tramos)
     else:
         nombre = nuevo["lotes"][i].get("nombre")
         del nuevo["lotes"][i]
