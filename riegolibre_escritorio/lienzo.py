@@ -280,6 +280,27 @@ class Lienzo(QGraphicsView):
         evento.accept()
 
 
+CADA_MAESTRA = 5  # una curva maestra cada cinco equidistancias, como en los planos topográficos
+
+
+def dibujar_curvas(lienzo: Lienzo, capa: Capa, curvas):
+    """Curvas de nivel, un elemento por cota (con su cota en la descripción emergente); las maestras, al doble."""
+    if not curvas:
+        return
+    from .topografia import equidistancia
+
+    paso = equidistancia(curvas)
+    por_cota: Dict[Optional[float], list] = {}
+    for cota, linea in curvas:
+        por_cota.setdefault(None if cota is None else round(cota, 3), []).append(linea)
+    for cota, lineas in por_cota.items():
+        maestra = cota is not None and paso is not None and abs(cota / (paso * CADA_MAESTRA)
+                                                                - round(cota / (paso * CADA_MAESTRA))) < 1e-6
+        texto = "Curva de nivel" + ("" if cota is None else f" {cota:g} m") + (" (maestra)" if maestra else "")
+        lienzo.lineas(capa, lineas, capa.color, capa.ancho * (2 if maestra else 1), z=-1, estilo=capa.linea,
+                      info=texto)
+
+
 def dibujar_proyecto(lienzo: Lienzo, proyecto, conservar_vista=False) -> Dict[str, Capa]:
     """Dibuja el proyecto en el lienzo con los estilos de capa del proyecto (`proyecto.estilos_capas`)."""
     from mcp_riegolibre.motor import _anillos_de
@@ -296,6 +317,7 @@ def dibujar_proyecto(lienzo: Lienzo, proyecto, conservar_vista=False) -> Dict[st
     texto, fuente, valvulas = capas["TEXTO"], capas["FUENTE"], capas["VÁLVULAS"]
     red, matriz, porta = capas["RED_PRINCIPAL"], capas["MATRIZ_DIBUJADA"], capas["PORTALATERALES"]
     laterales, lotes = capas["LATERALES"], capas["LOTES"]
+    dibujar_curvas(lienzo, capas["CURVAS_NIVEL"], proyecto.curvas)
 
     # Lotes sin subunidad calculada (por ejemplo, con error): solo el contorno, en rojo
     subunidades = proyecto.subunidades

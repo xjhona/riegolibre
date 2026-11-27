@@ -51,7 +51,7 @@ def guardar(proyecto: ProyectoRiego, ruta: str):
                 datos["resumen"] = proyecto.resumen()
             conexion.executemany("INSERT INTO datos VALUES (?, ?)",
                                  [(k, json.dumps(v, ensure_ascii=False)) for k, v in datos.items()])
-            conexion.executemany("INSERT INTO archivos VALUES (?, ?)", list(proyecto.archivos.items()))
+            conexion.executemany("INSERT INTO archivos VALUES (?, ?)", list(proyecto.archivos_en_uso().items()))
             if proyecto.subunidades:
                 filas = []
                 for entidad in proyecto.geojson()["features"]:

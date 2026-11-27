@@ -89,6 +89,7 @@ class ProyectoRiego:
         self.ruta: Optional[str] = None
         self._carpeta_archivos: Optional[tempfile.TemporaryDirectory] = None
         self._cache_lotes: Dict[str, list] = {}  # lotes ya calculados, por sus datos (editar y deshacer es rápido)
+        self._curvas = (None, [])  # (archivo, curvas leídas) de las curvas de nivel
 
     # ------------------------------------------------------------ datos
 
@@ -140,11 +141,12 @@ class ProyectoRiego:
         terreno = datos.get("terreno") or {}
         if terreno.get("tipo") == "dem":
             origen = _ruta_existente(terreno["archivo"], carpeta)
-            if not origen.lower().endswith(".asc"):
-                raise ValueError("Por ahora el DEM debe ser un ESRI ASCII Grid (.asc).")
+            extension = os.path.splitext(origen)[1].lower()
+            if extension not in (".asc", ".rdem"):
+                raise ValueError("El DEM debe ser un ESRI ASCII Grid (.asc) o un DEM de RiegoLibre (.rdem).")
             with open(origen, "rb") as archivo:
-                archivos["dem.asc"] = archivo.read()
-            datos["terreno"] = {**terreno, "archivo": "dem.asc"}
+                archivos["dem" + extension] = archivo.read()
+            datos["terreno"] = {**terreno, "archivo": "dem" + extension}
         proyecto = cls(datos, archivos)
         proyecto.disenar()
         return proyecto
@@ -182,6 +184,41 @@ class ProyectoRiego:
     @property
     def referencia(self):
         return tuple(self.datos["referencia"]) if self.datos.get("referencia") else None
+
+    # ------------------------------------------------------------ topografía (curvas de nivel)
+
+    def datos_con_curvas(self, rejilla: bytes, curvas_comprimidas: bytes, descripcion: dict) -> dict:
+        """Datos del diseño con el terreno de unas curvas de nivel (DEM y curvas ya generados).
+
+        Los archivos se guardan con un nombre por contenido, así deshacer vuelve al terreno anterior sin pisarlo.
+        Devuelve los datos nuevos; el cambio lo aplica la ventana (con deshacer).
+        """
+        from .topografia import nombre_archivo
+
+        nombre_dem = nombre_archivo("dem", rejilla, ".rdem")
+        nombre_curvas = nombre_archivo("curvas", curvas_comprimidas, ".json.gz")
+        self.archivos[nombre_dem] = rejilla
+        self.archivos[nombre_curvas] = curvas_comprimidas
+        datos = copy.deepcopy(self.datos)
+        datos["terreno"] = {"tipo": "dem", "archivo": nombre_dem, "curvas": nombre_curvas, **descripcion}
+        return datos
+
+    @property
+    def curvas(self) -> list:
+        """[(cota, [(x, y)…])] de las curvas de nivel del terreno; [] si el terreno no viene de curvas."""
+        nombre = (self.datos.get("terreno") or {}).get("curvas")
+        if not nombre or nombre not in self.archivos:
+            return []
+        if self._curvas[0] != nombre:
+            from .topografia import curvas_de_bytes
+            self._curvas = (nombre, curvas_de_bytes(self.archivos[nombre]))
+        return self._curvas[1]
+
+    def archivos_en_uso(self) -> Dict[str, bytes]:
+        """Los archivos que usan los datos de ahora (los de terrenos anteriores quedan solo para deshacer)."""
+        terreno = self.datos.get("terreno") or {}
+        nombres = {terreno.get("archivo"), terreno.get("curvas")} if terreno.get("tipo") == "dem" else set()
+        return {k: v for k, v in self.archivos.items() if k in nombres}
 
     def _clave_lote(self, lote: dict, goteo: dict) -> str:
         """Lo que decide el cálculo de un lote: sus datos, el goteo, el terreno y (válvula automática) la fuente."""
@@ -308,6 +345,8 @@ class ProyectoRiego:
         """(xmin, ymin, xmax, ymax) de lotes, fuente y matriz; None si el proyecto está vacío."""
         puntos = [p for lote in self.datos.get("lotes", []) for anillo in anillos_lote(lote) for p in anillo]
         puntos += [p for linea in self.matriz for p in linea]
+        for _, linea in self.curvas:
+            puntos += [linea[0], min(linea), max(linea), min(linea, key=lambda p: p[1]), max(linea, key=lambda p: p[1])]
         if self.fuente:
             puntos.append(self.fuente)
         if not puntos and self.referencia:

@@ -19,6 +19,7 @@ CAPAS = {
     "PORTALATERALES": ("#1565c0", "solida", 2.6, "Tubería portalateral de cada subunidad"),
     "LATERALES": ("#43a047", "solida", 0.8, "Laterales de goteo"),
     "LOTES": ("#424242", "solida", 1.2, "Áreas de riego (relleno con el color del turno)"),
+    "CURVAS_NIVEL": ("#a1887f", "solida", 0.6, "Curvas de nivel del terreno (las maestras, más gruesas)"),
 }
 TIPOS_LINEA = {"solida": "Sólida", "discontinua": "Discontinua", "punteada": "Punteada", "punto_raya": "Punto y raya"}
 

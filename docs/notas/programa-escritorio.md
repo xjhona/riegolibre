@@ -6,15 +6,16 @@ Pedido del usuario el 2026-11-26: un programa tipo IRRICAD que se instale y corr
 ## Arquitectura aprobada (2026-11-26)
 - PySide6 (Qt) con lienzo propio sobre `QGraphicsView`; nada de `import qgis` (`tests/test_escritorio.py` lo revisa).
 - Cálculo: `riegolibre/nucleo` tal cual; geometría (bloque, subdivisión, conector de válvulas): `mcp_riegolibre/motor.py`.
-  El núcleo y el motor solo usan la biblioteca estándar: el único requisito es `PySide6-Essentials`
-  (`requisitos_escritorio.txt`).
+  El núcleo y el motor solo usan la biblioteca estándar. Requisitos del programa (`requisitos_escritorio.txt`):
+  `PySide6-Essentials` y, para las curvas de nivel, `ezdxf`, `numpy` y `scipy` (decisión del usuario, 2026-11-27:
+  librerías estándar antes que un lector propio; solo las importa `topografia.py`, y tarde).
 - Proyecto: archivo `.riegolibre` = SQLite con los datos del diseño (formato del `…_datos.json` del MCP), parámetros
   de la red, estilos de la barra de capas, archivos (el DEM) y, de copia, el resumen y las geometrías en GeoJSON. Al
   abrir se vuelve a calcular desde los datos.
 - Tema: el de `riegolibre/gui/tema.py` (solo `PALETAS` y `hoja_de_estilo`, que no importan QGIS); textos propios de Qt
   en español con `qtbase_es.qm` (`estilo.traducir_qt`).
 - Pendiente por etapas: 2) edición (dibujar lotes, fuente, matriz con imán, deshacer, bloque por lote, info, tabla);
-  3) terreno (DEM .tif, DXF con ezdxf, pyproj, satelital); 4) ventanas del complemento (subunidad, turnos,
+  3) terreno (curvas de DXF: hecho; falta DEM .tif, pyproj, satelital); 4) ventanas del complemento (subunidad, turnos,
   materiales, memoria, base de datos); 5) planos PDF y exportar DXF/GeoJSON; 6) PyInstaller + instalador e iconos.
 
 ## Decisiones del usuario
@@ -43,6 +44,25 @@ Pedido del usuario el 2026-11-26: un programa tipo IRRICAD que se instale y corr
 - No se hizo: diámetro por tramo al dibujar la matriz («Pipe Properties»): el motor del MCP siempre dimensiona;
   escribir coordenadas a mano; modo orto. Verificación en pantalla: capturas con la plataforma `windows`; el usuario
   no dio acceso a la pantalla (computer use), falta su prueba a mano.
+
+## Etapa 3: curvas de nivel de un DXF (2026-11-27)
+- Pedido del usuario: importar un DXF con curvas de nivel y que el programa lo lea. Solo las curvas (no el lindero ni
+  los lotes del DXF). Menú «Terreno → Importar curvas de nivel (DXF)…» y «Quitar el terreno (llano)».
+- `topografia.py` (sin Qt) hace lo del complemento sin GDAL: ezdxf lee LWPOLYLINE, POLYLINE (2D y 3D), LINE y SPLINE
+  del espacio modelo (`ezdxf.path.make_path` + aplanado a 0.1 m); TIN de Delaunay (scipy) con los vértices; cada
+  triángulo marca sus celdas (rasterizado con numpy, como `gdal_grid -a linear`); se borran las celdas a más de la
+  distancia máxima de una curva (`distance_transform_edt`, como ComputeProximity) y se recorta al recuadro con datos.
+  `LinearNDInterpolator` no sirve: buscar el triángulo de cada celda se atasca con los triángulos finos de las curvas.
+- DEM binario del motor `.rdem` (`motor.rejilla_a_bytes`, solo biblioteca estándar: float32 + zlib): el plano de Fruveg
+  a 1 m tiene 14.5 millones de celdas; en `.asc` pesaba 142 MB y leerlo en Python puro tardaba minutos en cada
+  proceso; en `.rdem`, 5 MB. El terreno queda `{"tipo": "dem", "archivo": "dem_<hash>.rdem", "curvas":
+  "curvas_<hash>.json.gz", "origen", "capas", "celda_m", "distancia_max_m"}`; nombres por contenido para que deshacer
+  vuelva al terreno anterior; al guardar solo van los archivos en uso (`archivos_en_uso`).
+- Capa CURVAS_NIVEL (al fondo de la barra de capas): un elemento por cota, con la cota en la descripción emergente; las
+  maestras (cada 5 equidistancias) al doble de grosor. La extensión del proyecto incluye las curvas.
+- Fruveg (`Downloads/prueba fruveg.dxf`, 43 MB, capas `_CV` y `_CVD`, 1215 curvas, 520 000 vértices): DEM en ~30 s;
+  contra el DEM de GDAL del complemento (`muestras/fruveg_mcp/fruveg_dem.asc`) 4 mm como máximo; con el diseño del MCP,
+  presión en las válvulas a 1 cm como máximo y los mismos portalaterales. Falta la prueba a mano del usuario.
 
 ## Números de referencia (Fundo demo, `muestras/demo_mcp/Fundo_demo_datos.json`)
 - Complemento en QGIS (importar + «Red principal y bomba» con valores por omisión): 31.257 L/s, **CDT 30.056 m,

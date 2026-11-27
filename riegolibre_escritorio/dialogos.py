@@ -77,7 +77,7 @@ class DialogoNuevo(QDialog):
         f.addRow("Cota en el punto de inicio:", self.caja_cota)
         f.addRow("Pendiente hacia el este:", self.caja_px)
         f.addRow("Pendiente hacia el norte:", self.caja_py)
-        f.addRow(QLabel("El DEM y la topografía de CAD llegan en una etapa siguiente."))
+        f.addRow(QLabel("Para las curvas de nivel de un plano de CAD: menú Terreno → «Importar curvas de nivel (DXF)…»."))
         self.radio_plano.toggled.connect(self._terreno)
         self._terreno()
 

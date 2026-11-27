@@ -22,12 +22,16 @@ from .barra_capas import BarraCapas
 from .dialogo_bloque import DialogoBloque
 from .dialogos import DialogoFicha, DialogoNuevo, DialogoTurnos, TablaAtributos
 from .dialogo_red import DialogoRed
+from .dialogo_terreno import DialogoCurvas
 from .estilo import ROJO, TEMAS, VERDE, aplicar_tema, tema_actual
 from .lienzo import Lienzo, dibujar_proyecto
 from .modelo import ProyectoRiego
 
 FILTRO_PROYECTO = f"Proyecto de RiegoLibre (*{archivo.EXTENSION})"
 FILTRO_MCP = "Diseño del servidor MCP (*_datos.json)"
+FILTRO_DXF = "Dibujo de CAD (*.dxf)"
+FALTAN_LIBRERIAS = ("Para leer el DXF faltan librerías de Python ({}). Instálelas con:\n"
+                    "python -m pip install -r requisitos_escritorio.txt")
 
 
 class _Trabajo(QThread):
@@ -174,6 +178,10 @@ class VentanaPrincipal(QMainWindow):
                                    "Ctrl+B"),
             "turnos": self._accion("&Turnos de riego…", self.editar_turnos, "Ctrl+T"),
             "borrar": self._accion("&Borrar lo seleccionado", self.borrar_seleccion),
+            "curvas": self._accion("Importar &curvas de nivel (DXF)…", self.importar_curvas, None,
+                                   "Lee las curvas de nivel de un plano de CAD y arma el DEM del terreno"),
+            "quitar_terreno": self._accion("&Quitar el terreno (llano)", self.quitar_terreno, None,
+                                           "El terreno vuelve a ser llano: se borran el DEM y las curvas"),
         }
         a["rehacer"].setShortcuts([QKeySequence("Ctrl+Y"), QKeySequence("Ctrl+Shift+Z")])
         a["borrar"].setShortcut(QKeySequence(QKeySequence.StandardKey.Delete))
@@ -186,6 +194,10 @@ class VentanaPrincipal(QMainWindow):
         for clave in ("deshacer", "rehacer", None, "borrar", None, "bloque", "goteo", "turnos"):
             menu.addSeparator() if clave is None else menu.addAction(a[clave])
         self.menu_dibujo = self.menuBar().addMenu("&Dibujo")
+        menu = self.menuBar().addMenu("&Terreno")
+        menu.addAction(a["curvas"])
+        menu.addSeparator()
+        menu.addAction(a["quitar_terreno"])
         menu = self.menuBar().addMenu("&Ver")
         for clave in ("ver_todo", "acercar", "alejar"):
             menu.addAction(a[clave])
@@ -573,6 +585,59 @@ class VentanaPrincipal(QMainWindow):
         self.setWindowTitle(f"RiegoLibre — {self.proyecto.nombre} ({os.path.basename(ruta)})[*]")
         self.statusBar().showMessage(f"Guardado en {ruta}", 8000)
         return True
+
+    def importar_curvas(self, ruta=None):
+        """Curvas de nivel de un DXF: elegir las capas, generar el DEM y dejarlo como terreno del proyecto."""
+        if self._ocupado:
+            return
+        if not ruta:
+            ruta, _ = QFileDialog.getOpenFileName(self, "Importar curvas de nivel", self._carpeta(), FILTRO_DXF)
+            if not ruta:
+                return
+        try:
+            from . import topografia
+            contenido = en_segundo_plano(self, "Leyendo el DXF…", lambda: topografia.leer_dxf(ruta))
+        except ImportError as error:
+            QMessageBox.warning(self, "RiegoLibre", FALTAN_LIBRERIAS.format(error.name or error))
+            return
+        except (ValueError, OSError) as error:
+            QMessageBox.warning(self, "RiegoLibre", f"No se pudo leer el DXF:\n{error}")
+            return
+        self._recordar_carpeta(ruta)
+        dialogo = DialogoCurvas(ruta, contenido, self.proyecto.extension(), self)
+        if dialogo.exec() != QDialog.DialogCode.Accepted:
+            return
+        valores = dialogo.valores()
+
+        def generar():
+            resultado = topografia.generar_dem(ruta, **valores)
+            return resultado, topografia.curvas_a_bytes(resultado.curvas)
+
+        try:
+            resultado, curvas = en_segundo_plano(self, "Generando el DEM de las curvas de nivel…", generar)
+        except ImportError as error:
+            QMessageBox.warning(self, "RiegoLibre", FALTAN_LIBRERIAS.format(error.name or error))
+            return
+        except (ValueError, OSError, MemoryError) as error:
+            QMessageBox.warning(self, "RiegoLibre", f"No se pudo generar el DEM:\n{error}")
+            return
+        descripcion = {"origen": os.path.basename(ruta), "capas": valores["capas_curvas"],
+                       "celda_m": valores["paso_m"], "distancia_max_m": valores["distancia_max_m"]}
+        habia_lotes = bool(self.proyecto.datos.get("lotes"))
+        self.aplicar(self.proyecto.datos_con_curvas(resultado.rejilla, curvas, descripcion), "Curvas de nivel")
+        if not habia_lotes:
+            self.lienzo.ver_todo()
+        texto = (f"Curvas de nivel: {len(resultado.curvas)} curvas, cotas {resultado.cota_min:.2f} a "
+                 f"{resultado.cota_max:.2f} m; DEM de {resultado.columnas} × {resultado.filas} celdas de "
+                 f"{resultado.paso_m:g} m ({resultado.cobertura:.0%} con cota).")
+        self.statusBar().showMessage(" ".join([texto] + resultado.avisos), 20000)
+
+    def quitar_terreno(self):
+        if self._ocupado or not self.proyecto.datos.get("terreno"):
+            return
+        datos = copy.deepcopy(self.proyecto.datos)
+        del datos["terreno"]
+        self.aplicar(datos, "Quitar el terreno")
 
     def exportar_memoria(self):
         sugerido = os.path.join(self._carpeta(), self.proyecto.nombre + "_memoria.html")

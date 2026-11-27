@@ -22,6 +22,8 @@ import json
 import math
 import os
 import sys
+import zlib
+from array import array
 from dataclasses import dataclass, field, replace
 from typing import Callable, Dict, List, Optional, Tuple
 
@@ -185,8 +187,47 @@ def _idw(puntos, potencia=2.0, vecinos=12):
     return cota
 
 
+MARCA_RDEM = b"RIEGOLIBRE-DEM 1\n"
+
+
+def rejilla_a_bytes(valores: bytes, ncols: int, nrows: int, x_esquina: float, y_esquina: float, celda: float,
+                    sin_dato: float = -9999.0) -> bytes:
+    """DEM binario del programa (`.rdem`): marca, cabecera JSON en una línea y las cotas en float32 little-endian
+    (fila de arriba primero, como el ASCII Grid) comprimidas con zlib. `valores` son esos float32 ya en bytes.
+
+    Un DEM de millones de celdas en ASCII Grid pesa cientos de MB y leerlo en Python puro tarda minutos; así se
+    lee en un instante y ocupa 4 bytes por celda en memoria.
+    """
+    if len(valores) != 4 * ncols * nrows:
+        raise ValueError("El DEM no tiene una cota por celda.")
+    cabecera = {"ncols": ncols, "nrows": nrows, "xllcorner": x_esquina, "yllcorner": y_esquina, "cellsize": celda,
+                "nodata_value": sin_dato}
+    return MARCA_RDEM + json.dumps(cabecera).encode("ascii") + b"\n" + zlib.compress(valores, 6)
+
+
+def _leer_rdem(ruta):
+    with open(ruta, "rb") as archivo:
+        contenido = archivo.read()
+    if not contenido.startswith(MARCA_RDEM):
+        raise ValueError(f"{ruta} no es un DEM de RiegoLibre (.rdem).")
+    fin = contenido.index(b"\n", len(MARCA_RDEM))
+    cabecera = json.loads(contenido[len(MARCA_RDEM):fin])
+    valores = array("f")
+    valores.frombytes(zlib.decompress(contenido[fin + 1:]))
+    if sys.byteorder != "little":
+        valores.byteswap()
+    ncols, nrows = int(cabecera["ncols"]), int(cabecera["nrows"])
+    if len(valores) != ncols * nrows:
+        raise ValueError(f"El DEM {ruta} tiene {len(valores)} valores; se esperaban {ncols * nrows}.")
+    celda = float(cabecera["cellsize"])
+    return _cota_rejilla(valores, ncols, nrows, float(cabecera["xllcorner"]) + celda / 2,
+                         float(cabecera["yllcorner"]) + celda / 2, celda, float(cabecera["nodata_value"]))
+
+
 def _leer_asc(ruta):
     """DEM en formato ESRI ASCII Grid (QGIS lo exporta con «Guardar como… → Arc/Info ASCII Grid»)."""
+    if ruta.lower().endswith(".rdem"):
+        return _leer_rdem(ruta)
     cabecera, valores = {}, []
     with open(ruta, encoding="utf-8") as archivo:
         for linea in archivo:
@@ -205,6 +246,12 @@ def _leer_asc(ruta):
         x0, y0 = cabecera["xllcorner"] + celda / 2, cabecera["yllcorner"] + celda / 2
     if len(valores) != ncols * nrows:
         raise ValueError(f"El DEM {ruta} tiene {len(valores)} valores; se esperaban {ncols * nrows}.")
+    return _cota_rejilla(valores, ncols, nrows, x0, y0, celda, sin_dato)
+
+
+def _cota_rejilla(valores, ncols, nrows, x0, y0, celda, sin_dato):
+    """Cota bilineal en (x, y) de una rejilla (fila de arriba primero); (x0, y0) es el centro de la celda de abajo
+    a la izquierda. None fuera de la rejilla o sin dato."""
 
     def valor(i, j):  # i columna, j fila desde abajo
         v = valores[(nrows - 1 - j) * ncols + i]
