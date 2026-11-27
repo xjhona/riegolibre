@@ -16,13 +16,35 @@ mismo formato.
 import copy
 import json
 import os
+import pickle
 import tempfile
+from concurrent.futures import ProcessPoolExecutor
+from concurrent.futures.process import BrokenProcessPool
 from typing import Dict, List, Optional
 
 from mcp_riegolibre import motor
 
 from .capas import completar_estilos
 from .edicion import anillos_lote
+
+# Desde cuántos lotes por calcular conviene repartirlos entre procesos.
+LOTES_MIN_PARALELO = 4
+
+# Terreno de cada proceso que calcula lotes: se arma una sola vez al arrancar el proceso (leer el DEM tarda).
+_TERRENO_TRABAJADOR: Optional[motor.Terreno] = None
+
+
+def _iniciar_trabajador(datos_terreno: Optional[dict]):
+    global _TERRENO_TRABAJADOR
+    _TERRENO_TRABAJADOR = motor.Terreno(datos_terreno or None)
+
+
+def _disenar_en_trabajador(lote: dict, goteo: dict, fuente):
+    """Un lote calculado en otro proceso: (subunidades, None) o (None, mensaje de error)."""
+    try:
+        return motor.disenar_lote(lote, goteo, _TERRENO_TRABAJADOR, fuente), None
+    except Exception as error:  # el lote puede venir con cualquier dato malo
+        return None, str(error)
 
 # Parámetros de «Red principal y bomba» y sus valores iniciales: los del servidor, salvo la pérdida en cada
 # válvula, que empieza en 2 m como en la ventana del complemento (el servidor usa 0 m si el diseño no la da).
@@ -184,16 +206,19 @@ class ProyectoRiego:
             return
         self.terreno = self._terreno()
         goteo = self.datos.get("goteo", {})
+        claves = [self._clave_lote(lote, goteo) for lote in self.datos["lotes"]]
+        pendientes = {}
+        for clave, lote in zip(claves, self.datos["lotes"]):
+            if clave not in self._cache_lotes:
+                pendientes.setdefault(clave, lote)
+        fallidos = self._calcular_lotes(pendientes, goteo)
         usadas = {}
-        for lote in self.datos["lotes"]:
-            clave = self._clave_lote(lote, goteo)
-            try:
-                if clave not in self._cache_lotes:
-                    self._cache_lotes[clave] = motor.disenar_lote(lote, goteo, self.terreno, self.fuente)
-                usadas[clave] = self._cache_lotes[clave]
-                self.subunidades.extend(usadas[clave])
-            except Exception as error:  # se informa y se sigue con los demás lotes
-                self.errores.append(f"{lote.get('nombre', '?')}: {error}")
+        for clave, lote in zip(claves, self.datos["lotes"]):
+            if clave in fallidos:  # se informa y se sigue con los demás lotes
+                self.errores.append(f"{lote.get('nombre', '?')}: {fallidos[clave]}")
+                continue
+            usadas[clave] = self._cache_lotes[clave]
+            self.subunidades.extend(usadas[clave])
         # Se guardan los de ahora y algunos de antes (para deshacer sin esperar)
         antiguos = [c for c in self._cache_lotes if c not in usadas][-3 * max(1, len(usadas)):]
         self._cache_lotes = {**{c: self._cache_lotes[c] for c in antiguos}, **usadas}
@@ -204,6 +229,40 @@ class ProyectoRiego:
             raise ValueError("Hay lotes con el mismo nombre: " + ", ".join(repetidos))
         red = self.datos.get("red") or {}
         motor.repartir_turnos(self.subunidades, self.turnos, dict(red.get("turnos_fijos", {})))
+
+    def _calcular_lotes(self, pendientes: Dict[str, dict], goteo: dict) -> Dict[str, str]:
+        """Calcula los lotes pendientes y los deja en la caché. Devuelve {clave: error} de los que fallaron.
+
+        Cada lote es independiente de los demás, así que con varios se reparten entre procesos (uno por núcleo,
+        menos uno para la ventana); el resultado es el mismo que calculándolos uno tras otro. Si los procesos
+        no se pueden usar, se calculan aquí mismo. Con pocos lotes (al editar uno, por ejemplo) arrancar los
+        procesos cuesta más de lo que ahorra.
+        """
+        fallidos = {}
+        trabajadores = min(len(pendientes), max(1, (os.cpu_count() or 1) - 1))
+        if len(pendientes) >= LOTES_MIN_PARALELO and trabajadores >= 2:
+            try:
+                with ProcessPoolExecutor(trabajadores, initializer=_iniciar_trabajador,
+                                         initargs=(self.terreno.datos,)) as grupo:
+                    tareas = {clave: grupo.submit(_disenar_en_trabajador, lote, goteo, self.fuente)
+                              for clave, lote in pendientes.items()}
+                    for clave, tarea in tareas.items():
+                        subunidades, error = tarea.result()
+                        if error is None:
+                            self._cache_lotes[clave] = subunidades
+                        else:
+                            fallidos[clave] = error
+                return fallidos
+            except (OSError, BrokenProcessPool, pickle.PicklingError, AttributeError, TypeError):
+                fallidos = {}  # sin procesos: se sigue abajo con los que falten
+        for clave, lote in pendientes.items():
+            if clave in self._cache_lotes:
+                continue
+            try:
+                self._cache_lotes[clave] = motor.disenar_lote(lote, goteo, self.terreno, self.fuente)
+            except Exception as error:  # el lote puede venir con cualquier dato malo
+                fallidos[clave] = str(error)
+        return fallidos
 
     def calcular_red(self, parametros: Optional[dict] = None):
         """Une las válvulas a la matriz, dimensiona la red y calcula la bomba. Lanza ValueError si no se puede."""

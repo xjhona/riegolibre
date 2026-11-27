@@ -17,7 +17,7 @@ from unittest import mock
 
 from mcp_riegolibre import motor
 from riegolibre.nucleo.red import bomba_critica
-from riegolibre_escritorio import archivo
+from riegolibre_escritorio import archivo, modelo
 from riegolibre_escritorio.capas import CAPAS, completar_estilos
 from riegolibre_escritorio.modelo import PARAMETROS_RED, ProyectoRiego
 
@@ -226,6 +226,25 @@ class PruebasModelo(unittest.TestCase):
         p = ProyectoRiego(datos)
         self.assertEqual(p.parametros_red["velocidad_max_ms"], 2.0)
         self.assertEqual(set(p.parametros_red), set(PARAMETROS_RED))
+
+    def test_lotes_en_paralelo_igual_que_uno_a_uno(self):
+        """Con varios lotes el cálculo se reparte entre procesos; el resultado y los errores no cambian."""
+        datos = datos_prueba()
+        datos["lotes"] += [{"nombre": "D", "contorno": rectangulo(0, 40, 50, 30)},
+                           {"nombre": "Malo", "contorno": rectangulo(70, 40, 50, 30), "emisor": "No existe"}]
+        with mock.patch("riegolibre_escritorio.modelo.os.cpu_count", return_value=4), \
+                mock.patch("riegolibre_escritorio.modelo.ProcessPoolExecutor", wraps=modelo.ProcessPoolExecutor) as grupo:
+            paralelo = self.importar(datos)
+        grupo.assert_called_once()
+        with mock.patch("riegolibre_escritorio.modelo.LOTES_MIN_PARALELO", 10 ** 6), \
+                mock.patch("riegolibre_escritorio.modelo.ProcessPoolExecutor") as grupo:
+            uno_a_uno = self.importar(datos)
+        grupo.assert_not_called()
+        self.assertEqual(len(paralelo.errores), 1)
+        self.assertTrue(paralelo.errores[0].startswith("Malo: "))
+        self.assertEqual(paralelo.errores, uno_a_uno.errores)
+        self.assertEqual([s.nombre for s in paralelo.subunidades], ["A", "B", "C", "D"])
+        self.assertEqual(paralelo.resumen(), uno_a_uno.resumen())
 
     def test_sin_qgis(self):
         """El paquete no importa QGIS en ninguno de sus módulos."""
