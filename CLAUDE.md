@@ -9,7 +9,9 @@ Repositorio: https://github.com/xjhona/riegolibre (rama `main`, cuenta gh `xjhon
 - `riegolibre/integracion/`: capas, geometrías y cálculo sobre el mapa de QGIS.
 - `riegolibre/gui/`: ventanas y herramientas de mapa. `riegolibre/plugin.py`: menú y barra.
 - `riegolibre_app/`: prototipo de programa independiente (`RiegoLibre.bat`): ventana propia que da al complemento la
-  interfaz de QGIS (`iface`); usa las librerías de QGIS.
+  interfaz de QGIS (`iface`); usa las librerías de QGIS. Solo referencia.
+- `riegolibre_escritorio/`: programa de escritorio SIN QGIS (PySide6, `RiegoLibre_escritorio.bat`); es la meta.
+  Nunca `import qgis` ahí. Leer `docs/notas/programa-escritorio.md` antes de tocarlo.
 - `tests/`, `scripts/` (instalación para desarrollo), `muestras/` (datos del cliente, no se sube a git).
 - Detalle de cada módulo y de los métodos de cálculo: `README.md`.
 
@@ -19,7 +21,7 @@ Repositorio: https://github.com/xjhona/riegolibre (rama `main`, cuenta gh `xjhon
   `QT_QPA_PLATFORM=offscreen timeout 600 "C:/Program Files/QGIS 3.44.15/bin/python-qgis-ltr.bat" -m unittest discover -s tests -t .`
 - Solo el motor: `C:\Users\Jhonatan\AppData\Local\Python\bin\python.exe -m unittest discover -s tests -t .`
   (el `python` de bash es el alias de la Tienda y no sirve).
-- Estado: ~445 pruebas pasan (el 2026-10-31 se retiró el motor de trazado automático de la red y sus pruebas). Lo nuevo de octubre no se ha probado a mano con pantalla en QGIS.
+- Estado: ~490 pruebas pasan (el 2026-10-31 se retiró el motor de trazado automático de la red y sus pruebas). Lo nuevo de octubre no se ha probado a mano con pantalla en QGIS.
 
 ## Reglas
 - Mantener el núcleo sin imports de QGIS. Compatibilidad Qt6: enums con nombre completo, `exec()`.
@@ -64,4 +66,5 @@ Pendientes principales (lista viva y «Por confirmar» en `PENDIENTES.md`):
 ## Índice de docs/notas/
 - `docs/notas/decisiones-usuario.md`: decisiones y criterios del usuario, réplica de IRRICAD.
 - `docs/notas/trampas-tecnicas.md`: entorno de este computador, trampas de código, cómo ver videos, qué falta probar.
+- `docs/notas/programa-escritorio.md`: programa sin QGIS: arquitectura, etapas, barra de capas IRRICAD, referencias.
 Leer la que corresponda antes de tocar ese tema. Historial detallado de lo construido: `PENDIENTES.md`.

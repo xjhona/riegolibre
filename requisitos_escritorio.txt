@@ -1,0 +1,3 @@
+# Programa de escritorio de RiegoLibre (riegolibre_escritorio): no necesita QGIS.
+# Instalar con: python -m pip install -r requisitos_escritorio.txt
+PySide6-Essentials>=6.10

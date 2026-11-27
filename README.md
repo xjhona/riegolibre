@@ -44,6 +44,7 @@ riegolibre/                 Complemento de QGIS (esta carpeta es la que se insta
 │                           materiales, memoria
 │                           y las herramientas «Información del objeto» y «Turnos de riego»
 riegolibre_app/             RiegoLibre como programa independiente (prototipo; ver más abajo)
+riegolibre_escritorio/      Programa de escritorio sin QGIS (PySide6; ver más abajo)
 tests/                      Pruebas automáticas
 scripts/                    Utilidades de desarrollo
 ```
@@ -345,6 +346,37 @@ Falta para que sea un programa completo: tabla de atributos, propiedades y estil
 de fondo, deshacer, impresión de planos, un instalador propio (hoy abre una consola junto a la ventana) e
 iconos de la ventana. Pruebas: `tests/test_aplicacion_qgis.py`.
 
+## Programa de escritorio sin QGIS
+
+`riegolibre_escritorio/` es RiegoLibre como programa propio que **no necesita QGIS**: basta Python con PySide6
+(`python -m pip install -r requisitos_escritorio.txt`). Se abre con doble clic en `RiegoLibre_escritorio.bat` o:
+
+```powershell
+.\RiegoLibre_escritorio.bat "C:\ruta\al\proyecto.riegolibre"
+```
+
+Primera etapa (2026-11-26):
+
+- **Proyecto → Importar diseño del MCP…** abre el `…_datos.json` de `exportar_proyecto` y rehace los bloques con el
+  motor del servidor (`mcp_riegolibre/motor.py`) y el núcleo; los lotes de un GeoJSON aparte y el DEM (`.asc`) quedan
+  dentro del proyecto.
+- Lienzo propio: zoom con la rueda, desplazamiento arrastrando, **Ver → Toda la extensión**; coordenadas y escala en
+  la barra de estado. Al pasar el ratón por un lote, una válvula o un tramo se ven sus datos.
+- **Barra de capas** a la derecha, como la de IRRICAD: TEXTO, FUENTE, VÁLVULAS, RED_PRINCIPAL, MATRIZ_DIBUJADA,
+  PORTALATERALES, LATERALES y LOTES, con casillas «ver» e «imprimir» y las propiedades de la capa elegida (color,
+  tipo de línea y grosor). Los lotes se rellenan con el color de su turno y la red con un color por diámetro.
+- Tabla de subunidades abajo (doble clic: acercar a esa subunidad).
+- **Red y bomba → Red principal y bomba…**: los mismos criterios de la ventana del complemento (pérdida en cada
+  válvula 2 m, cabezal 7 m, succión 2 m, eficiencia 70 %…), une las válvulas a la matriz, dimensiona la red y
+  muestra resumen, tramos, turnos y válvulas. Con el diseño de prueba da lo mismo que el complemento (CDT 30.04 m
+  contra 30.06 m: el complemento lee el plano como DEM por celda).
+- Proyecto `.riegolibre`: una base SQLite con los datos del diseño, los parámetros, los estilos de capas, el DEM y una
+  copia del resumen y de las geometrías en GeoJSON. Exporta la memoria de cálculo en HTML.
+
+Siguientes etapas: edición en el mapa (lotes, fuente y matriz con imán, deshacer), terreno (DEM, DXF, satelital),
+las demás ventanas del complemento, planos e instalador. Detalle en `docs/notas/programa-escritorio.md`; pruebas en
+`tests/test_escritorio.py`.
+
 ## Hoja de ruta
 
 - [x] Motor hidráulico de laterales y portalaterales
@@ -362,7 +394,8 @@ iconos de la ventana. Pruebas: `tests/test_aplicacion_qgis.py`.
 - [x] Riego por aspersión, primera etapa: calculadora de lateral de aspersión
 - [ ] Riego por aspersión: bloque en el mapa, red y aspersores de la base de IRRICAD
 - [x] Programa independiente, prototipo: ventana propia con las librerías de QGIS
-- [ ] Programa independiente: tabla de atributos, estilos, impresión e instalador
+- [x] Programa de escritorio sin QGIS, primera etapa: importar del MCP, lienzo, barra de capas, red y bomba, proyecto propio
+- [ ] Programa de escritorio: edición en el mapa, terreno, demás ventanas, planos e instalador
 
 ## Autoría y licencia
 
