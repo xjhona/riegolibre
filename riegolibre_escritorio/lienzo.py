@@ -11,18 +11,20 @@ cualquier zoom.
 
 import math
 from dataclasses import dataclass, field
-from typing import Dict, List, Optional
+from typing import Dict, List
 
-from PySide6.QtCore import QPointF, QRectF, Qt, Signal
+from PySide6.QtCore import QPointF, QRectF, Qt, QTimer, Signal
 from PySide6.QtGui import QBrush, QColor, QFont, QPainter, QPainterPath, QPen, QPixmap, QPolygonF, QTransform
 from PySide6.QtWidgets import (QGraphicsEllipseItem, QGraphicsItem, QGraphicsPathItem, QGraphicsPixmapItem,
-                               QGraphicsRectItem, QGraphicsScene, QGraphicsSimpleTextItem, QGraphicsView)
+                               QGraphicsRectItem, QGraphicsScene, QGraphicsSimpleTextItem, QGraphicsView,
+                               QStyleOptionGraphicsItem)
 
 from riegolibre.nucleo.turnos import PALETA as PALETA_TURNOS
 
 from .capas import CAPAS
 
 FACTOR_ZOOM = 1.25
+PAUSA_ZOOM_MS = 250  # tras tanto sin zoom, las curvas de nivel dejan el borrador y se pintan con calidad completa
 RADIO_ESCENA_M = 200_000.0  # el mapa se puede recorrer hasta esta distancia del origen (aunque esté vacío)
 Z_IMAGEN = -10.0  # la imagen de fondo, debajo de todo (las curvas de nivel van en -1)
 
@@ -100,6 +102,10 @@ class Lienzo(QGraphicsView):
         self.texto_imagen = ""  # fuente y fecha de la imagen de fondo (para la barra de capas)
         self._pixmap = (None, None)  # (archivo, QPixmap) de la imagen de fondo: no se vuelve a leer al redibujar
         self._paneo = None  # posición del botón central al desplazar
+        self._fin_zoom = QTimer(self)  # al dejar de hacer zoom, las curvas se repintan con calidad completa
+        self._fin_zoom.setSingleShot(True)
+        self._fin_zoom.setInterval(PAUSA_ZOOM_MS)
+        self._fin_zoom.timeout.connect(self._zoom_terminado)
         self._fijar_rect_escena()
 
     def _fijar_rect_escena(self):
@@ -236,7 +242,23 @@ class Lienzo(QGraphicsView):
         self.fitInView(caja.adjusted(-margen, -margen, margen, margen), Qt.AspectRatioMode.KeepAspectRatio)
 
     def acercar(self, factor=FACTOR_ZOOM):
+        """Zoom; mientras se sigue girando la rueda las curvas se pintan en borrador (ver `ElementoCurvas`)."""
+        curvas = self._elementos_curvas()
+        for elemento in curvas:
+            elemento.borrador = True
         self.scale(factor, factor)
+        if curvas:
+            self._fin_zoom.start()
+
+    def _elementos_curvas(self):
+        capa = self.capas.get("CURVAS_NIVEL")
+        return [e for e in capa.elementos if isinstance(e, ElementoCurvas)] if capa else []
+
+    def _zoom_terminado(self):
+        for elemento in self._elementos_curvas():
+            if elemento.borrador:
+                elemento.borrador = False
+                elemento.update()
 
     def alejar(self):
         self.acercar(1 / FACTOR_ZOOM)
@@ -306,22 +328,193 @@ class Lienzo(QGraphicsView):
 CADA_MAESTRA = 5  # una curva maestra cada cinco equidistancias, como en los planos topográficos
 
 
+VERTICES_TRAMO = 256  # las curvas se parten en tramos de hasta tantos vértices: solo se pintan los que se ven
+# Tolerancias (m) de las versiones simplificadas de las curvas; 0 = la curva original
+TOLERANCIAS_M = (0.0,) + tuple(0.25 * 2 ** k for k in range(14))
+TOLERANCIA_PX = 0.5  # error admitido al simplificar, en píxeles de pantalla (no se nota)
+CERCANIA_PX = 5.0  # distancia del ratón a una curva para mostrar su cota
+
+
+def simplificar(puntos, tolerancia: float):
+    """Polilínea con un vértice por celda de `tolerancia` m que recorre (más el primero y el último).
+
+    Rápido (numpy) y con un error menor que la diagonal de la celda: sirve para dibujar alejado.
+    """
+    import numpy as np
+
+    if tolerancia <= 0 or len(puntos) <= 2:
+        return puntos
+    celdas = np.floor(puntos / tolerancia)
+    quedan = np.ones(len(puntos), dtype=bool)
+    quedan[1:-1] = np.any(celdas[1:-1] != celdas[:-2], axis=1)  # el vértice entra a otra celda
+    return puntos[quedan]
+
+
+def poligono_de(puntos) -> QPolygonF:
+    """QPolygonF de un ndarray (n, 2): se copia la memoria de una vez (punto a punto, un millón tarda un segundo)."""
+    import numpy as np
+
+    puntos = np.ascontiguousarray(puntos, dtype=np.float64)
+    poligono = QPolygonF()
+    try:
+        import shiboken6
+
+        poligono.resize(len(puntos))
+        memoria = shiboken6.VoidPtr(poligono.data(), puntos.nbytes, True)
+        np.frombuffer(memoria, dtype=np.float64).reshape(-1, 2)[:] = puntos
+    except Exception:  # noqa: BLE001 — sin acceso a la memoria: el camino lento
+        poligono = QPolygonF([QPointF(x, y) for x, y in puntos.tolist()])
+    return poligono
+
+
+class ElementoCurvas(QGraphicsItem):
+    """Todas las curvas de nivel en un solo elemento, pensado para cientos de miles de vértices.
+
+    Cada curva se parte en tramos con su caja: al pintar solo se recorren los tramos que se ven. Según el zoom se
+    dibuja una versión simplificada (error de medio píxel), así alejar no repinta millones de vértices. El
+    elemento guarda lo pintado en una imagen del tamaño de la pantalla (`DeviceCoordinateCache`): al desplazar
+    el mapa no se vuelve a pintar, solo la franja que aparece. Mientras se hace zoom (`borrador`), las curvas van
+    sin suavizado y de un píxel: una línea más gruesa cuesta decenas de veces más (Qt la contornea vértice a
+    vértice); al detenerse, el lienzo las repinta con calidad completa.
+    """
+
+    def __init__(self, curvas_escena, pluma: QPen, pluma_maestra: QPen):
+        """`curvas_escena`: [(cota, maestra, ndarray (n, 2) en coordenadas de la escena)]."""
+        import numpy as np
+
+        super().__init__()
+        self.plumas = (pluma, pluma_maestra)
+        self.plumas_borrador = tuple(self._delgada(p) for p in self.plumas)
+        self.borrador = False
+        self.cotas = []  # (cota, maestra) de cada curva
+        tramos, cajas, curva_de = [], [], []
+        for i, (cota, maestra, puntos) in enumerate(curvas_escena):
+            self.cotas.append((cota, maestra))
+            for inicio in range(0, max(1, len(puntos) - 1), VERTICES_TRAMO - 1):
+                tramo = puntos[inicio:inicio + VERTICES_TRAMO]
+                if len(tramo) < 2:
+                    continue
+                tramos.append(tramo)
+                cajas.append((tramo[:, 0].min(), tramo[:, 1].min(), tramo[:, 0].max(), tramo[:, 1].max()))
+                curva_de.append(i)
+        self.tramos = tramos
+        self.cajas = np.asarray(cajas, dtype=float).reshape(-1, 4)
+        self.curva_de = np.asarray(curva_de, dtype=int)
+        self.maestra = np.asarray([self.cotas[i][1] for i in curva_de], dtype=bool)
+        self._poligonos: Dict[int, list] = {}  # nivel de detalle: QPolygonF de cada tramo (se arman al usarlos)
+        if len(self.cajas):
+            x0, y0 = self.cajas[:, :2].min(axis=0)
+            x1, y1 = self.cajas[:, 2:].max(axis=0)
+            margen = max(x1 - x0, y1 - y0) * 0.01 + 1.0
+            self._caja = QRectF(x0 - margen, y0 - margen, x1 - x0 + 2 * margen, y1 - y0 + 2 * margen)
+        else:
+            self._caja = QRectF()
+        self.setFlag(QGraphicsItem.GraphicsItemFlag.ItemUsesExtendedStyleOption)
+        self.setCacheMode(QGraphicsItem.CacheMode.DeviceCoordinateCache)
+        self.setAcceptHoverEvents(True)
+
+    @staticmethod
+    def _delgada(pluma: QPen) -> QPen:
+        delgada = QPen(pluma)
+        delgada.setWidthF(min(1.0, pluma.widthF()))
+        return delgada
+
+    def boundingRect(self) -> QRectF:  # noqa: N802 (Qt)
+        return self._caja
+
+    def _poligono(self, nivel: int, indice: int) -> QPolygonF:
+        poligonos = self._poligonos.setdefault(nivel, [None] * len(self.tramos))
+        if poligonos[indice] is None:
+            poligonos[indice] = poligono_de(simplificar(self.tramos[indice], TOLERANCIAS_M[nivel]))
+        return poligonos[indice]
+
+    @staticmethod
+    def nivel_para(pixeles_por_metro: float) -> int:
+        """El nivel más simplificado cuyo error queda bajo `TOLERANCIA_PX` con ese zoom."""
+        if pixeles_por_metro <= 0:
+            return len(TOLERANCIAS_M) - 1
+        admitido = TOLERANCIA_PX / pixeles_por_metro
+        return max(i for i, t in enumerate(TOLERANCIAS_M) if t <= admitido)
+
+    def paint(self, painter, opcion, widget=None):
+        import numpy as np
+
+        if not len(self.cajas):
+            return
+        zoom = QStyleOptionGraphicsItem.levelOfDetailFromTransform(painter.worldTransform())
+        nivel = self.nivel_para(zoom / 2 if self.borrador else zoom)  # en borrador, error de un píxel
+        plumas = self.plumas_borrador if self.borrador else self.plumas
+        if self.borrador:
+            painter.setRenderHint(QPainter.RenderHint.Antialiasing, False)
+        r = opcion.exposedRect
+        c = self.cajas
+        vistos = (c[:, 2] >= r.left()) & (c[:, 0] <= r.right()) & (c[:, 3] >= r.top()) & (c[:, 1] <= r.bottom())
+        for maestra in (False, True):
+            indices = np.nonzero(vistos & (self.maestra == maestra))[0]
+            if len(indices):
+                painter.setPen(plumas[maestra])
+                for i in indices.tolist():
+                    painter.drawPolyline(self._poligono(nivel, i))
+
+    def cota_cerca(self, x: float, y: float, distancia: float):
+        """(cota, maestra) de la curva más cercana al punto de la escena (x, y), a menos de `distancia`; si no, None."""
+        import numpy as np
+
+        if not len(self.cajas):
+            return None
+        c = self.cajas
+        cerca = np.nonzero((c[:, 0] - distancia <= x) & (c[:, 2] + distancia >= x)
+                           & (c[:, 1] - distancia <= y) & (c[:, 3] + distancia >= y))[0]
+        mejor, elegido = distancia, None
+        for i in cerca.tolist():
+            p = self.tramos[i]
+            a, b = p[:-1], p[1:]
+            ab = b - a
+            largo2 = np.einsum("ij,ij->i", ab, ab)
+            t = np.clip(np.einsum("ij,ij->i", np.array([x, y]) - a, ab) / np.where(largo2 > 0, largo2, 1), 0, 1)
+            d = float(np.min(np.hypot(a[:, 0] + t * ab[:, 0] - x, a[:, 1] + t * ab[:, 1] - y)))
+            if d <= mejor:
+                mejor, elegido = d, int(self.curva_de[i])
+        return None if elegido is None else self.cotas[elegido]
+
+    def hoverMoveEvent(self, evento):  # noqa: N802 (Qt): la cota de la curva bajo el ratón, como descripción
+        vistas = self.scene().views() if self.scene() else []
+        escala = math.hypot(vistas[0].transform().m11(), vistas[0].transform().m12()) if vistas else 1.0
+        p = evento.pos()
+        cerca = self.cota_cerca(p.x(), p.y(), CERCANIA_PX / (escala or 1.0))
+        self.setToolTip("" if cerca is None else texto_curva(*cerca))
+        super().hoverMoveEvent(evento)
+
+
+def texto_curva(cota, maestra) -> str:
+    return "Curva de nivel" + ("" if cota is None else f" {cota:g} m") + (" (maestra)" if maestra else "")
+
+
 def dibujar_curvas(lienzo: Lienzo, capa: Capa, curvas):
-    """Curvas de nivel, un elemento por cota (con su cota en la descripción emergente); las maestras, al doble."""
+    """Curvas de nivel en un solo `ElementoCurvas` (con la cota bajo el ratón); las maestras, al doble."""
     if not curvas:
         return
+    import numpy as np
+
     from .topografia import equidistancia
 
     paso = equidistancia(curvas)
-    por_cota: Dict[Optional[float], list] = {}
+    preparadas = []
     for cota, linea in curvas:
-        por_cota.setdefault(None if cota is None else round(cota, 3), []).append(linea)
-    for cota, lineas in por_cota.items():
+        if len(linea) < 2:
+            continue
+        cota = None if cota is None else round(cota, 3)
         maestra = cota is not None and paso is not None and abs(cota / (paso * CADA_MAESTRA)
                                                                 - round(cota / (paso * CADA_MAESTRA))) < 1e-6
-        texto = "Curva de nivel" + ("" if cota is None else f" {cota:g} m") + (" (maestra)" if maestra else "")
-        lienzo.lineas(capa, lineas, capa.color, capa.ancho * (2 if maestra else 1), z=-1, estilo=capa.linea,
-                      info=texto)
+        puntos = np.asarray(linea, dtype=float)[:, :2]
+        puntos = np.column_stack((puntos[:, 0] - lienzo.origen[0], lienzo.origen[1] - puntos[:, 1]))
+        preparadas.append((cota, maestra, puntos))
+    plumas = [_pluma(capa.color, capa.ancho * factor, capa.linea) for factor in (1, 2)]
+    for pluma in plumas:  # extremos y uniones redondos triplican el tiempo de las líneas gruesas y no se notan aquí
+        pluma.setCapStyle(Qt.PenCapStyle.FlatCap)
+        pluma.setJoinStyle(Qt.PenJoinStyle.BevelJoin)
+    elemento = ElementoCurvas(preparadas, *plumas)
+    lienzo._agregar(capa, elemento, -1)
 
 
 def dibujar_imagen(lienzo: Lienzo, capa: Capa, proyecto):

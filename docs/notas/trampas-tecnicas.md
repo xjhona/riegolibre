@@ -19,6 +19,10 @@
 - Rótulos: QGIS une líneas con el mismo texto; `chr(0x200B)` distingue ramas. En este entorno Bash y Edit convierten
   `\u200b` y `\n` dentro de cadenas escritas por heredoc en caracteres reales: usar `chr()`.
 - Con otra sesión trabajando en el mismo árbol: commitear solo los cambios propios.
+- Lienzo del programa de escritorio (Qt raster): una pluma cosmética de más de 1 px cuesta ~30 veces más que una de
+  1 px (Qt contornea vértice a vértice; extremos y uniones redondos lo triplican). Las curvas de nivel van en
+  `ElementoCurvas` (tramos, simplificación por zoom, caché de pantalla y borrador de 1 px mientras se hace zoom):
+  no volver a un `QGraphicsPathItem` por cota. `QPolygonF` desde numpy: copiar la memoria (`poligono_de`).
 
 ## Ver videos del usuario
 Ahora hay `ffmpeg` en el PATH: `ffmpeg -i video -vf fps=… salida_%03d.png` y leer los fotogramas con Read.

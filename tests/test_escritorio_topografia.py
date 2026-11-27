@@ -294,9 +294,15 @@ class PruebasVentanaTerreno(unittest.TestCase):
         self.assertEqual((terreno["tipo"], terreno["origen"]), ("dem", "curvas.dxf"))
         self.assertEqual(set(terreno["capas"]), {"CV", "CVD", "CV3D"})
         self.assertEqual(len(v.proyecto.curvas), 6)
+        from riegolibre_escritorio.lienzo import texto_curva
+
         curvas = v.lienzo.capas["CURVAS_NIVEL"].elementos
-        self.assertEqual(len(curvas), 6)  # una por cota, más la polilínea 3D
-        self.assertIn("Curva de nivel 100 m (maestra)", [e.toolTip() for e in curvas])
+        self.assertEqual(len(curvas), 1)  # todas en un solo elemento
+        self.assertEqual(len(curvas[0].cotas), 6)  # una por cota, más la polilínea 3D
+        sobre = v.lienzo.a_escena(X0 + 150, Y0 + 0.3)  # la curva de 100 m pasa por y = Y0
+        cerca = curvas[0].cota_cerca(sobre.x(), sobre.y(), 1.0)
+        self.assertEqual(texto_curva(*cerca), "Curva de nivel 100 m (maestra)")
+        self.assertIsNone(curvas[0].cota_cerca(sobre.x(), sobre.y() - 10, 1.0))  # entre dos curvas, lejos
         self.assertIn("Curvas de nivel: 6 curvas", v.statusBar().currentMessage())
         self.assertNotEqual([s.resumen()["presion_valvula_m"] for s in v.proyecto.subunidades], presiones_llano)
 
@@ -305,7 +311,7 @@ class PruebasVentanaTerreno(unittest.TestCase):
         self.assertEqual(v.lienzo.capas["CURVAS_NIVEL"].elementos, [])
         v.rehacer()
         self.assertEqual(v.proyecto.datos["terreno"], terreno)
-        self.assertEqual(len(v.lienzo.capas["CURVAS_NIVEL"].elementos), 6)
+        self.assertEqual(len(v.lienzo.capas["CURVAS_NIVEL"].elementos[0].cotas), 6)
 
         v.quitar_terreno()
         self.assertNotIn("terreno", v.proyecto.datos)
