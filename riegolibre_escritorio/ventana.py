@@ -23,7 +23,7 @@ from .dialogo_bloque import DialogoBloque
 from .dialogos import DialogoFicha, DialogoNuevo, DialogoTurnos, TablaAtributos
 from .dialogo_red import DialogoRed
 from .dialogo_satelital import DialogoSatelital
-from .dialogo_terreno import DialogoCurvas
+from .dialogo_terreno import DialogoCurvas, DialogoDibujo
 from .estilo import ROJO, TEMAS, VERDE, aplicar_tema, tema_actual
 from .lienzo import Lienzo, dibujar_proyecto
 from .modelo import ProyectoRiego
@@ -108,6 +108,7 @@ class VentanaPrincipal(QMainWindow):
     def __init__(self):
         super().__init__()
         self.proyecto = ProyectoRiego()
+        self._indice_iman = (None, None)  # (archivo, IndiceIman) de las líneas de referencia del DXF
         self.dialogo_red: Optional[DialogoRed] = None
         self.dialogo_ficha: Optional[DialogoFicha] = None
         self.pila = QUndoStack(self)
@@ -200,6 +201,11 @@ class VentanaPrincipal(QMainWindow):
             "borrar": self._accion("&Borrar lo seleccionado", self.borrar_seleccion),
             "curvas": self._accion("Importar &curvas de nivel (DXF)…", self.importar_curvas, None,
                                    "Lee las curvas de nivel de un plano de CAD y arma el DEM del terreno"),
+            "dibujo": self._accion("Importar &lotes y líneas (DXF)…", self.importar_dibujo, None,
+                                   "Lee lotes (polilíneas cerradas) y líneas de referencia (caminos, canales…) de "
+                                   "un plano de CAD"),
+            "quitar_dibujo": self._accion("Quitar las líneas de &referencia", self.quitar_dibujo, None,
+                                          "Borra las líneas importadas del DXF (los lotes importados quedan)"),
             "quitar_terreno": self._accion("&Quitar el terreno (llano)", self.quitar_terreno, None,
                                            "El terreno vuelve a ser llano: se borran el DEM y las curvas"),
             "satelital": self._accion("Imagen &satelital…", self.imagen_satelital, None,
@@ -221,7 +227,8 @@ class VentanaPrincipal(QMainWindow):
             menu.addSeparator() if clave is None else menu.addAction(a[clave])
         self.menu_dibujo = self.menuBar().addMenu("&Dibujo")
         menu = self.menuBar().addMenu("&Terreno")
-        for clave in ("curvas", "satelital", "imagen_propia", None, "quitar_terreno", "quitar_imagen"):
+        for clave in ("curvas", "dibujo", "satelital", "imagen_propia", None, "quitar_terreno", "quitar_dibujo",
+                      "quitar_imagen"):
             menu.addSeparator() if clave is None else menu.addAction(a[clave])
         menu = self.menuBar().addMenu("&Ver")
         for clave in ("ver_todo", "acercar", "alejar"):
@@ -450,6 +457,7 @@ class VentanaPrincipal(QMainWindow):
         dibujar_proyecto(self.lienzo, p, conservar_vista)
         self.barra_capas.cargar(p.estilos_capas, self.lienzo.diametros, self.lienzo.texto_imagen)
         self.acciones["quitar_imagen"].setEnabled(bool(p.datos.get("imagen")))
+        self.acciones["quitar_dibujo"].setEnabled(bool(p.datos.get("dibujo_cad")))
         self._llenar_subunidades()
         self.tabla_atributos.cargar(p.datos)
         self.tabla_atributos.marcar(self.seleccion)
@@ -657,6 +665,75 @@ class VentanaPrincipal(QMainWindow):
                  f"{resultado.cota_max:.2f} m; DEM de {resultado.columnas} × {resultado.filas} celdas de "
                  f"{resultado.paso_m:g} m ({resultado.cobertura:.0%} con cota).")
         self.statusBar().showMessage(" ".join([texto] + resultado.avisos), 20000)
+
+    def importar_dibujo(self, ruta=None):
+        """Lotes y líneas de referencia de un DXF: elegir qué hacer con cada capa y agregarlos al proyecto (un solo
+        paso de deshacer). Las líneas se suman a las ya importadas."""
+        if self._ocupado:
+            return
+        if not ruta:
+            ruta, _ = QFileDialog.getOpenFileName(self, "Importar lotes y líneas", self._carpeta(), FILTRO_DXF)
+            if not ruta:
+                return
+        try:
+            from . import dibujo_cad
+            contenido = en_segundo_plano(self, "Leyendo el DXF…", lambda: dibujo_cad.leer_dibujo(ruta))
+        except ImportError as error:
+            QMessageBox.warning(self, "RiegoLibre", FALTAN_LIBRERIAS.format(error.name or error))
+            return
+        except (ValueError, OSError) as error:
+            QMessageBox.warning(self, "RiegoLibre", f"No se pudo leer el DXF:\n{error}")
+            return
+        self._recordar_carpeta(ruta)
+        dialogo = DialogoDibujo(ruta, contenido, self.proyecto.extension(), self)
+        if dialogo.exec() != QDialog.DialogCode.Accepted:
+            return
+        valores = dialogo.valores()
+        try:
+            resultado = en_segundo_plano(self, "Importando el DXF…",
+                                         lambda: dibujo_cad.importar_dibujo(ruta, **valores))
+        except (ValueError, OSError, MemoryError) as error:
+            QMessageBox.warning(self, "RiegoLibre", f"No se pudo importar el DXF:\n{error}")
+            return
+        if not resultado.lotes and not resultado.lineas:
+            QMessageBox.warning(self, "RiegoLibre", "No se importó nada.\n" + "\n".join(resultado.avisos))
+            return
+        habia = bool(self.proyecto.extension())
+        anterior = self.proyecto.datos.get("dibujo_cad") or {}
+        lineas = self.proyecto.dibujo + resultado.lineas
+        origenes = list(anterior.get("origenes", []))
+        if resultado.lineas and os.path.basename(ruta) not in origenes:
+            origenes.append(os.path.basename(ruta))
+        capas = list(anterior.get("capas", []))
+        capas += [c for c in valores["capas_lineas"] if c not in capas]
+        if resultado.lineas:
+            self.proyecto.estilos_capas["DIBUJO_CAD"]["visible"] = True  # lo recién importado se ve
+        datos = self.proyecto.datos_con_dibujo(lineas, {"origenes": origenes, "capas": capas}, resultado.lotes)
+        self.aplicar(datos, "Importar lotes y líneas del DXF")
+        if not habia:
+            self.lienzo.ver_todo()
+        partes = []
+        if resultado.lotes:
+            partes.append(f"{len(resultado.lotes)} lote{'s' if len(resultado.lotes) != 1 else ''}")
+        if resultado.lineas:
+            partes.append(f"{len(resultado.lineas)} línea{'s' if len(resultado.lineas) != 1 else ''} de referencia")
+        texto = f"Importado de {os.path.basename(ruta)}: " + " y ".join(partes) + "."
+        self.statusBar().showMessage(" ".join([texto] + resultado.avisos), 20000)
+
+    def quitar_dibujo(self):
+        if self._ocupado or not self.proyecto.datos.get("dibujo_cad"):
+            return
+        self.aplicar(self.proyecto.datos_con_dibujo([], {}), "Quitar las líneas de referencia")
+
+    def iman_extra(self, p, tolerancia):
+        """Vértices y tramos de las líneas de referencia cerca de p, para el imán de las herramientas."""
+        nombre = (self.proyecto.datos.get("dibujo_cad") or {}).get("archivo")
+        if not nombre or not self.proyecto.dibujo:
+            return [], []
+        if self._indice_iman[0] != nombre:
+            from .dibujo_cad import IndiceIman
+            self._indice_iman = (nombre, IndiceIman(self.proyecto.dibujo))
+        return self._indice_iman[1].cerca(p, tolerancia)
 
     def quitar_terreno(self):
         if self._ocupado or not self.proyecto.datos.get("terreno"):

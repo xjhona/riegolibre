@@ -517,6 +517,16 @@ def dibujar_curvas(lienzo: Lienzo, capa: Capa, curvas):
     lienzo._agregar(capa, elemento, -1)
 
 
+def dibujar_lineas_cad(lienzo: Lienzo, capa: Capa, lineas):
+    """Líneas de referencia de un DXF: un elemento por capa del dibujo, con su nombre como descripción."""
+    por_capa: Dict[str, list] = {}
+    for nombre, linea in lineas:
+        por_capa.setdefault(nombre, []).append(linea)
+    for nombre, polilineas in por_capa.items():
+        lienzo.lineas(capa, polilineas, capa.color, capa.ancho, z=-0.5, estilo=capa.linea,
+                      info=f"Dibujo CAD: capa «{nombre}»")
+
+
 def dibujar_imagen(lienzo: Lienzo, capa: Capa, proyecto):
     """Imagen satelital (o propia) de fondo, con la transparencia de su capa.
 
@@ -557,6 +567,7 @@ def dibujar_proyecto(lienzo: Lienzo, proyecto, conservar_vista=False) -> Dict[st
     laterales, lotes = capas["LATERALES"], capas["LOTES"]
     dibujar_imagen(lienzo, capas["IMAGEN_SATELITAL"], proyecto)
     dibujar_curvas(lienzo, capas["CURVAS_NIVEL"], proyecto.curvas)
+    dibujar_lineas_cad(lienzo, capas["DIBUJO_CAD"], proyecto.dibujo)
 
     # Lotes sin subunidad calculada (por ejemplo, con error): solo el contorno, en rojo
     subunidades = proyecto.subunidades

@@ -82,6 +82,10 @@ class Herramienta:
         if evento is not None and evento.modifiers() & Qt.KeyboardModifier.ShiftModifier:
             self._quitar_marca()
             return (x, y)
+        iman_extra = getattr(self.editor, "iman_extra", None)  # las líneas de referencia del DXF
+        if iman_extra is not None:
+            puntos_cad, segmentos_cad = iman_extra((x, y), self.tolerancia)
+            puntos_extra, segmentos_extra = list(puntos_extra) + puntos_cad, list(segmentos_extra) + segmentos_cad
         p, tipo = edicion.imantar((x, y), self.editor.datos() if datos is None else datos, self.tolerancia,
                                   puntos_extra, segmentos_extra)
         self._poner_marca(p, tipo)

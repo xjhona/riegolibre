@@ -15,7 +15,7 @@ Pedido del usuario el 2026-11-26: un programa tipo IRRICAD que se instale y corr
 - Tema: el de `riegolibre/gui/tema.py` (solo `PALETAS` y `hoja_de_estilo`, que no importan QGIS); textos propios de Qt
   en español con `qtbase_es.qm` (`estilo.traducir_qt`).
 - Pendiente por etapas: 2) edición (dibujar lotes, fuente, matriz con imán, deshacer, bloque por lote, info, tabla);
-  3) terreno (curvas de DXF e imagen satelital: hecho; falta DEM .tif y otras proyecciones); 4) ventanas del complemento (subunidad, turnos,
+  3) terreno (curvas, lotes y líneas de DXF e imagen satelital: hecho; falta DEM .tif y otras proyecciones); 4) ventanas del complemento (subunidad, turnos,
   materiales, memoria, base de datos); 5) planos PDF y exportar DXF/GeoJSON; 6) PyInstaller + instalador e iconos.
 
 ## Decisiones del usuario
@@ -89,6 +89,23 @@ Pedido del usuario el 2026-11-26: un programa tipo IRRICAD que se instale y corr
   Falta la prueba a mano del usuario (descargar, ocultar, transparencia, guardar y abrir sin internet).
 - Trampa de los guiones de captura: el cálculo en paralelo de los lotes arranca procesos que vuelven a importar el
   guion; sin `if __name__ == "__main__":` cada proceso abre otra ventana y todo se cuelga.
+
+## Etapa 3: lotes y líneas de un DXF (2026-11-27)
+- Pedido del usuario: como las curvas, un botón para importar los lotes y cualquier otra línea o polilínea útil
+  para el diseño. Menú «Terreno → Importar lotes y líneas (DXF)…» y «Quitar las líneas de referencia».
+- `dibujo_cad.py` (sin Qt; lee con `topografia._abrir/_lineas`). Ventana `DialogoDibujo` (en `dialogo_terreno.py`):
+  cada capa del DXF se importa como «Lotes», «Líneas de referencia» o «No importar». Por omisión: capas cuyas líneas
+  tienen todas cota (curvas) no se importan; con cerradas y nombre de lote (lote, parcela, sector, cuartel…), lotes;
+  el resto, líneas de referencia.
+- Lotes: polilíneas cerradas (marca de cerrada o último vértice a menos de 1 cm del primero), de 1 m² o más; una
+  dentro de otra es su hueco y una dentro del hueco, otro lote. Nombre: el texto (TEXT/MTEXT) de la capa elegida que
+  cae dentro del lote, el más cercano a su centro; sin texto, «Lote n»; repetidos, «nombre (2)»
+  (`edicion.agregar_lotes`). Las líneas abiertas de una capa de lotes se avisan y no se usan.
+- Líneas de referencia: `dibujo_<hash>.json.gz` en `proyecto.archivos`, `datos["dibujo_cad"]` = {archivo, origenes,
+  capas}; una segunda importación las suma. Capa DIBUJO_CAD (sobre las curvas), un elemento por capa del DXF con su
+  nombre como descripción. El imán de todas las herramientas se pega a sus vértices y tramos (`IndiceIman`: cuadrícula
+  de 25 m, para no recorrer miles de tramos en cada movimiento del ratón). Cuentan en `extension()`.
+- Lotes y líneas entran en un solo paso de deshacer. Falta la prueba a mano del usuario con un plano real.
 
 ## Números de referencia (Fundo demo, `muestras/demo_mcp/Fundo_demo_datos.json`)
 - Complemento en QGIS (importar + «Red principal y bomba» con valores por omisión): 31.257 L/s, **CDT 30.056 m,

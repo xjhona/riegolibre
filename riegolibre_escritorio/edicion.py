@@ -258,6 +258,31 @@ def agregar_lote(datos: dict, contorno: Sequence[Punto], nombre: Optional[str] =
     return nuevo
 
 
+def agregar_lotes(datos: dict, lotes: Sequence[dict]) -> dict:
+    """Varios lotes de golpe (importados de un DXF): {"nombre" o None, "contorno", "huecos"?}.
+
+    Un nombre que ya existe pasa a «nombre (2)»; sin nombre, «Lote n»."""
+    nuevo = copy.deepcopy(datos)
+    lista = nuevo.setdefault("lotes", [])
+    usados = {str(l.get("nombre")) for l in lista}
+    for lote in lotes:
+        anillos = anillos_lote(lote)
+        if not anillos or len(anillos[0]) < 3 or area(anillos[0]) <= 1e-6:
+            continue
+        base = str(lote.get("nombre") or "").strip()
+        if not base:
+            nombre = nombre_libre(nuevo)
+        else:
+            nombre, n = base, 2
+            while nombre in usados:
+                nombre, n = f"{base} ({n})", n + 1
+        usados.add(nombre)
+        agregado = {"nombre": nombre}
+        _fijar_anillos(agregado, [a for a in anillos if len(a) >= 3])
+        lista.append(agregado)
+    return nuevo
+
+
 def fijar_fuente(datos: dict, p: Punto) -> dict:
     """Una sola fuente: la nueva reemplaza a la anterior (como «Water Supply» de IRRICAD)."""
     nuevo = copy.deepcopy(datos)

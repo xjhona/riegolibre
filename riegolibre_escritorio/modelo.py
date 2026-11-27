@@ -90,6 +90,7 @@ class ProyectoRiego:
         self._carpeta_archivos: Optional[tempfile.TemporaryDirectory] = None
         self._cache_lotes: Dict[str, list] = {}  # lotes ya calculados, por sus datos (editar y deshacer es rápido)
         self._curvas = (None, [])  # (archivo, curvas leídas) de las curvas de nivel
+        self._dibujo = (None, [])  # (archivo, líneas leídas) de las líneas de referencia del DXF
 
     # ------------------------------------------------------------ datos
 
@@ -214,6 +215,36 @@ class ProyectoRiego:
             self._curvas = (nombre, curvas_de_bytes(self.archivos[nombre]))
         return self._curvas[1]
 
+    # ------------------------------------------------------------ líneas de referencia de un DXF
+
+    def datos_con_dibujo(self, lineas, descripcion: dict, lotes=()) -> dict:
+        """Datos del diseño con estas líneas de referencia (reemplazan a las de antes; [] las quita) y, si se dan,
+        los lotes importados agregados. El archivo va con nombre por contenido, como el DEM."""
+        from .dibujo_cad import lineas_a_bytes
+        from .edicion import agregar_lotes
+        from .topografia import nombre_archivo
+
+        datos = agregar_lotes(self.datos, lotes) if lotes else copy.deepcopy(self.datos)
+        if lineas:
+            contenido = lineas_a_bytes(lineas)
+            nombre = nombre_archivo("dibujo", contenido, ".json.gz")
+            self.archivos[nombre] = contenido
+            datos["dibujo_cad"] = {**descripcion, "archivo": nombre}
+        else:
+            datos.pop("dibujo_cad", None)
+        return datos
+
+    @property
+    def dibujo(self) -> list:
+        """[(capa del DXF, [(x, y)…])] de las líneas de referencia; [] si no hay."""
+        nombre = (self.datos.get("dibujo_cad") or {}).get("archivo")
+        if not nombre or nombre not in self.archivos:
+            return []
+        if self._dibujo[0] != nombre:
+            from .dibujo_cad import lineas_de_bytes
+            self._dibujo = (nombre, lineas_de_bytes(self.archivos[nombre]))
+        return self._dibujo[1]
+
     # ------------------------------------------------------------ imagen satelital de fondo
 
     def datos_con_imagen(self, contenido: bytes, descripcion: dict, extension: str = ".jpg") -> dict:
@@ -244,6 +275,7 @@ class ProyectoRiego:
         terreno = self.datos.get("terreno") or {}
         nombres = {terreno.get("archivo"), terreno.get("curvas")} if terreno.get("tipo") == "dem" else set()
         nombres.add((self.datos.get("imagen") or {}).get("archivo"))
+        nombres.add((self.datos.get("dibujo_cad") or {}).get("archivo"))
         return {k: v for k, v in self.archivos.items() if k in nombres}
 
     def _clave_lote(self, lote: dict, goteo: dict) -> str:
@@ -373,7 +405,7 @@ class ProyectoRiego:
         La imagen de fondo solo cuenta si no hay nada más (si no, cada descarga con margen agrandaría la zona)."""
         puntos = [p for lote in self.datos.get("lotes", []) for anillo in anillos_lote(lote) for p in anillo]
         puntos += [p for linea in self.matriz for p in linea]
-        for _, linea in self.curvas:
+        for _, linea in self.curvas + self.dibujo:
             puntos += [linea[0], min(linea), max(linea), min(linea, key=lambda p: p[1]), max(linea, key=lambda p: p[1])]
         if self.fuente:
             puntos.append(self.fuente)

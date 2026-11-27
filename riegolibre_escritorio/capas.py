@@ -19,6 +19,7 @@ CAPAS = {
     "PORTALATERALES": ("#1565c0", "solida", 2.6, "Tubería portalateral de cada subunidad"),
     "LATERALES": ("#43a047", "solida", 0.8, "Laterales de goteo"),
     "LOTES": ("#424242", "solida", 1.2, "Áreas de riego (relleno con el color del turno)"),
+    "DIBUJO_CAD": ("#78909c", "solida", 0.8, "Líneas de referencia importadas de un DXF (caminos, canales, linderos…)"),
     "CURVAS_NIVEL": ("#a1887f", "solida", 0.6, "Curvas de nivel del terreno (las maestras, más gruesas)"),
     "IMAGEN_SATELITAL": ("#9e9e9e", "solida", 1.0, "Imagen satelital de fondo (menú Terreno → Imagen satelital)"),
 }
