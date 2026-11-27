@@ -43,6 +43,7 @@ riegolibre/                 Complemento de QGIS (esta carpeta es la que se insta
 └── gui/                    Ventanas: lateral, subunidad, diseño en el mapa, trazado automático, red, base de datos,
 │                           materiales, memoria
 │                           y las herramientas «Información del objeto» y «Turnos de riego»
+riegolibre_app/             RiegoLibre como programa independiente (prototipo; ver más abajo)
 tests/                      Pruebas automáticas
 scripts/                    Utilidades de desarrollo
 ```
@@ -317,6 +318,33 @@ se detiene para no pisarlos. Con el caso Fruveg (61 lotes, DEM de 1 m) da los mi
 servidor y presiones en la válvula a menos de 0.1 m (el complemento lee el DEM por celda y el servidor interpola).
 Código: `integracion/importar_mcp.py` y `gui/dialogo_importar_mcp.py`.
 
+## Programa independiente (prototipo)
+
+RiegoLibre también abre como programa propio, con su ventana, sin la interfaz de QGIS. Por dentro usa las
+librerías de QGIS instaladas en el equipo (lienzo del mapa, capas, GDAL, GeoPackage), así que sigue haciendo
+falta tener QGIS instalado. Para abrirlo, doble clic en `RiegoLibre.bat`, en la raíz del repositorio, o:
+
+```powershell
+.\RiegoLibre.bat "C:\ruta\al\proyecto.qgz"
+```
+
+- La ventana (`riegolibre_app/ventana.py`) tiene el mapa, el panel de capas y los menús **Proyecto** (nuevo,
+  abrir, guardar, sistema de coordenadas), **Capas** (agregar vectorial o ráster, editar, agregar entidad,
+  quitar), **Ver** (desplazar, acercar, alejar, toda la extensión) y **Ayuda**; la barra de estado muestra la
+  coordenada, la escala y el SRC.
+- Las herramientas son las mismas del complemento, sin cambiar una línea: la ventana le ofrece la misma
+  interfaz que QGIS le da (`mapCanvas`, `messageBar`, `mainWindow`, `statusBarIface`, `setActiveLayer`,
+  `actionAddFeature`…), así que el menú y la barra **RiegoLibre** salen completos.
+- Las capas nuevas entran como en QGIS: encima de la capa elegida en el panel y quedan elegidas.
+- Los proyectos son `.qgz` normales: se abren también en QGIS, y al guardar las capas de RiegoLibre pasan al
+  GeoPackage junto al proyecto.
+- Probado a mano con el diseño de prueba del servidor MCP: importar, «Bloque de goteo», «Red principal y
+  bomba» y guardar y volver a abrir dan lo mismo que en QGIS.
+
+Falta para que sea un programa completo: tabla de atributos, propiedades y estilo de las capas, mapa satelital
+de fondo, deshacer, impresión de planos, un instalador propio (hoy abre una consola junto a la ventana) e
+iconos de la ventana. Pruebas: `tests/test_aplicacion_qgis.py`.
+
 ## Hoja de ruta
 
 - [x] Motor hidráulico de laterales y portalaterales
@@ -333,6 +361,8 @@ Código: `integracion/importar_mcp.py` y `gui/dialogo_importar_mcp.py`.
 - [x] Elección de diámetros de la red por costo (tubería + energía de bombeo)
 - [x] Riego por aspersión, primera etapa: calculadora de lateral de aspersión
 - [ ] Riego por aspersión: bloque en el mapa, red y aspersores de la base de IRRICAD
+- [x] Programa independiente, prototipo: ventana propia con las librerías de QGIS
+- [ ] Programa independiente: tabla de atributos, estilos, impresión e instalador
 
 ## Autoría y licencia
 

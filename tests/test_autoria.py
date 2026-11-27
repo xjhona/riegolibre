@@ -18,7 +18,8 @@ ENCABEZADO = [f"# {COPYRIGHT}",
 
 class TestAutoria(unittest.TestCase):
     def test_todo_archivo_de_codigo_lleva_el_encabezado(self):
-        archivos = [a for carpeta in (COMPLEMENTO, RAIZ / "tests") for a in carpeta.rglob("*.py")
+        carpetas = (COMPLEMENTO, RAIZ / "riegolibre_app", RAIZ / "mcp_riegolibre", RAIZ / "tests")
+        archivos = [a for carpeta in carpetas for a in carpeta.rglob("*.py")
                     if "__pycache__" not in a.parts]
         self.assertGreater(len(archivos), 90)
         sin_encabezado = [str(a.relative_to(RAIZ)) for a in archivos

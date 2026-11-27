@@ -8,6 +8,8 @@ Repositorio: https://github.com/xjhona/riegolibre (rama `main`, cuenta gh `xjhon
 - `riegolibre/nucleo/`: motor de cálculo en Python puro, SIN imports de QGIS.
 - `riegolibre/integracion/`: capas, geometrías y cálculo sobre el mapa de QGIS.
 - `riegolibre/gui/`: ventanas y herramientas de mapa. `riegolibre/plugin.py`: menú y barra.
+- `riegolibre_app/`: prototipo de programa independiente (`RiegoLibre.bat`): ventana propia que da al complemento la
+  interfaz de QGIS (`iface`); usa las librerías de QGIS.
 - `tests/`, `scripts/` (instalación para desarrollo), `muestras/` (datos del cliente, no se sube a git).
 - Detalle de cada módulo y de los métodos de cálculo: `README.md`.
 
