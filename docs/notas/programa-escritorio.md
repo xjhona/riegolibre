@@ -23,6 +23,27 @@ Pedido del usuario el 2026-11-26: un programa tipo IRRICAD que se instale y corr
   la capa» (color, tipo de línea, grosor). Sin leyendas desplegables; los diámetros de la red van en la descripción
   emergente de RED_PRINCIPAL. Código: `capas.py` (sin Qt) y `barra_capas.py`.
 
+## Etapa 2: edición en el mapa (2026-11-26)
+- El usuario aprobó el plan sin cambios (barra vertical, imán, deshacer, bloque por lote, info, tabla, proyecto nuevo).
+  No respondió si el bloque se dibuja antes o después del cuadro: se hizo como el complemento (se dibuja el lote y al
+  cerrarlo se abre su «Bloque de goteo»). Por confirmar con un video de IRRICAD.
+- Módulos: `edicion.py` (sin Qt: imán, objeto bajo el cursor, cambios que devuelven datos nuevos), `herramientas.py`
+  (herramientas del lienzo; la ventana es su «editor»), `dialogo_bloque.py`, `dialogos.py` (nuevo, turnos, ficha,
+  tabla de atributos), `fichas.py` (sin Qt: «Información del objeto» con `riegolibre/nucleo/ficha.py`).
+- Deshacer: `QUndoStack` con la copia de los datos de antes y de después (`CambioDatos`). `ProyectoRiego.disenar`
+  guarda los lotes calculados por sus datos (lote, goteo, terreno y, solo con válvula automática, la fuente): editar
+  un lote del Fundo demo tarda ~3.5 s y deshacer es inmediato. La red tarda milisegundos: si estaba calculada, se
+  recalcula sola tras cada cambio.
+- Lote en el formato del MCP: al editarlo, `anillos` pasa a `contorno` + `huecos`. Turnos fijos en
+  `red.turnos_fijos` por nombre de lote (renombrar o borrar el lote los arrastra). Un lote no puede anular un valor
+  del proyecto con None (`_config_goteo` ignora los None); para la cinta se usa `""`.
+- Proyecto nuevo: `referencia` (E, N) en los datos, solo para abrir el mapa ahí; el EPSG elegido se recuerda en
+  los ajustes. La escena mide ±200 km alrededor del origen para poder recorrer un proyecto vacío; con
+  `conservar_vista` el origen no cambia al redibujar.
+- No se hizo: diámetro por tramo al dibujar la matriz («Pipe Properties»): el motor del MCP siempre dimensiona;
+  escribir coordenadas a mano; modo orto. Verificación en pantalla: capturas con la plataforma `windows`; el usuario
+  no dio acceso a la pantalla (computer use), falta su prueba a mano.
+
 ## Números de referencia (Fundo demo, `muestras/demo_mcp/Fundo_demo_datos.json`)
 - Complemento en QGIS (importar + «Red principal y bomba» con valores por omisión): 31.257 L/s, **CDT 30.056 m,
   13.166 kW**; 140 mm 681.7 m, 200 mm 14.1 m, 63 mm 432.5 m, 90 mm 375.1 m.

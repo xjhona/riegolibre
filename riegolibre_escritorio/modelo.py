@@ -22,6 +22,7 @@ from typing import Dict, List, Optional
 from mcp_riegolibre import motor
 
 from .capas import completar_estilos
+from .edicion import anillos_lote
 
 # Parámetros de «Red principal y bomba» y sus valores iniciales: los del servidor, salvo la pérdida en cada
 # válvula, que empieza en 2 m como en la ventana del complemento (el servidor usa 0 m si el diseño no la da).
@@ -65,6 +66,7 @@ class ProyectoRiego:
         self.terreno = motor.Terreno(None)
         self.ruta: Optional[str] = None
         self._carpeta_archivos: Optional[tempfile.TemporaryDirectory] = None
+        self._cache_lotes: Dict[str, list] = {}  # lotes ya calculados, por sus datos (editar y deshacer es rápido)
 
     # ------------------------------------------------------------ datos
 
@@ -142,19 +144,59 @@ class ProyectoRiego:
             terreno = {**terreno, "archivo": ruta}
         return motor.Terreno(terreno)
 
-    def disenar(self):
-        """Traza y calcula el bloque de goteo de cada lote y reparte los turnos. Borra la red calculada."""
+    @classmethod
+    def nuevo(cls, nombre: str, epsg: Optional[int], terreno: Optional[dict] = None,
+              referencia=None) -> "ProyectoRiego":
+        """Proyecto vacío para dibujarlo desde cero. `referencia` (E, N) es dónde se abre el mapa."""
+        datos = {"nombre": nombre.strip() or "Proyecto nuevo", "lotes": []}
+        if epsg:
+            datos["epsg"] = int(epsg)
+        if terreno:
+            datos["terreno"] = dict(terreno)
+        if referencia:
+            datos["referencia"] = [float(referencia[0]), float(referencia[1])]
+        return cls(datos)
+
+    @property
+    def referencia(self):
+        return tuple(self.datos["referencia"]) if self.datos.get("referencia") else None
+
+    def _clave_lote(self, lote: dict, goteo: dict) -> str:
+        """Lo que decide el cálculo de un lote: sus datos, el goteo, el terreno y (válvula automática) la fuente."""
+        try:
+            automatica = motor._config_goteo(goteo, lote)["valvula"] == "auto"
+        except ValueError:
+            automatica = True
+        return json.dumps([lote, goteo, self.datos.get("terreno"), self.fuente if automatica else None],
+                          sort_keys=True, default=str)
+
+    def disenar(self, forzar: bool = False):
+        """Traza y calcula el bloque de goteo de cada lote y reparte los turnos. Borra la red calculada.
+
+        Los lotes cuyos datos no cambiaron no se vuelven a calcular (salvo con `forzar`, por ejemplo si cambió
+        la base de datos de materiales).
+        """
         self.red, self.error_red = None, None
         self.subunidades, self.errores = [], []
+        if forzar:
+            self._cache_lotes = {}
         if not self.datos.get("lotes"):
             return
         self.terreno = self._terreno()
         goteo = self.datos.get("goteo", {})
+        usadas = {}
         for lote in self.datos["lotes"]:
+            clave = self._clave_lote(lote, goteo)
             try:
-                self.subunidades.extend(motor.disenar_lote(lote, goteo, self.terreno, self.fuente))
+                if clave not in self._cache_lotes:
+                    self._cache_lotes[clave] = motor.disenar_lote(lote, goteo, self.terreno, self.fuente)
+                usadas[clave] = self._cache_lotes[clave]
+                self.subunidades.extend(usadas[clave])
             except Exception as error:  # se informa y se sigue con los demás lotes
                 self.errores.append(f"{lote.get('nombre', '?')}: {error}")
+        # Se guardan los de ahora y algunos de antes (para deshacer sin esperar)
+        antiguos = [c for c in self._cache_lotes if c not in usadas][-3 * max(1, len(usadas)):]
+        self._cache_lotes = {**{c: self._cache_lotes[c] for c in antiguos}, **usadas}
         nombres = [s.nombre for s in self.subunidades]
         repetidos = sorted({n for n in nombres if nombres.count(n) > 1})
         if repetidos:
@@ -172,11 +214,11 @@ class ProyectoRiego:
             self.parametros_red.update({k: float(v) for k, v in parametros.items()})
         self.red, self.error_red = None, None
         if not self.subunidades:
-            raise ValueError("No hay subunidades calculadas: importe un diseño con lotes.")
+            raise ValueError("No hay subunidades calculadas: dibuje o importe los lotes.")
         if self.fuente is None:
             raise ValueError("Falta la fuente de agua (el punto de la bomba y el cabezal).")
         if not self.matriz:
-            raise ValueError("Falta la tubería matriz: el diseño no trae «red.matriz».")
+            raise ValueError("Falta la tubería matriz: dibújela desde la fuente (herramienta «Tubería matriz»).")
         cfg = dict(motor.RED_POR_OMISION)
         cfg.update(self.datos.get("red") or {})
         cfg.update(self.parametros_red)
@@ -205,10 +247,12 @@ class ProyectoRiego:
 
     def extension(self):
         """(xmin, ymin, xmax, ymax) de lotes, fuente y matriz; None si el proyecto está vacío."""
-        puntos = [tuple(p) for lote in self.datos.get("lotes", []) for anillo in motor._anillos_de(lote) for p in anillo]
+        puntos = [p for lote in self.datos.get("lotes", []) for anillo in anillos_lote(lote) for p in anillo]
         puntos += [p for linea in self.matriz for p in linea]
         if self.fuente:
             puntos.append(self.fuente)
+        if not puntos and self.referencia:
+            puntos.append(self.referencia)
         if not puntos:
             return None
         xs, ys = [p[0] for p in puntos], [p[1] for p in puntos]

@@ -293,7 +293,7 @@ class PruebasVentana(unittest.TestCase):
         ruta = os.path.join(self.carpeta.name, "Prueba.riegolibre")
         self.assertTrue(v._guardar_en(ruta))
         self.assertFalse(v.isWindowModified())
-        v.nuevo()
+        v.nuevo({"nombre": "Vacío", "epsg": 32717, "terreno": None, "referencia": None})
         self.assertEqual(v.tabla_subunidades.rowCount(), 0)
         v.abrir(ruta)
         self.mensajes.warning.assert_not_called()

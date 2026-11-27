@@ -370,12 +370,25 @@ Primera etapa (2026-11-26):
   válvula 2 m, cabezal 7 m, succión 2 m, eficiencia 70 %…), une las válvulas a la matriz, dimensiona la red y
   muestra resumen, tramos, turnos y válvulas. Con el diseño de prueba da lo mismo que el complemento (CDT 30.04 m
   contra 30.06 m: el complemento lee el plano como DEM por celda).
+- **Edición en el mapa** (barra vertical a la izquierda, como en IRRICAD): *Seleccionar*, *Lote* (polígono con
+  clics; clic derecho, doble clic o Intro termina, Retroceso quita el último punto, Esc cancela), *Fuente de agua*
+  (un punto; reemplaza la anterior), *Tubería matriz* (polilínea desde la fuente) e *Información* (ficha del lote,
+  válvula, tramo o bomba). Imán a vértices y bordes de lotes, matriz y fuente (10 píxeles; Mayús lo apaga). Con
+  *Seleccionar*: arrastrar un vértice o la fuente, doble clic en un borde agrega un vértice, Ctrl + clic lo quita,
+  Supr borra, doble clic dentro de un lote abre su bloque de goteo. **Editar → Deshacer / Rehacer** (Ctrl+Z,
+  Ctrl+Y) para todo lo dibujado y editado. Cada cambio recalcula solo los lotes que cambiaron y, si la red estaba
+  calculada, la red.
+- **Bloque de goteo** por lote (al terminar de dibujarlo o con doble clic) o del proyecto (**Editar → Bloque de
+  goteo del proyecto…**): emisor y manguera o cinta de la base de datos, hileras, azimut, bordes, portalateral,
+  válvula, criterios y subdivisión. En el lote se guarda solo lo que difiere del proyecto. **Editar → Turnos de
+  riego…**: número de turnos y turno fijo por lote.
+- **Proyecto → Nuevo**: nombre, zona UTM / EPSG, punto donde empezar a dibujar y terreno (llano o plano inclinado).
+  Tabla de atributos (lotes y tramos de la matriz) junto a la de subunidades.
 - Proyecto `.riegolibre`: una base SQLite con los datos del diseño, los parámetros, los estilos de capas, el DEM y una
   copia del resumen y de las geometrías en GeoJSON. Exporta la memoria de cálculo en HTML.
 
-Siguientes etapas: edición en el mapa (lotes, fuente y matriz con imán, deshacer), terreno (DEM, DXF, satelital),
-las demás ventanas del complemento, planos e instalador. Detalle en `docs/notas/programa-escritorio.md`; pruebas en
-`tests/test_escritorio.py`.
+Siguientes etapas: terreno (DEM, DXF, satelital), las demás ventanas del complemento, planos e instalador. Detalle en
+`docs/notas/programa-escritorio.md`; pruebas en `tests/test_escritorio.py` y `tests/test_escritorio_edicion.py`.
 
 ## Hoja de ruta
 
@@ -395,7 +408,8 @@ las demás ventanas del complemento, planos e instalador. Detalle en `docs/notas
 - [ ] Riego por aspersión: bloque en el mapa, red y aspersores de la base de IRRICAD
 - [x] Programa independiente, prototipo: ventana propia con las librerías de QGIS
 - [x] Programa de escritorio sin QGIS, primera etapa: importar del MCP, lienzo, barra de capas, red y bomba, proyecto propio
-- [ ] Programa de escritorio: edición en el mapa, terreno, demás ventanas, planos e instalador
+- [x] Programa de escritorio, segunda etapa: edición en el mapa (lotes, fuente, matriz, imán, deshacer, bloque por lote)
+- [ ] Programa de escritorio: terreno, demás ventanas, planos e instalador
 
 ## Autoría y licencia
 

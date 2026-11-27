@@ -23,6 +23,7 @@ from riegolibre.nucleo.turnos import PALETA as PALETA_TURNOS
 from .capas import CAPAS
 
 FACTOR_ZOOM = 1.25
+RADIO_ESCENA_M = 200_000.0  # el mapa se puede recorrer hasta esta distancia del origen (aunque esté vacío)
 
 TIPOS_LINEA = {"solida": Qt.PenStyle.SolidLine, "discontinua": Qt.PenStyle.DashLine,
                "punteada": Qt.PenStyle.DotLine, "punto_raya": Qt.PenStyle.DashDotLine}
@@ -93,6 +94,24 @@ class Lienzo(QGraphicsView):
         self.setBackgroundBrush(QBrush(QColor("#ffffff")))
         self.setMouseTracking(True)
         self.setMinimumSize(200, 200)
+        self.setFocusPolicy(Qt.FocusPolicy.StrongFocus)
+        self.herramienta = None  # herramientas.Herramienta activa
+        self._paneo = None  # posición del botón central al desplazar
+        self._fijar_rect_escena()
+
+    def _fijar_rect_escena(self):
+        r = RADIO_ESCENA_M
+        self.escena.setSceneRect(QRectF(-r, -r, 2 * r, 2 * r))
+
+    def fijar_herramienta(self, herramienta):
+        if self.herramienta is not None:
+            self.herramienta.desactivar()
+        self.herramienta = herramienta
+        self.setDragMode(QGraphicsView.DragMode.ScrollHandDrag if herramienta is None or herramienta.arrastrar_mapa
+                         else QGraphicsView.DragMode.NoDrag)
+        self.viewport().setCursor(herramienta.cursor if herramienta is not None else Qt.CursorShape.OpenHandCursor)
+        if herramienta is not None:
+            herramienta.activar()
 
     # ------------------------------------------------------------ coordenadas
 
@@ -111,6 +130,7 @@ class Lienzo(QGraphicsView):
         self.escena.clear()
         self.capas = {}
         self.origen = (float(origen[0]), float(origen[1]))
+        self._fijar_rect_escena()
 
     def nueva_capa(self, nombre: str, estilo: dict) -> Capa:
         capa = Capa(nombre, estilo)
@@ -187,8 +207,8 @@ class Lienzo(QGraphicsView):
 
     def ver_todo(self):
         caja = self.escena.itemsBoundingRect()
-        if caja.isEmpty():
-            return
+        if caja.isEmpty():  # proyecto vacío: unos 500 m alrededor del punto de referencia
+            caja = QRectF(-250, -250, 500, 500)
         margen = max(caja.width(), caja.height()) * 0.05 + 1.0
         self.fitInView(caja.adjusted(-margen, -margen, margen, margen), Qt.AspectRatioMode.KeepAspectRatio)
 
@@ -208,10 +228,56 @@ class Lienzo(QGraphicsView):
             self.acercar(FACTOR_ZOOM ** pasos)
         evento.accept()
 
+    def _xy(self, evento):
+        return self.de_escena(self.mapToScene(evento.position().toPoint()))
+
+    def mousePressEvent(self, evento):  # noqa: N802 (Qt)
+        if evento.button() == Qt.MouseButton.MiddleButton:
+            self._paneo = evento.position()
+            self.viewport().setCursor(Qt.CursorShape.ClosedHandCursor)
+            evento.accept()
+            return
+        if self.herramienta is not None and self.herramienta.presionar(evento, *self._xy(evento)):
+            evento.accept()
+            return
+        super().mousePressEvent(evento)
+
     def mouseMoveEvent(self, evento):  # noqa: N802 (Qt)
-        x, y = self.de_escena(self.mapToScene(evento.position().toPoint()))
+        x, y = self._xy(evento)
         self.coordenadas.emit(x, y)
+        if self._paneo is not None:
+            delta = evento.position() - self._paneo
+            self._paneo = evento.position()
+            self.horizontalScrollBar().setValue(self.horizontalScrollBar().value() - round(delta.x()))
+            self.verticalScrollBar().setValue(self.verticalScrollBar().value() - round(delta.y()))
+            return
+        if self.herramienta is not None and self.herramienta.mover(evento, x, y):
+            return
         super().mouseMoveEvent(evento)
+
+    def mouseReleaseEvent(self, evento):  # noqa: N802 (Qt)
+        if evento.button() == Qt.MouseButton.MiddleButton and self._paneo is not None:
+            self._paneo = None
+            self.viewport().setCursor(self.herramienta.cursor if self.herramienta else Qt.CursorShape.OpenHandCursor)
+            return
+        if self.herramienta is not None and self.herramienta.soltar(evento, *self._xy(evento)):
+            return
+        super().mouseReleaseEvent(evento)
+        if self.herramienta is not None:  # ScrollHandDrag cambia el cursor
+            self.viewport().setCursor(self.herramienta.cursor)
+
+    def mouseDoubleClickEvent(self, evento):  # noqa: N802 (Qt)
+        if self.herramienta is not None and self.herramienta.doble_clic(evento, *self._xy(evento)):
+            return
+        super().mouseDoubleClickEvent(evento)
+
+    def keyPressEvent(self, evento):  # noqa: N802 (Qt)
+        if self.herramienta is not None and self.herramienta.tecla(evento):
+            return
+        super().keyPressEvent(evento)
+
+    def contextMenuEvent(self, evento):  # noqa: N802 (Qt) — el clic derecho lo usan las herramientas
+        evento.accept()
 
 
 def dibujar_proyecto(lienzo: Lienzo, proyecto, conservar_vista=False) -> Dict[str, Capa]:
@@ -221,7 +287,10 @@ def dibujar_proyecto(lienzo: Lienzo, proyecto, conservar_vista=False) -> Dict[st
     transformacion = lienzo.transform()
     centro_proyecto = lienzo.de_escena(lienzo.mapToScene(lienzo.viewport().rect().center()))
     extension = proyecto.extension()
-    lienzo.limpiar(((extension[0] + extension[2]) / 2, (extension[1] + extension[3]) / 2) if extension else (0, 0))
+    if conservar_vista:  # el mismo origen: lo que se está dibujando no se corre
+        lienzo.limpiar(lienzo.origen)
+    else:
+        lienzo.limpiar(((extension[0] + extension[2]) / 2, (extension[1] + extension[3]) / 2) if extension else (0, 0))
     estilos = proyecto.estilos_capas
     capas = {nombre: lienzo.nueva_capa(nombre, estilos[nombre]) for nombre in CAPAS}
     texto, fuente, valvulas = capas["TEXTO"], capas["FUENTE"], capas["VÁLVULAS"]
@@ -285,4 +354,6 @@ def dibujar_proyecto(lienzo: Lienzo, proyecto, conservar_vista=False) -> Dict[st
         lienzo.centerOn(lienzo.a_escena(*centro_proyecto))
     else:
         lienzo.ver_todo()
+    if lienzo.herramienta is not None:
+        lienzo.herramienta.redibujar()
     return capas
