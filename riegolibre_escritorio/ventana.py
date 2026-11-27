@@ -22,6 +22,7 @@ from .barra_capas import BarraCapas
 from .dialogo_bloque import DialogoBloque
 from .dialogos import DialogoFicha, DialogoNuevo, DialogoTurnos, TablaAtributos
 from .dialogo_red import DialogoRed
+from .dialogo_satelital import DialogoSatelital
 from .dialogo_terreno import DialogoCurvas
 from .estilo import ROJO, TEMAS, VERDE, aplicar_tema, tema_actual
 from .lienzo import Lienzo, dibujar_proyecto
@@ -30,31 +31,50 @@ from .modelo import ProyectoRiego
 FILTRO_PROYECTO = f"Proyecto de RiegoLibre (*{archivo.EXTENSION})"
 FILTRO_MCP = "Diseño del servidor MCP (*_datos.json)"
 FILTRO_DXF = "Dibujo de CAD (*.dxf)"
+FILTRO_IMAGEN = "Imagen con archivo de mundo (*.jpg *.jpeg *.png)"
 FALTAN_LIBRERIAS = ("Para leer el DXF faltan librerías de Python ({}). Instálelas con:\n"
                     "python -m pip install -r requisitos_escritorio.txt")
 
 
 class _Trabajo(QThread):
     terminado = Signal()
+    avance = Signal(float, str)
 
-    def __init__(self, funcion):
+    def __init__(self, funcion, con_avance=False):
         super().__init__()
         self.funcion, self.resultado, self.error = funcion, None, None
+        self.con_avance, self.cancelado = con_avance, False
+
+    def _avisar(self, fraccion: float, texto: str) -> bool:
+        """Lo llama la función desde su hilo; devuelve False si el usuario canceló."""
+        self.avance.emit(float(fraccion), str(texto))
+        return not self.cancelado
+
+    def cancelar(self):
+        self.cancelado = True
 
     def run(self):
         try:
-            self.resultado = self.funcion()
+            self.resultado = self.funcion(self._avisar) if self.con_avance else self.funcion()
         except Exception as error:  # se vuelve a lanzar en el hilo de la ventana
             self.error = error
 
 
-def en_segundo_plano(ventana, texto: str, funcion):
-    """Corre `funcion` en otro hilo con un aviso de espera, sin congelar la ventana; devuelve su resultado."""
-    trabajo = _Trabajo(funcion)
-    aviso = QProgressDialog(texto, None, 0, 0, ventana)
+def en_segundo_plano(ventana, texto: str, funcion, con_avance: bool = False):
+    """Corre `funcion` en otro hilo con un aviso de espera, sin congelar la ventana; devuelve su resultado.
+
+    Con `con_avance`, la función recibe `avance(fracción, texto)`, que mueve la barra y devuelve False si el
+    usuario pulsó «Cancelar» (la función decide cómo detenerse)."""
+    trabajo = _Trabajo(funcion, con_avance)
+    aviso = QProgressDialog(texto, "Cancelar" if con_avance else None, 0, 100 if con_avance else 0, ventana)
     aviso.setWindowTitle("RiegoLibre")
     aviso.setWindowModality(Qt.WindowModality.WindowModal)
     aviso.setMinimumDuration(300)
+    if con_avance:
+        aviso.setAutoClose(False)
+        aviso.setAutoReset(False)
+        trabajo.avance.connect(lambda fraccion, t: (aviso.setValue(round(100 * fraccion)), aviso.setLabelText(t)))
+        aviso.canceled.connect(trabajo.cancelar)
     bucle = QEventLoop()
     trabajo.finished.connect(bucle.quit)
     QApplication.setOverrideCursor(Qt.CursorShape.WaitCursor)
@@ -182,6 +202,12 @@ class VentanaPrincipal(QMainWindow):
                                    "Lee las curvas de nivel de un plano de CAD y arma el DEM del terreno"),
             "quitar_terreno": self._accion("&Quitar el terreno (llano)", self.quitar_terreno, None,
                                            "El terreno vuelve a ser llano: se borran el DEM y las curvas"),
+            "satelital": self._accion("Imagen &satelital…", self.imagen_satelital, None,
+                                      "Descarga una imagen satelital de la zona y la deja de fondo del diseño"),
+            "imagen_propia": self._accion("Cargar imagen &propia (con archivo de mundo)…", self.imagen_propia, None,
+                                          "Una foto aérea o de dron JPG/PNG ubicada en UTM con su .jgw o .pgw"),
+            "quitar_imagen": self._accion("Quitar la &imagen de fondo", self.quitar_imagen, None,
+                                          "Borra la imagen satelital (o propia) del proyecto"),
         }
         a["rehacer"].setShortcuts([QKeySequence("Ctrl+Y"), QKeySequence("Ctrl+Shift+Z")])
         a["borrar"].setShortcut(QKeySequence(QKeySequence.StandardKey.Delete))
@@ -195,9 +221,8 @@ class VentanaPrincipal(QMainWindow):
             menu.addSeparator() if clave is None else menu.addAction(a[clave])
         self.menu_dibujo = self.menuBar().addMenu("&Dibujo")
         menu = self.menuBar().addMenu("&Terreno")
-        menu.addAction(a["curvas"])
-        menu.addSeparator()
-        menu.addAction(a["quitar_terreno"])
+        for clave in ("curvas", "satelital", "imagen_propia", None, "quitar_terreno", "quitar_imagen"):
+            menu.addSeparator() if clave is None else menu.addAction(a[clave])
         menu = self.menuBar().addMenu("&Ver")
         for clave in ("ver_todo", "acercar", "alejar"):
             menu.addAction(a[clave])
@@ -423,7 +448,8 @@ class VentanaPrincipal(QMainWindow):
         ruta = os.path.basename(p.ruta) if p.ruta else "sin guardar"
         self.setWindowTitle(f"RiegoLibre — {p.nombre} ({ruta})[*]")
         dibujar_proyecto(self.lienzo, p, conservar_vista)
-        self.barra_capas.cargar(p.estilos_capas, self.lienzo.diametros)
+        self.barra_capas.cargar(p.estilos_capas, self.lienzo.diametros, self.lienzo.texto_imagen)
+        self.acciones["quitar_imagen"].setEnabled(bool(p.datos.get("imagen")))
         self._llenar_subunidades()
         self.tabla_atributos.cargar(p.datos)
         self.tabla_atributos.marcar(self.seleccion)
@@ -638,6 +664,113 @@ class VentanaPrincipal(QMainWindow):
         datos = copy.deepcopy(self.proyecto.datos)
         del datos["terreno"]
         self.aplicar(datos, "Quitar el terreno")
+
+    # ------------------------------------------------------------ imagen de fondo
+
+    def _zona_utm(self):
+        """(zona, sur) del proyecto; None (con aviso) si su EPSG no es UTM WGS 84."""
+        zona = edicion.zona_de_epsg(self.proyecto.epsg) if self.proyecto.epsg else None
+        if zona is None:
+            QMessageBox.warning(self, "RiegoLibre", "El proyecto necesita una zona UTM WGS 84 (EPSG 326xx o 327xx) "
+                                "para ubicar la imagen satelital.")
+        return zona
+
+    def _poner_imagen(self, contenido: bytes, descripcion: dict, extension: str, texto: str):
+        habia = bool(self.proyecto.extension())
+        self.proyecto.estilos_capas["IMAGEN_SATELITAL"]["visible"] = True  # una imagen nueva se muestra
+        self.aplicar(self.proyecto.datos_con_imagen(contenido, descripcion, extension), texto)
+        if not habia:
+            self.lienzo.ver_todo()
+
+    def imagen_satelital(self):
+        """Descarga la imagen de la zona del proyecto y la guarda dentro del proyecto, de fondo."""
+        from . import satelital
+        from .dialogo_satelital import codificar_jpeg, decodificar
+
+        if self._ocupado:
+            return
+        zona = self._zona_utm()
+        if zona is None:
+            return
+        extension = self.proyecto.extension()
+        if extension is None:
+            QMessageBox.warning(self, "RiegoLibre", "Dibuje o importe primero los lotes (o las curvas de nivel): la "
+                                "imagen se descarga alrededor de ellos.")
+            return
+        dialogo = DialogoSatelital(extension, *zona, self)
+        if dialogo.exec() != QDialog.DialogCode.Accepted:
+            return
+        valores = dialogo.valores()
+
+        def descargar(avance):
+            imagen = satelital.descargar_imagen(valores["fuente"], valores["zona_utm"], valores["resolucion_m"],
+                                                *zona, decodificar, avance)
+            avance(0.97, "Comprimiendo la imagen…")
+            return imagen, codificar_jpeg(imagen.pixeles)
+
+        try:
+            imagen, contenido = en_segundo_plano(self, "Descargando la imagen satelital…", descargar, con_avance=True)
+        except satelital.Cancelado:
+            self.statusBar().showMessage("Descarga de la imagen satelital cancelada.", 8000)
+            return
+        except ImportError as error:
+            QMessageBox.warning(self, "RiegoLibre", FALTAN_LIBRERIAS.format(error.name or error))
+            return
+        except (ValueError, OSError, MemoryError) as error:
+            QMessageBox.warning(self, "RiegoLibre", f"No se pudo descargar la imagen satelital:\n{error}")
+            return
+        self._poner_imagen(contenido, imagen.descripcion(""), ".jpg", "Imagen satelital")
+        c = imagen.cuadricula
+        texto = (f"Imagen de «{imagen.fuente.nombre}», zoom {imagen.zoom} ({imagen.metros_por_pixel_fuente:.2f} m "
+                 f"por píxel en el servicio): {c.columnas} × {c.filas} píxeles de {c.resolucion_m:g} m, "
+                 f"{imagen.teselas} teselas, {len(contenido) / 1e6:.1f} MB.")
+        self.statusBar().showMessage(" ".join([texto] + imagen.avisos), 20000)
+
+    def imagen_propia(self, ruta=None):
+        """Imagen JPG o PNG ya ubicada en UTM por su archivo de mundo (.jgw, .pgw o .wld)."""
+        import datetime
+
+        from . import satelital
+        from .dialogo_satelital import tamano_imagen
+
+        if self._ocupado:
+            return
+        if not ruta:
+            ruta, _ = QFileDialog.getOpenFileName(self, "Cargar imagen propia", self._carpeta(), FILTRO_IMAGEN)
+            if not ruta:
+                return
+        mundo = satelital.ruta_archivo_mundo(ruta)
+        try:
+            if mundo is None:
+                raise ValueError("No está su archivo de mundo (.jgw para JPG, .pgw para PNG) junto a la imagen: "
+                                 "sin él no se sabe dónde va.")
+            columnas, filas = tamano_imagen(ruta)
+            with open(mundo, encoding="utf-8", errors="replace") as archivo_mundo:
+                esquinas = satelital.leer_archivo_mundo(archivo_mundo.read(), columnas, filas)
+            if abs(esquinas[0]) <= 180 and abs(esquinas[3]) <= 90:
+                raise ValueError("Las coordenadas del archivo de mundo parecen grados: la imagen debe estar en "
+                                 "UTM, en la zona del proyecto.")
+            with open(ruta, "rb") as archivo_imagen:
+                contenido = archivo_imagen.read()
+        except (ValueError, OSError) as error:
+            QMessageBox.warning(self, "RiegoLibre", f"No se pudo cargar la imagen:\n{error}")
+            return
+        self._recordar_carpeta(ruta)
+        extension = os.path.splitext(ruta)[1].lower().replace(".jpeg", ".jpg")
+        descripcion = {"esquinas": [round(v, 3) for v in esquinas], "columnas": columnas, "filas": filas,
+                       "resolucion_m": (esquinas[2] - esquinas[0]) / columnas,
+                       "fuente": f"Imagen propia ({os.path.basename(ruta)})", "zoom": None,
+                       "fecha": datetime.date.today().isoformat(), "atribucion": ""}
+        self._poner_imagen(contenido, descripcion, extension, "Imagen propia")
+        self.statusBar().showMessage(f"Imagen propia: {columnas} × {filas} píxeles de "
+                                     f"{descripcion['resolucion_m']:.2f} m.", 15000)
+
+    def quitar_imagen(self):
+        if self._ocupado or not self.proyecto.datos.get("imagen"):
+            return
+        datos = copy.deepcopy(self.proyecto.datos)
+        del datos["imagen"]
+        self.aplicar(datos, "Quitar la imagen de fondo")
 
     def exportar_memoria(self):
         sugerido = os.path.join(self._carpeta(), self.proyecto.nombre + "_memoria.html")

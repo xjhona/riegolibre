@@ -20,13 +20,18 @@ CAPAS = {
     "LATERALES": ("#43a047", "solida", 0.8, "Laterales de goteo"),
     "LOTES": ("#424242", "solida", 1.2, "Áreas de riego (relleno con el color del turno)"),
     "CURVAS_NIVEL": ("#a1887f", "solida", 0.6, "Curvas de nivel del terreno (las maestras, más gruesas)"),
+    "IMAGEN_SATELITAL": ("#9e9e9e", "solida", 1.0, "Imagen satelital de fondo (menú Terreno → Imagen satelital)"),
 }
+CAPAS_IMAGEN = {"IMAGEN_SATELITAL"}  # sin color ni línea: solo transparencia
 TIPOS_LINEA = {"solida": "Sólida", "discontinua": "Discontinua", "punteada": "Punteada", "punto_raya": "Punto y raya"}
 
 
 def estilos_por_omision() -> Dict[str, dict]:
-    return {nombre: {"color": c, "linea": l, "ancho": a, "visible": True, "imprimir": True}
-            for nombre, (c, l, a, _) in CAPAS.items()}
+    estilos = {nombre: {"color": c, "linea": l, "ancho": a, "visible": True, "imprimir": True}
+               for nombre, (c, l, a, _) in CAPAS.items()}
+    for nombre in CAPAS_IMAGEN:
+        estilos[nombre]["transparencia"] = 0  # en %
+    return estilos
 
 
 def completar_estilos(estilos: Optional[dict]) -> Dict[str, dict]:

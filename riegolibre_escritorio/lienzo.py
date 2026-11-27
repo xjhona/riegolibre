@@ -14,9 +14,9 @@ from dataclasses import dataclass, field
 from typing import Dict, List, Optional
 
 from PySide6.QtCore import QPointF, QRectF, Qt, Signal
-from PySide6.QtGui import QBrush, QColor, QFont, QPainter, QPainterPath, QPen, QPolygonF
-from PySide6.QtWidgets import (QGraphicsEllipseItem, QGraphicsItem, QGraphicsPathItem, QGraphicsRectItem,
-                               QGraphicsScene, QGraphicsSimpleTextItem, QGraphicsView)
+from PySide6.QtGui import QBrush, QColor, QFont, QPainter, QPainterPath, QPen, QPixmap, QPolygonF, QTransform
+from PySide6.QtWidgets import (QGraphicsEllipseItem, QGraphicsItem, QGraphicsPathItem, QGraphicsPixmapItem,
+                               QGraphicsRectItem, QGraphicsScene, QGraphicsSimpleTextItem, QGraphicsView)
 
 from riegolibre.nucleo.turnos import PALETA as PALETA_TURNOS
 
@@ -24,6 +24,7 @@ from .capas import CAPAS
 
 FACTOR_ZOOM = 1.25
 RADIO_ESCENA_M = 200_000.0  # el mapa se puede recorrer hasta esta distancia del origen (aunque esté vacío)
+Z_IMAGEN = -10.0  # la imagen de fondo, debajo de todo (las curvas de nivel van en -1)
 
 TIPOS_LINEA = {"solida": Qt.PenStyle.SolidLine, "discontinua": Qt.PenStyle.DashLine,
                "punteada": Qt.PenStyle.DotLine, "punto_raya": Qt.PenStyle.DashDotLine}
@@ -96,6 +97,8 @@ class Lienzo(QGraphicsView):
         self.setMinimumSize(200, 200)
         self.setFocusPolicy(Qt.FocusPolicy.StrongFocus)
         self.herramienta = None  # herramientas.Herramienta activa
+        self.texto_imagen = ""  # fuente y fecha de la imagen de fondo (para la barra de capas)
+        self._pixmap = (None, None)  # (archivo, QPixmap) de la imagen de fondo: no se vuelve a leer al redibujar
         self._paneo = None  # posición del botón central al desplazar
         self._fijar_rect_escena()
 
@@ -199,6 +202,26 @@ class Lienzo(QGraphicsView):
         elemento.setTransform(elemento.transform().translate(-caja.width() / 2, -caja.height() / 2 - arriba_px))
         return self._agregar(capa, elemento, z)
 
+    def imagen(self, capa: Capa, nombre: str, contenido: bytes, esquinas, opacidad=1.0, info=None):
+        """Imagen de fondo (JPEG o PNG) estirada sobre las esquinas UTM [xmin, ymin, xmax, ymax]."""
+        if self._pixmap[0] != nombre:
+            pixmap = QPixmap()
+            if not pixmap.loadFromData(contenido):
+                return None
+            self._pixmap = (nombre, pixmap)
+        pixmap = self._pixmap[1]
+        xmin, ymin, xmax, ymax = (float(v) for v in esquinas)
+        elemento = QGraphicsPixmapItem(pixmap)
+        elemento.setTransformationMode(Qt.TransformationMode.SmoothTransformation)
+        elemento.setShapeMode(QGraphicsPixmapItem.ShapeMode.BoundingRectShape)
+        # La fila 0 de la imagen es el norte: en la escena (Y hacia abajo) queda arriba sin voltearla
+        elemento.setPos(self.a_escena(xmin, ymax))
+        elemento.setTransform(QTransform.fromScale((xmax - xmin) / pixmap.width(), (ymax - ymin) / pixmap.height()))
+        elemento.setOpacity(max(0.0, min(1.0, opacidad)))
+        if info:
+            elemento.setToolTip(info)
+        return self._agregar(capa, elemento, Z_IMAGEN)
+
     def mostrar_capa(self, nombre: str, visible: bool):
         if nombre in self.capas:
             self.capas[nombre].mostrar(visible)
@@ -301,6 +324,28 @@ def dibujar_curvas(lienzo: Lienzo, capa: Capa, curvas):
                       info=texto)
 
 
+def dibujar_imagen(lienzo: Lienzo, capa: Capa, proyecto):
+    """Imagen satelital (o propia) de fondo, con la transparencia de su capa.
+
+    Sin descripción emergente (taparía todo el mapa): su fuente y fecha quedan en `lienzo.texto_imagen`, que la
+    barra de capas muestra en la fila de la capa."""
+    imagen = proyecto.imagen
+    lienzo.texto_imagen = ""
+    if imagen is None:
+        return None
+    texto = f"Imagen de fondo: {imagen.get('fuente', '')}"
+    if imagen.get("zoom") is not None:
+        texto += f" (zoom {imagen['zoom']})"
+    if imagen.get("fecha"):
+        texto += f", descargada el {imagen['fecha']}"
+    if imagen.get("atribucion"):
+        texto += "\n" + imagen["atribucion"]
+    lienzo.texto_imagen = texto
+    opacidad = 1.0 - float(capa.estilo.get("transparencia", 0)) / 100.0
+    return lienzo.imagen(capa, imagen["archivo"], proyecto.archivos[imagen["archivo"]], imagen["esquinas"],
+                         opacidad)
+
+
 def dibujar_proyecto(lienzo: Lienzo, proyecto, conservar_vista=False) -> Dict[str, Capa]:
     """Dibuja el proyecto en el lienzo con los estilos de capa del proyecto (`proyecto.estilos_capas`)."""
     from mcp_riegolibre.motor import _anillos_de
@@ -317,6 +362,7 @@ def dibujar_proyecto(lienzo: Lienzo, proyecto, conservar_vista=False) -> Dict[st
     texto, fuente, valvulas = capas["TEXTO"], capas["FUENTE"], capas["VÁLVULAS"]
     red, matriz, porta = capas["RED_PRINCIPAL"], capas["MATRIZ_DIBUJADA"], capas["PORTALATERALES"]
     laterales, lotes = capas["LATERALES"], capas["LOTES"]
+    dibujar_imagen(lienzo, capas["IMAGEN_SATELITAL"], proyecto)
     dibujar_curvas(lienzo, capas["CURVAS_NIVEL"], proyecto.curvas)
 
     # Lotes sin subunidad calculada (por ejemplo, con error): solo el contorno, en rojo

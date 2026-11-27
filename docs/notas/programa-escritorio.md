@@ -8,14 +8,14 @@ Pedido del usuario el 2026-11-26: un programa tipo IRRICAD que se instale y corr
 - Cálculo: `riegolibre/nucleo` tal cual; geometría (bloque, subdivisión, conector de válvulas): `mcp_riegolibre/motor.py`.
   El núcleo y el motor solo usan la biblioteca estándar. Requisitos del programa (`requisitos_escritorio.txt`):
   `PySide6-Essentials` y, para las curvas de nivel, `ezdxf`, `numpy` y `scipy` (decisión del usuario, 2026-11-27:
-  librerías estándar antes que un lector propio; solo las importa `topografia.py`, y tarde).
+  librerías estándar antes que un lector propio; solo las importan `topografia.py` y `satelital.py`, y tarde).
 - Proyecto: archivo `.riegolibre` = SQLite con los datos del diseño (formato del `…_datos.json` del MCP), parámetros
   de la red, estilos de la barra de capas, archivos (el DEM) y, de copia, el resumen y las geometrías en GeoJSON. Al
   abrir se vuelve a calcular desde los datos.
 - Tema: el de `riegolibre/gui/tema.py` (solo `PALETAS` y `hoja_de_estilo`, que no importan QGIS); textos propios de Qt
   en español con `qtbase_es.qm` (`estilo.traducir_qt`).
 - Pendiente por etapas: 2) edición (dibujar lotes, fuente, matriz con imán, deshacer, bloque por lote, info, tabla);
-  3) terreno (curvas de DXF: hecho; falta DEM .tif, pyproj, satelital); 4) ventanas del complemento (subunidad, turnos,
+  3) terreno (curvas de DXF e imagen satelital: hecho; falta DEM .tif y otras proyecciones); 4) ventanas del complemento (subunidad, turnos,
   materiales, memoria, base de datos); 5) planos PDF y exportar DXF/GeoJSON; 6) PyInstaller + instalador e iconos.
 
 ## Decisiones del usuario
@@ -63,6 +63,32 @@ Pedido del usuario el 2026-11-26: un programa tipo IRRICAD que se instale y corr
 - Fruveg (`Downloads/prueba fruveg.dxf`, 43 MB, capas `_CV` y `_CVD`, 1215 curvas, 520 000 vértices): DEM en ~30 s;
   contra el DEM de GDAL del complemento (`muestras/fruveg_mcp/fruveg_dem.asc`) 4 mm como máximo; con el diseño del MCP,
   presión en las válvulas a 1 cm como máximo y los mismos portalaterales. Falta la prueba a mano del usuario.
+
+## Etapa 3: imagen satelital de fondo (2026-11-27)
+- Menú «Terreno → Imagen satelital…» (fuente Google Satélite o Esri World Imagery, las URL del complemento;
+  resolución, por omisión 0.5 m; zona = `extension()` del proyecto + 50 m de margen, editable), «Cargar imagen propia
+  (con archivo de mundo)…» (JPG/PNG con .jgw/.pgw/.wld en UTM, sin giro) y «Quitar la imagen de fondo».
+- `satelital.py` (sin Qt): UTM ↔ geográficas con las series de Krüger hasta n⁶ (Karney 2011; contra PROJ, nanómetros),
+  teselas Web Mercator, zoom = el menor que da la resolución pedida sin pasar del mayor con imagen real en el centro
+  (Esri: `tilemap`; Google: 404 donde no hay), descarga con `urllib` (8 a la vez, User-Agent genérico), mosaico y
+  reproyección bilineal a la cuadrícula UTM con numpy por bloques de 512 filas. Teselas que faltan: gris; más de 1/4
+  sin respuesta: error «Revise la conexión a internet». JPEG/PNG se leen y escriben con Qt (`dialogo_satelital.py`:
+  `decodificar`, `codificar_jpeg`) y se pasan como función. Límites: 40 millones de píxeles, 3000 teselas.
+- `en_segundo_plano(..., con_avance=True)`: la función recibe `avance(fracción, texto)`, que devuelve False al pulsar
+  «Cancelar» (la descarga lanza `satelital.Cancelado`).
+- Dentro del proyecto como el DEM: `imagen_<hash>.jpg` en `proyecto.archivos` y `datos["imagen"]` = {archivo,
+  esquinas [xmin, ymin, xmax, ymax] UTM, columnas, filas, resolucion_m, fuente, zoom, fecha, atribucion}; entra en
+  `archivos_en_uso`. La imagen no agranda `extension()` (si no, cada descarga con margen agrandaría la zona), salvo en
+  un proyecto sin nada más.
+- Capa IMAGEN_SATELITAL, la última de la barra: un `QGraphicsPixmapItem` en z = −10, sin descripción emergente (taparía
+  todo el mapa; la fuente y la fecha van en la descripción de la fila de la capa). En «Propiedades de la capa» solo
+  «Transparencia» (0–95 %, `estilos_capas[...]["transparencia"]`); el color y la línea se ocultan. El `QPixmap` se
+  guarda en el lienzo por nombre de archivo: redibujar no vuelve a leer el JPEG.
+- Fruveg (importado del MCP, valores por omisión): Google, zoom 19 (0.30 m en el servicio), 336 teselas en 16 s,
+  2876 × 2209 píxeles de 0.5 m, 1.9 MB en el proyecto; los bordes de los lotes caen sobre los caminos de la imagen.
+  Falta la prueba a mano del usuario (descargar, ocultar, transparencia, guardar y abrir sin internet).
+- Trampa de los guiones de captura: el cálculo en paralelo de los lotes arranca procesos que vuelven a importar el
+  guion; sin `if __name__ == "__main__":` cada proceso abre otra ventana y todo se cuelga.
 
 ## Números de referencia (Fundo demo, `muestras/demo_mcp/Fundo_demo_datos.json`)
 - Complemento en QGIS (importar + «Red principal y bomba» con valores por omisión): 31.257 L/s, **CDT 30.056 m,

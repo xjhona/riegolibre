@@ -214,10 +214,36 @@ class ProyectoRiego:
             self._curvas = (nombre, curvas_de_bytes(self.archivos[nombre]))
         return self._curvas[1]
 
+    # ------------------------------------------------------------ imagen satelital de fondo
+
+    def datos_con_imagen(self, contenido: bytes, descripcion: dict, extension: str = ".jpg") -> dict:
+        """Datos del diseño con una imagen de fondo (JPEG o PNG ya ubicado en UTM).
+
+        `descripcion` lleva las esquinas UTM [xmin, ymin, xmax, ymax], la fuente, el zoom, la fecha y la
+        atribución. La imagen se guarda con un nombre por contenido, como el DEM (deshacer vuelve a la anterior).
+        """
+        from .topografia import nombre_archivo
+
+        nombre = nombre_archivo("imagen", contenido, extension)
+        self.archivos[nombre] = contenido
+        datos = copy.deepcopy(self.datos)
+        datos["imagen"] = {**descripcion, "archivo": nombre}
+        return datos
+
+    @property
+    def imagen(self) -> Optional[dict]:
+        """`datos["imagen"]` si su archivo está en el proyecto; None si no hay imagen de fondo."""
+        imagen = self.datos.get("imagen")
+        if not imagen or imagen.get("archivo") not in self.archivos:
+            return None
+        return imagen
+
     def archivos_en_uso(self) -> Dict[str, bytes]:
-        """Los archivos que usan los datos de ahora (los de terrenos anteriores quedan solo para deshacer)."""
+        """Los archivos que usan los datos de ahora (los de terrenos e imágenes anteriores quedan solo para
+        deshacer)."""
         terreno = self.datos.get("terreno") or {}
         nombres = {terreno.get("archivo"), terreno.get("curvas")} if terreno.get("tipo") == "dem" else set()
+        nombres.add((self.datos.get("imagen") or {}).get("archivo"))
         return {k: v for k, v in self.archivos.items() if k in nombres}
 
     def _clave_lote(self, lote: dict, goteo: dict) -> str:
@@ -342,7 +368,9 @@ class ProyectoRiego:
         return self._proyecto_motor().memoria_html()
 
     def extension(self):
-        """(xmin, ymin, xmax, ymax) de lotes, fuente y matriz; None si el proyecto está vacío."""
+        """(xmin, ymin, xmax, ymax) de lotes, fuente, matriz y curvas; None si el proyecto está vacío.
+
+        La imagen de fondo solo cuenta si no hay nada más (si no, cada descarga con margen agrandaría la zona)."""
         puntos = [p for lote in self.datos.get("lotes", []) for anillo in anillos_lote(lote) for p in anillo]
         puntos += [p for linea in self.matriz for p in linea]
         for _, linea in self.curvas:
@@ -351,6 +379,9 @@ class ProyectoRiego:
             puntos.append(self.fuente)
         if not puntos and self.referencia:
             puntos.append(self.referencia)
+        if not puntos and self.imagen:
+            xmin, ymin, xmax, ymax = self.imagen["esquinas"]
+            puntos += [(xmin, ymin), (xmax, ymax)]
         if not puntos:
             return None
         xs, ys = [p[0] for p in puntos], [p[1] for p in puntos]

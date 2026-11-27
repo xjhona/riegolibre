@@ -2,14 +2,14 @@
 # SPDX-License-Identifier: GPL-3.0-only
 # RiegoLibre: software libre; ver los archivos LICENSE y NOTICE (autoría y condiciones adicionales).
 """Barra de capas, como la «Layer Bar» de IRRICAD: una fila compacta por capa (ver, imprimir) y, debajo, las
-propiedades de la capa elegida (color, tipo de línea y grosor)."""
+propiedades de la capa elegida (color, tipo de línea y grosor; en la imagen de fondo, su transparencia)."""
 
 from PySide6.QtCore import Qt, Signal
 from PySide6.QtGui import QColor, QIcon, QPixmap
 from PySide6.QtWidgets import (QColorDialog, QComboBox, QDoubleSpinBox, QFormLayout, QGroupBox, QHeaderView, QLabel,
-                               QPushButton, QTableWidget, QTableWidgetItem, QVBoxLayout, QWidget)
+                               QPushButton, QSpinBox, QTableWidget, QTableWidgetItem, QVBoxLayout, QWidget)
 
-from .capas import CAPAS, TIPOS_LINEA
+from .capas import CAPAS, CAPAS_IMAGEN, TIPOS_LINEA
 
 COL_COLOR, COL_NOMBRE, COL_VER, COL_IMPRIMIR = range(4)
 ALTO_FILA = 18
@@ -79,11 +79,19 @@ class BarraCapas(QWidget):
         self.caja_ancho.setDecimals(1)
         self.caja_ancho.setSuffix(" px")
         self.caja_ancho.valueChanged.connect(lambda v: self._cambiar("ancho", round(v, 1)))
+        self.caja_transparencia = QSpinBox()
+        self.caja_transparencia.setRange(0, 95)
+        self.caja_transparencia.setSingleStep(10)
+        self.caja_transparencia.setSuffix(" %")
+        self.caja_transparencia.setToolTip("0 %: la imagen se ve entera; más, se aclara y resaltan las líneas")
+        self.caja_transparencia.valueChanged.connect(lambda v: self._cambiar("transparencia", int(v)))
         formulario = QFormLayout()
         formulario.addRow("Color:", self.boton_color)
         formulario.addRow("Tipo de línea:", self.combo_linea)
         formulario.addRow("Grosor:", self.caja_ancho)
+        formulario.addRow("Transparencia:", self.caja_transparencia)
         formulario.addRow(self.descripcion)
+        self.formulario = formulario
         self.grupo = QGroupBox("Propiedades de la capa")
         self.grupo.setLayout(formulario)
 
@@ -96,13 +104,15 @@ class BarraCapas(QWidget):
 
     # ------------------------------------------------------------ datos
 
-    def cargar(self, estilos: dict, diametros=()):
-        """Muestra los estilos del proyecto (el diccionario se modifica en el sitio al cambiar algo)."""
+    def cargar(self, estilos: dict, diametros=(), texto_imagen: str = ""):
+        """Muestra los estilos del proyecto (el diccionario se modifica en el sitio al cambiar algo).
+
+        `texto_imagen` (fuente y fecha de la imagen de fondo) se suma a la descripción de su capa."""
         self.estilos = estilos
         self._cargando = True
         for fila, nombre in enumerate(CAPAS):
             estilo = estilos[nombre]
-            self.tabla.item(fila, COL_COLOR).setIcon(_muestra(estilo["color"]))
+            self.tabla.item(fila, COL_COLOR).setIcon(QIcon() if nombre in CAPAS_IMAGEN else _muestra(estilo["color"]))
             self.tabla.item(fila, COL_VER).setCheckState(
                 Qt.CheckState.Checked if estilo["visible"] else Qt.CheckState.Unchecked)
             self.tabla.item(fila, COL_IMPRIMIR).setCheckState(
@@ -112,6 +122,9 @@ class BarraCapas(QWidget):
         if diametros:
             texto += "\n" + "\n".join(f"■ {nombre}" for nombre, _ in diametros)
         self.tabla.item(fila_red, COL_NOMBRE).setToolTip(texto)
+        for nombre in CAPAS_IMAGEN:
+            texto = CAPAS[nombre][3] + "\n" + (texto_imagen or "Sin imagen")
+            self.tabla.item(list(CAPAS).index(nombre), COL_NOMBRE).setToolTip(texto)
         self._cargando = False
         self._mostrar_propiedades()
 
@@ -132,6 +145,12 @@ class BarraCapas(QWidget):
         self.boton_color.setText(estilo["color"])
         self.combo_linea.setCurrentIndex(max(0, self.combo_linea.findData(estilo["linea"])))
         self.caja_ancho.setValue(float(estilo["ancho"]))
+        es_imagen = nombre in CAPAS_IMAGEN
+        for campo in (self.boton_color, self.combo_linea, self.caja_ancho):
+            self.formulario.setRowVisible(campo, not es_imagen)
+        self.formulario.setRowVisible(self.caja_transparencia, es_imagen)
+        if es_imagen:
+            self.caja_transparencia.setValue(int(estilo.get("transparencia", 0)))
         self.descripcion.setText(CAPAS[nombre][3])
         self._cargando = False
 
