@@ -316,7 +316,7 @@ class PruebasIntegracionQgis(unittest.TestCase):
                 self.assertEqual(plugin.barra.widgetForAction(accion).popupMode(),
                                  QToolButton.ToolButtonPopupMode.InstantPopup)
                 self.assertFalse(accion.icon().isNull())
-        self.assertEqual(len(plugin.acciones), 21)
+        self.assertEqual(len(plugin.acciones), 22)
         self.assertTrue(all(not a.icon().isNull() for a in plugin.acciones))
 
         def accion(inicio):
